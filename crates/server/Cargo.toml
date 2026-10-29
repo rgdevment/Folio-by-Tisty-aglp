@@ -1,0 +1,25 @@
+[package]
+name = "tisty-share-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+hmac.workspace = true
+scrypt.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tisty-share-proto.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+# Envelopes are sealed in the tests as a Tisty would seal them.
+tisty-share-proto = { workspace = true, features = ["mint"] }
+jiff.workspace = true
