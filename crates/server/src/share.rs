@@ -1,5 +1,6 @@
 use std::net::IpAddr;
 
+use serde::{Deserialize, Serialize};
 use tisty_share_proto::envelope::{Envelope, Refused as Unread};
 use tisty_share_proto::identity::Verdict;
 use tisty_share_proto::limits::Limits;
@@ -34,6 +35,8 @@ pub struct Policy {
     pub work: Work,
     /// Reports from this many places block a document (decision 36).
     pub reports_to_block: usize,
+    /// Documents one sweep takes at most, so a run stays inside what its host allows one run to do.
+    pub sweep: usize,
     /// Seconds a report and a blocked document are kept as evidence (decision 42).
     pub evidence: i64,
 }
@@ -53,6 +56,7 @@ impl Default for Policy {
             allowance: Allowance::default(),
             work: Work::default(),
             reports_to_block: 3,
+            sweep: 15,
             evidence: 90 * DAY,
         }
     }
@@ -120,7 +124,8 @@ pub struct Served {
 }
 
 /// What a management link can do.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "do", content = "with", rename_all = "snake_case")]
 pub enum Manage {
     /// The owner looked in on it, which counts as activity.
     Visit,
@@ -133,8 +138,18 @@ pub enum Manage {
     Delete,
 }
 
+/// What a sweep did: how many documents went, and those it could not take, for the host to tell.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Swept {
+    pub gone: usize,
+    /// Those that would not go, with why; each waits a day before it is tried again.
+    pub stuck: Vec<(String, Fault)>,
+    /// Why counters, marks and reports past their time could not go, if they could not.
+    pub unlapsed: Option<Fault>,
+}
+
 /// What an owner sees of a document on its card in Tisty.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Info {
     pub latest: Option<u64>,
     pub reads: u64,
@@ -287,8 +302,8 @@ impl<S: Store, R: Randomness> Share<S, R> {
         if manifest.from != latest || manifest.version != latest.map_or(1, |one| one + 1) {
             return Err(Refused::Behind { latest });
         }
-        // Only what will be kept is counted against the day.
-        guard::spend(
+        // Only what was kept is counted against the day, so a store that fails costs the caller nothing.
+        guard::affords(
             &self.store,
             &self.policy,
             &self.secret,
@@ -302,7 +317,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             version: manifest.version,
             digest: envelope.digest(),
         };
-        self.store.keep(id, &kept, envelope.as_bytes()).await?;
+        self.store.keep(id, &kept, envelope.into_bytes()).await?;
         doc.versions.push(kept);
         let dropped: Vec<Kept> = doc
             .versions
@@ -314,6 +329,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             self.store.drop_envelope(id, &kept).await?;
             return Err(lost);
         }
+        guard::charge(&self.store, &self.secret, caller, 0, size, now).await?;
         for old in &dropped {
             self.store.drop_envelope(id, old).await?;
         }
@@ -373,6 +389,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         now: i64,
     ) -> Result<Served, Refused> {
         let doc = self.live(id, now).await?;
+        open_to_read(&doc)?;
         let hash = keys::hashed(token);
         if hash != doc.edit && hash != doc.admin {
             return Err(Refused::Forbidden);
@@ -446,20 +463,44 @@ impl<S: Store, R: Randomness> Share<S, R> {
     }
 
     /// Everything whose time ran out goes, links, envelopes, counters and reports alike; a Worker runs this on a schedule.
-    pub async fn sweep(&self, now: i64) -> Result<usize, Refused> {
-        let ending = self.store.ending(now).await?;
-        for id in &ending {
-            self.store.forget(id).await?;
+    pub async fn sweep(&self, now: i64) -> Result<Swept, Refused> {
+        let mut swept = Swept::default();
+        // Lapsing first, so evidence past its days goes even when forgetting stops, and its failure stops nothing.
+        if let Err(fault) = self.store.lapse(now).await {
+            swept.unlapsed = Some(fault);
         }
-        self.store.lapse(now).await?;
-        Ok(ending.len())
+        // Twice as many are asked for, so documents that would not go lately never take every place.
+        let ending = self
+            .store
+            .ending(now, self.policy.sweep.saturating_mul(2))
+            .await?;
+        let mut tried = 0;
+        for id in ending {
+            if tried == self.policy.sweep {
+                break;
+            }
+            let stuck = format!("stuck:{id}");
+            if self.store.held(&stuck, now).await?.is_some() {
+                continue;
+            }
+            tried += 1;
+            match self.store.forget(&id).await {
+                Ok(()) => swept.gone += 1,
+                Err(fault) => {
+                    // Not waiting a day only means it is tried again sooner, so that failing stops nothing.
+                    let _ = self.store.hold(&stuck, now + DAY).await;
+                    swept.stuck.push((id, fault));
+                }
+            }
+        }
+        Ok(swept)
     }
 
     pub(crate) async fn admit(&self, caller: IpAddr, act: Act, now: i64) -> Result<(), Refused> {
         guard::admit(&self.store, &self.policy, &self.secret, caller, act, now).await
     }
 
-    /// A proof is spent once: kept until its challenge expires, so a second use finds it.
+    /// A proof is spent once: marked until its challenge expires, so a second use finds it.
     pub(crate) async fn worked(
         &self,
         ask: &Ask<'_>,
@@ -468,11 +509,15 @@ impl<S: Store, R: Randomness> Share<S, R> {
         now: i64,
     ) -> Result<(), Refused> {
         guard::checked(&self.secret, &ask.bound(), proof, needed, now)?;
+        // Marked in one step, so the same proof sent twice at once is still spent once.
         let spent = format!("spent:{}", proof.challenge.seed);
-        if self.store.held(&spent, now).await?.is_some() {
+        if !self
+            .store
+            .mark(&spent, proof.challenge.expires, now)
+            .await?
+        {
             return Err(Refused::WorkRefused);
         }
-        self.store.hold(&spent, proof.challenge.expires).await?;
         Ok(())
     }
 
@@ -480,11 +525,9 @@ impl<S: Store, R: Randomness> Share<S, R> {
     async fn first_read_today(&self, id: &str, caller: IpAddr, now: i64) -> Result<bool, Refused> {
         let day = now.div_euclid(DAY);
         let who = guard::today(&self.secret, caller, now);
-        let seen = self
-            .store
-            .count(&format!("seen:{id}:{who}"), 1, (day + 1) * DAY, now)
-            .await?;
-        Ok(seen == 1)
+        // A mark, not a count, so a reader coming back the same day writes nothing.
+        let seen = format!("seen:{id}:{who}");
+        Ok(self.store.mark(&seen, (day + 1) * DAY, now).await?)
     }
 
     pub(crate) async fn owned(&self, id: &str, admin: &str, now: i64) -> Result<Doc, Refused> {
@@ -500,7 +543,8 @@ impl<S: Store, R: Randomness> Share<S, R> {
         match self.store.doc(id).await? {
             None => Err(Refused::Missing),
             Some(doc) if doc.ends < now => {
-                self.store.forget(id).await?;
+                // Gone whether or not it can be let go of now; a sweep tries again and tells why.
+                let _ = self.store.forget(id).await;
                 Err(Refused::Gone)
             }
             Some(doc) => Ok(doc),
@@ -524,7 +568,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         let Some(password) = password else {
             return Err(Refused::PasswordAsked);
         };
-        if keys::opens(gate, password, self.policy.slowness) {
+        if keys::opens(gate, password) {
             let cleared = gate.missed > 0 || gate.locked_until.is_some();
             gate.missed = 0;
             gate.locked_until = None;

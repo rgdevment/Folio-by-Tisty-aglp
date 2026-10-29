@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+use crate::guard::{self, Act};
+use crate::keys::Slowness;
 use crate::moderation::Report;
 
 /// What the server knows about one shared document, without a word of what it says.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Kept as JSON: a field added later is an Option or takes `#[serde(default)]`, and a row missing one of these is a fault.
 pub struct Doc {
     pub id: String,
     /// The edit link's token, hashed: a stolen table hands nobody the power to write.
@@ -24,6 +27,7 @@ pub struct Doc {
     /// When reports blocked it: no longer served, kept as evidence (decision 36).
     pub blocked: Option<i64>,
     /// Readers counted once a day each, never who they were (decision 47).
+    #[serde(default)]
     pub reads: u64,
     /// Bumped on every save, so two writers never both win.
     pub revision: u64,
@@ -47,6 +51,8 @@ pub struct Kept {
 pub struct Gate {
     pub salt: [u8; 16],
     pub digest: [u8; 32],
+    /// Kept with the digest, so a server that grows slower still opens the gates it made before.
+    pub slowness: Slowness,
     pub missed: u32,
     pub locked_until: Option<i64>,
 }
@@ -71,14 +77,26 @@ pub trait Store {
     async fn save(&self, doc: &Doc, revision: Option<u64>) -> Result<Saved, Fault>;
     async fn forget(&self, id: &str) -> Result<(), Fault>;
     async fn envelope(&self, id: &str, kept: &Kept) -> Result<Option<Vec<u8>>, Fault>;
-    async fn keep(&self, id: &str, kept: &Kept, bytes: &[u8]) -> Result<(), Fault>;
+    async fn keep(&self, id: &str, kept: &Kept, bytes: Vec<u8>) -> Result<(), Fault>;
     async fn drop_envelope(&self, id: &str, kept: &Kept) -> Result<(), Fault>;
-    /// The ids of every document whose `ends` has passed.
-    async fn ending(&self, now: i64) -> Result<Vec<String>, Fault>;
+    /// At most `at_most` ids of documents whose `ends` has passed, those that ended first first.
+    async fn ending(&self, now: i64, at_most: usize) -> Result<Vec<String>, Fault>;
     /// Atomically adds `by` to a counter that lapses at `until` and says what it holds now, or requests together slip past.
     async fn count(&self, key: &str, by: u64, until: i64, now: i64) -> Result<u64, Fault>;
-    /// Marks `key` until a moment, as a block or a proof already spent.
+    /// Marks `key` until a moment, as a wait a caller must sit out.
     async fn hold(&self, key: &str, until: i64) -> Result<(), Fault>;
+    /// Marks `key` until a moment if nothing holds it now, and says whether it did; a mark already there writes nothing.
+    async fn mark(&self, key: &str, until: i64, now: i64) -> Result<bool, Fault>;
+    /// Counts one more `act` by `who`: None within `allowance` an hour, else when to try again; a cheaper limiter may answer instead.
+    async fn within(
+        &self,
+        act: Act,
+        who: &str,
+        allowance: u64,
+        now: i64,
+    ) -> Result<Option<i64>, Fault> {
+        guard::counted_within(self, act, who, allowance, now).await
+    }
     async fn held(&self, key: &str, now: i64) -> Result<Option<i64>, Fault>;
     async fn file(&self, report: &Report) -> Result<(), Fault>;
     async fn reports(&self, id: &str, now: i64) -> Result<Vec<Report>, Fault>;

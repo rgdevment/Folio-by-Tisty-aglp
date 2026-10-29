@@ -1,5 +1,6 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
@@ -49,7 +50,7 @@ pub fn hashed(token: &str) -> [u8; 32] {
 }
 
 /// How slow the password's digest is; the Worker's CPU allowance decides how far it can go.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Slowness {
     pub log_n: u8,
     pub r: u32,
@@ -65,13 +66,14 @@ pub fn gate(password: &str, salt: [u8; 16], slow: Slowness) -> Option<Gate> {
     Some(Gate {
         salt,
         digest: digest(password, &salt, slow)?,
+        slowness: slow,
         missed: 0,
         locked_until: None,
     })
 }
 
-pub fn opens(gate: &Gate, password: &str, slow: Slowness) -> bool {
-    digest(password, &gate.salt, slow).is_some_and(|said| said == gate.digest)
+pub fn opens(gate: &Gate, password: &str) -> bool {
+    digest(password, &gate.salt, gate.slowness).is_some_and(|said| said == gate.digest)
 }
 
 fn digest(password: &str, salt: &[u8; 16], slow: Slowness) -> Option<[u8; 32]> {

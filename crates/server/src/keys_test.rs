@@ -47,9 +47,10 @@ fn a_token_carries_256_bits_and_only_its_hash_is_kept() {
 #[test]
 fn a_gate_opens_with_its_password_and_no_other() {
     let held = gate("perro azul", [3; 16], FAST).unwrap();
-    assert!(opens(&held, "perro azul", FAST));
-    assert!(!opens(&held, "perro azul ", FAST));
-    assert!(!opens(&held, "", FAST));
+    assert!(opens(&held, "perro azul"));
+    assert!(!opens(&held, "perro azul "));
+    assert!(!opens(&held, ""));
+    assert_eq!(held.slowness, FAST);
 }
 
 #[test]

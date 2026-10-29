@@ -486,6 +486,10 @@ impl Envelope {
         self.bytes.clone()
     }
 
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+
     /// Reads and holds every limit without the key, so a server can refuse before it stores anything.
     pub fn read(bytes: Vec<u8>, limits: &Limits) -> Result<Self, Refused> {
         if !bytes.starts_with(MAGIC) {

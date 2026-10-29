@@ -9,6 +9,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The helpers its own tests use, for the tests of whoever hosts it.
+testing = []
+
 [dependencies]
 base64.workspace = true
 hmac.workspace = true
@@ -23,3 +27,4 @@ zeroize.workspace = true
 # Envelopes are sealed in the tests as a Tisty would seal them.
 tisty-share-proto = { workspace = true, features = ["mint"] }
 jiff.workspace = true
+serde_json.workspace = true

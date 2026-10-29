@@ -28,6 +28,7 @@ pub enum Category {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Kept as JSON as a document is: a field added later is an Option or takes `#[serde(default)]`.
 pub struct Report {
     pub id: String,
     pub category: Category,

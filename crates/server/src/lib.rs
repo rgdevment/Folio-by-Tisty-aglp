@@ -6,3 +6,5 @@ pub mod memory;
 pub mod moderation;
 pub mod share;
 pub mod store;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;

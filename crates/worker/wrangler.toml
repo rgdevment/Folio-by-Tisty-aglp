@@ -1,0 +1,37 @@
+name = "tisty-share"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [{ pattern = "tisty.cl", custom_domain = true }]
+
+[build]
+command = "cargo install -q worker-build@0.8.7 && worker-build --release"
+
+# `wrangler d1 create tisty-share` hands out the id; it names the database, it opens nothing.
+[[d1_databases]]
+binding = "DB"
+database_name = "tisty-share"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ENVELOPES"
+bucket_name = "tisty-share-envelopes"
+
+# Reads and polls are counted here, by the minute, so they write nothing to D1; kept.rs says the same numbers and a test holds them together.
+[[ratelimits]]
+name = "READS"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "POLLS"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+# Every quarter of an hour: what ran out already reads as gone, so sweeping more often only spends.
+[triggers]
+crons = ["*/15 * * * *"]
+
+[observability]
+enabled = true

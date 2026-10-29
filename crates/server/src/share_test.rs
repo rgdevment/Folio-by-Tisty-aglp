@@ -1,7 +1,5 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::pin::pin;
-use std::task::{Context, Poll, Waker};
 
 use jiff::Timestamp;
 use tisty_share_proto::envelope::{self, Draft, Kind, LinkKey, Signer};
@@ -12,27 +10,7 @@ use super::*;
 use crate::memory::Memory;
 use crate::moderation::{Category, Complaint, DETAIL_AT_MOST};
 use crate::store::Doc;
-
-/// The memory store never waits, so one poll finishes any of the server's work.
-pub(crate) fn done<T>(work: impl Future<Output = T>) -> T {
-    match pin!(work).poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(said) => said,
-        Poll::Pending => panic!("the memory store never waits"),
-    }
-}
-
-/// Counts up, so every id and token in a test is different and the same run after run.
-pub(crate) struct Counting(pub u8);
-
-impl Randomness for Counting {
-    fn fill(&mut self, into: &mut [u8]) -> bool {
-        for one in into {
-            self.0 = self.0.wrapping_add(1) % 248;
-            *one = self.0;
-        }
-        true
-    }
-}
+use crate::testing::{Counting, done};
 
 struct Empty;
 
@@ -494,6 +472,38 @@ fn deleting_takes_the_document_and_every_envelope_away() {
 }
 
 #[test]
+fn a_sweep_takes_only_so_many_and_the_next_takes_the_rest() {
+    let mut world = World::with(Policy {
+        sweep: 2,
+        ..policy()
+    });
+    for _ in 0..3 {
+        world.shared(T0);
+    }
+    let later = T0 + 31 * DAY;
+    let gone = |world: &World| done(world.share.sweep(later)).unwrap().gone;
+    assert_eq!(gone(&world), 2);
+    assert_eq!(gone(&world), 1);
+    assert_eq!(gone(&world), 0);
+}
+
+#[test]
+fn a_gate_keeps_how_slow_it_was_made_and_opens_after_the_server_grows_slower() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    world
+        .manage(&reserved, Manage::Password(Some("perro azul".into())), T0)
+        .unwrap();
+    world.share.policy.slowness = Slowness { log_n: 5, r: 8 };
+
+    assert!(
+        world
+            .read_from(&reserved.id, Some("perro azul"), HERE, T0)
+            .is_ok()
+    );
+}
+
+#[test]
 fn a_sweep_takes_whatever_ran_out_and_leaves_the_rest() {
     let mut world = World::new();
     let old = world.shared(T0);
@@ -505,7 +515,7 @@ fn a_sweep_takes_whatever_ran_out_and_leaves_the_rest() {
         .unwrap();
     let kept_before = world.share.store.kept();
 
-    assert_eq!(done(world.share.sweep(T0 + 31 * DAY)), Ok(2));
+    assert_eq!(done(world.share.sweep(T0 + 31 * DAY)).unwrap().gone, 2);
     assert!(world.share.store.kept() < kept_before);
     assert_eq!(world.read(&old.id, T0 + 31 * DAY), Err(Refused::Missing));
     assert_eq!(
@@ -951,13 +961,20 @@ fn the_owner_appeals_a_block_from_the_management_link_only() {
     );
 }
 
-/// Loses the next save once, as if another upload had saved between reading and writing.
-struct Racing {
+/// A store that fails on purpose, one way per field, over the store in memory.
+struct Faulty {
     inner: Memory,
+    /// Loses the next save once, as if another writer had saved between reading and writing.
     lose: Cell<bool>,
+    /// Turns reads away until then, as a host's own limiter would.
+    limited: Cell<Option<i64>>,
+    /// A document whose envelopes the store cannot let go of.
+    stuck: RefCell<Option<String>>,
+    /// Counters, marks and reports past their time that cannot be let go of.
+    unlapsing: Cell<bool>,
 }
 
-impl Store for Racing {
+impl Store for Faulty {
     async fn doc(&self, id: &str) -> Result<Option<Doc>, Fault> {
         self.inner.doc(id).await
     }
@@ -968,19 +985,22 @@ impl Store for Racing {
         self.inner.save(doc, revision).await
     }
     async fn forget(&self, id: &str) -> Result<(), Fault> {
+        if self.stuck.borrow().as_deref() == Some(id) {
+            return Err(Fault("the envelopes would not go".into()));
+        }
         self.inner.forget(id).await
     }
     async fn envelope(&self, id: &str, kept: &Kept) -> Result<Option<Vec<u8>>, Fault> {
         self.inner.envelope(id, kept).await
     }
-    async fn keep(&self, id: &str, kept: &Kept, bytes: &[u8]) -> Result<(), Fault> {
+    async fn keep(&self, id: &str, kept: &Kept, bytes: Vec<u8>) -> Result<(), Fault> {
         self.inner.keep(id, kept, bytes).await
     }
     async fn drop_envelope(&self, id: &str, kept: &Kept) -> Result<(), Fault> {
         self.inner.drop_envelope(id, kept).await
     }
-    async fn ending(&self, now: i64) -> Result<Vec<String>, Fault> {
-        self.inner.ending(now).await
+    async fn ending(&self, now: i64, at_most: usize) -> Result<Vec<String>, Fault> {
+        self.inner.ending(now, at_most).await
     }
     async fn count(&self, key: &str, by: u64, until: i64, now: i64) -> Result<u64, Fault> {
         self.inner.count(key, by, until, now).await
@@ -991,6 +1011,21 @@ impl Store for Racing {
     async fn held(&self, key: &str, now: i64) -> Result<Option<i64>, Fault> {
         self.inner.held(key, now).await
     }
+    async fn mark(&self, key: &str, until: i64, now: i64) -> Result<bool, Fault> {
+        self.inner.mark(key, until, now).await
+    }
+    async fn within(
+        &self,
+        act: guard::Act,
+        who: &str,
+        allowance: u64,
+        now: i64,
+    ) -> Result<Option<i64>, Fault> {
+        match (act, self.limited.get()) {
+            (guard::Act::Read, Some(until)) => Ok(Some(until)),
+            _ => self.inner.within(act, who, allowance, now).await,
+        }
+    }
     async fn file(&self, report: &crate::moderation::Report) -> Result<(), Fault> {
         self.inner.file(report).await
     }
@@ -998,20 +1033,26 @@ impl Store for Racing {
         self.inner.reports(id, now).await
     }
     async fn lapse(&self, now: i64) -> Result<(), Fault> {
+        if self.unlapsing.get() {
+            return Err(Fault("the old counters would not go".into()));
+        }
         self.inner.lapse(now).await
     }
 }
 
-fn racing() -> Share<Racing, Counting> {
-    let store = Racing {
+fn faulty() -> Share<Faulty, Counting> {
+    let store = Faulty {
         inner: Memory::default(),
         lose: Cell::new(false),
+        limited: Cell::new(None),
+        stuck: RefCell::new(None),
+        unlapsing: Cell::new(false),
     };
     Share::new(store, Counting(0), policy(), [5; 32])
 }
 
-fn upload_racing(
-    share: &mut Share<Racing, Counting>,
+fn upload_faulty(
+    share: &mut Share<Faulty, Counting>,
     reserved: &Reserved,
     bytes: Vec<u8>,
 ) -> Result<u64, Refused> {
@@ -1026,26 +1067,42 @@ fn upload_racing(
 
 #[test]
 fn an_upload_that_loses_the_race_leaves_nothing_of_itself_behind() {
-    let mut share = racing();
+    let mut share = faulty();
     let proof = work::solve(&share.challenge(Ask::Reserve, T0).unwrap()).unwrap();
     let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
     share.store.lose.set(true);
     let first = sealed(&reserved.id, 1, None, "perdió");
 
     assert_eq!(
-        upload_racing(&mut share, &reserved, first),
+        upload_faulty(&mut share, &reserved, first),
         Err(Refused::Behind { latest: None })
     );
     assert_eq!(share.store.inner.envelopes(), 0);
 }
 
 #[test]
-fn the_report_that_blocks_holds_its_block_even_when_it_loses_a_race() {
-    let mut share = racing();
+fn an_upload_that_keeps_nothing_spends_none_of_the_day() {
+    let mut share = faulty();
     let proof = work::solve(&share.challenge(Ask::Reserve, T0).unwrap()).unwrap();
     let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
     let first = sealed(&reserved.id, 1, None, "uno");
-    upload_racing(&mut share, &reserved, first).unwrap();
+    share.policy.allowance.bytes_a_day = first.len() as u64;
+    share.store.lose.set(true);
+
+    assert_eq!(
+        upload_faulty(&mut share, &reserved, first.clone()),
+        Err(Refused::Behind { latest: None })
+    );
+    assert_eq!(upload_faulty(&mut share, &reserved, first), Ok(1));
+}
+
+#[test]
+fn the_report_that_blocks_holds_its_block_even_when_it_loses_a_race() {
+    let mut share = faulty();
+    let proof = work::solve(&share.challenge(Ask::Reserve, T0).unwrap()).unwrap();
+    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+    let first = sealed(&reserved.id, 1, None, "uno");
+    upload_faulty(&mut share, &reserved, first).unwrap();
     for place in 1..=3 {
         if place == 3 {
             share.store.lose.set(true);
@@ -1069,11 +1126,11 @@ fn the_report_that_blocks_holds_its_block_even_when_it_loses_a_race() {
 
 #[test]
 fn a_wrong_password_that_loses_a_race_is_still_wrong_and_still_counted() {
-    let mut share = racing();
+    let mut share = faulty();
     let proof = work::solve(&share.challenge(Ask::Reserve, T0).unwrap()).unwrap();
     let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
     let first = sealed(&reserved.id, 1, None, "uno");
-    upload_racing(&mut share, &reserved, first).unwrap();
+    upload_faulty(&mut share, &reserved, first).unwrap();
     let password = Manage::Password(Some("perro azul".into()));
     done(share.manage(&reserved.id, &reserved.admin, password, T0)).unwrap();
     share.store.lose.set(true);
@@ -1087,12 +1144,127 @@ fn a_wrong_password_that_loses_a_race_is_still_wrong_and_still_counted() {
 }
 
 #[test]
-fn two_readers_racing_to_write_their_visit_are_both_served() {
-    let mut share = racing();
+fn a_host_s_own_limiter_decides_the_reads_and_its_wait_is_the_one_told() {
+    let mut share = faulty();
     let proof = work::solve(&share.challenge(Ask::Reserve, T0).unwrap()).unwrap();
     let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
     let first = sealed(&reserved.id, 1, None, "uno");
-    upload_racing(&mut share, &reserved, first).unwrap();
+    upload_faulty(&mut share, &reserved, first).unwrap();
+    share.store.limited.set(Some(T0 + 60));
+
+    for _ in 0..3 {
+        assert_eq!(
+            done(share.read(&reserved.id, None, HERE, T0)),
+            Err(Refused::Slow { until: T0 + 60 })
+        );
+    }
+    share.store.limited.set(None);
+    assert!(done(share.read(&reserved.id, None, HERE, T0 + 60)).is_ok());
+}
+
+#[test]
+fn a_document_that_cannot_go_is_passed_over_and_the_rest_still_go() {
+    let mut share = faulty();
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        let proof = work::solve(&share.challenge(Ask::Reserve, T0).unwrap()).unwrap();
+        let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+        let first = sealed(&reserved.id, 1, None, "uno");
+        upload_faulty(&mut share, &reserved, first).unwrap();
+        ids.push(reserved.id);
+    }
+    ids.sort();
+    *share.store.stuck.borrow_mut() = Some(ids[0].clone());
+
+    let later = T0 + 31 * DAY;
+    let swept = done(share.sweep(later)).unwrap();
+    assert_eq!(swept.gone, 2);
+    assert_eq!(swept.stuck.len(), 1);
+    assert_eq!(swept.stuck[0].0, ids[0]);
+    assert_eq!(swept.stuck[0].1, Fault("the envelopes would not go".into()));
+
+    // It waits a day before it is tried again, and reading it says only that it is gone.
+    let again = done(share.sweep(later + 60)).unwrap();
+    assert_eq!((again.gone, again.stuck.len()), (0, 0));
+    assert_eq!(
+        done(share.read(&ids[0], None, HERE, later + 60)),
+        Err(Refused::Gone)
+    );
+    *share.store.stuck.borrow_mut() = None;
+    assert_eq!(done(share.sweep(later + DAY + 1)).unwrap().gone, 1);
+}
+
+#[test]
+fn old_counters_that_cannot_go_never_keep_documents_from_going() {
+    let mut share = faulty();
+    let proof = work::solve(&share.challenge(Ask::Reserve, T0).unwrap()).unwrap();
+    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+    upload_faulty(&mut share, &reserved, sealed(&reserved.id, 1, None, "uno")).unwrap();
+    share.store.unlapsing.set(true);
+
+    let swept = done(share.sweep(T0 + 31 * DAY)).unwrap();
+    assert_eq!(swept.gone, 1);
+    assert_eq!(
+        swept.unlapsed,
+        Some(Fault("the old counters would not go".into()))
+    );
+}
+
+#[test]
+fn a_stored_document_missing_a_later_field_still_opens_and_one_missing_its_end_does_not() {
+    let doc = Doc {
+        id: "abc".into(),
+        edit: [1; 32],
+        admin: [2; 32],
+        gate: None,
+        versions: Vec::new(),
+        created: T0,
+        active: T0,
+        idle: DAY,
+        ends: T0 + DAY,
+        paused: None,
+        blocked: None,
+        reads: 0,
+        revision: 0,
+    };
+    let written: serde_json::Value = serde_json::to_value(&doc).unwrap();
+    let without = |field: &str| {
+        let mut row = written.clone();
+        row.as_object_mut().unwrap().remove(field);
+        serde_json::from_value::<Doc>(row)
+    };
+    assert_eq!(without("reads").unwrap(), doc);
+    assert_eq!(without("paused").unwrap(), doc);
+    assert!(without("ends").is_err());
+    assert!(without("admin").is_err());
+}
+
+#[test]
+fn neither_link_reaches_an_earlier_version_of_a_blocked_or_paused_document() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    world.manage(&reserved, Manage::Pause, T0).unwrap();
+    assert_eq!(
+        done(world.share.version(&reserved.id, &reserved.edit, 1, T0)),
+        Err(Refused::Paused)
+    );
+    world.manage(&reserved, Manage::Restore, T0).unwrap();
+    for place in 1..=3 {
+        world.report_from(&reserved.id, there(place), T0).unwrap();
+    }
+    assert_eq!(
+        done(world.share.version(&reserved.id, &reserved.admin, 1, T0)),
+        Err(Refused::Blocked)
+    );
+}
+
+#[test]
+fn two_readers_racing_to_write_their_visit_are_both_served() {
+    let mut share = faulty();
+    let proof = work::solve(&share.challenge(Ask::Reserve, T0).unwrap()).unwrap();
+    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+    let first = sealed(&reserved.id, 1, None, "uno");
+    upload_faulty(&mut share, &reserved, first).unwrap();
     share.store.lose.set(true);
 
     assert!(done(share.read(&reserved.id, None, HERE, T0 + DAY)).is_ok());
