@@ -4,8 +4,9 @@ compatibility_date = "2026-10-01"
 workers_dev = false
 routes = [{ pattern = "tisty.cl", custom_domain = true }]
 
+# worker-build is installed once, as the CI's wasm job does: cargo install worker-build@0.8.7 --locked
 [build]
-command = "cargo install -q worker-build@0.8.7 && worker-build --release"
+command = "worker-build --release"
 
 # `wrangler d1 create tisty-share` hands out the id; it names the database, it opens nothing.
 [[d1_databases]]

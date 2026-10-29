@@ -22,7 +22,8 @@ tisty-share-server.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = { version = "0.3", default-features = false }
-worker = { version = "0.8", features = ["d1"] }
+# Pinned with worker-build (the CI's wasm job and wrangler.toml), whose shim has to match this crate's version.
+worker = { version = "=0.8.7", features = ["d1"] }
 
 [dev-dependencies]
 rusqlite.workspace = true
