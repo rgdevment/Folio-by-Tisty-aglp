@@ -117,8 +117,10 @@ jobs:
             jq -e '.refused == "missing"' "$RUNNER_TEMP/missing" > /dev/null
           }
           for attempt in $(seq 1 10); do
-            answers
-            case $? in
+            # The step's shell stops at the first failing command, so the answer is caught rather than run bare.
+            verdict=0
+            answers || verdict=$?
+            case $verdict in
               0)
                 echo "$SHARE_URL answers as $TAG should"
                 exit 0
