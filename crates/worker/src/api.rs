@@ -38,6 +38,9 @@ const ALWAYS: [(&str, &str); 6] = [
 
 const ROBOTS: &str = "User-agent: *\nDisallow: /\n";
 
+/// Where a person who lands on the domain itself, or on a page it does not have, is sent.
+const HOME: &str = "https://www.tisty.app/";
+
 /// What a step needs of a request, whatever carried it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asked {
@@ -155,7 +158,7 @@ async fn routed<S: Store, R: Randomness>(
         return Ok(plain(200, "text/plain; charset=utf-8", ROBOTS.into()));
     }
     let Some(rest) = asked.path.strip_prefix(ROOT) else {
-        return Err(Turned::Unknown);
+        return elsewhere(&asked);
     };
     let parts: Vec<&str> = rest.split('/').collect();
     let (caller, now) = (asked.caller, asked.now);
@@ -239,6 +242,17 @@ async fn routed<S: Store, R: Randomness>(
         }
         _ => Err(Turned::Unknown),
     }
+}
+
+/// A page outside the API goes home: for good from the root, for now elsewhere, since the reading page will take those paths.
+fn elsewhere(asked: &Asked) -> Result<Answer, Turned> {
+    if asked.method != "GET" && asked.method != "HEAD" {
+        return Err(Turned::Unknown);
+    }
+    let status = if asked.path == "/" { 301 } else { 302 };
+    let mut answer = plain(status, "text/plain", Vec::new());
+    answer.headers.push(("Location", HOME.to_owned()));
+    Ok(answer)
 }
 
 /// Each refusal as a status and a word Tisty and the web turn into the reader's language.

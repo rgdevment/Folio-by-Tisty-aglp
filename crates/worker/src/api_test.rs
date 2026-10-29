@@ -200,7 +200,7 @@ fn every_answer_keeps_itself_out_of_caches_and_search_engines() {
     for answer in [
         world.answer(asked("GET", "/api/v1/limits")),
         world.answer(asked("GET", "/api/v1/docs/nothing")),
-        world.answer(asked("GET", "/elsewhere")),
+        world.answer(asked("GET", "/api/v1/elsewhere")),
     ] {
         assert_eq!(header(&answer, "Cache-Control"), Some("no-store"));
         assert_eq!(header(&answer, "X-Robots-Tag"), Some("noindex, nofollow"));
@@ -209,6 +209,28 @@ fn every_answer_keeps_itself_out_of_caches_and_search_engines() {
     }
     let robots = world.answer(asked("GET", "/robots.txt"));
     assert_eq!(robots.body, b"User-agent: *\nDisallow: /\n");
+}
+
+#[test]
+fn the_domain_itself_goes_home_for_good_and_any_other_page_for_now() {
+    let mut world = World::new();
+    let root = world.answer(asked("GET", "/"));
+    assert_eq!(root.status, 301);
+    assert_eq!(header(&root, "Location"), Some("https://www.tisty.app/"));
+    assert!(root.body.is_empty());
+
+    for path in ["/abcd1234", "/favicon.ico", "/a/b"] {
+        let page = world.answer(asked("GET", path));
+        assert_eq!(page.status, 302, "{path}");
+        assert_eq!(header(&page, "Location"), Some("https://www.tisty.app/"));
+    }
+    assert_eq!(world.answer(asked("HEAD", "/")).status, 301);
+
+    // The API keeps its own words, and nothing but reading is ever sent away.
+    let missing = world.answer(asked("GET", "/api/v1/nothing"));
+    assert_eq!(said(&missing), json!({ "refused": "unknown" }));
+    assert_eq!(world.answer(asked("POST", "/")).status, 404);
+    assert_eq!(world.answer(asked("GET", "/robots.txt")).status, 200);
 }
 
 #[test]
