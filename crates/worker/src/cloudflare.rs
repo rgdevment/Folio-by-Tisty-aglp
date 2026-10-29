@@ -338,11 +338,22 @@ fn answered(answer: api::Answer) -> worker::Result<Response> {
     Ok(response.with_status(answer.status).with_headers(headers))
 }
 
+/// The tag this version was deployed with, if it has one; read loosely, since a version deployed by hand has none.
+fn deployed_as(env: &Env) -> Option<String> {
+    let metadata = Reflect::get(env, &"VERSION".into()).ok()?;
+    let tag = Reflect::get(&metadata, &"tag".into()).ok()?.as_string()?;
+    Some(tag).filter(|tag| !tag.is_empty())
+}
+
 #[event(fetch)]
 async fn fetch(request: Request, env: Env, _: Context) -> worker::Result<Response> {
-    let answer = served(request, &env)
+    let mut answer = served(request, &env)
         .await
         .unwrap_or_else(|why| api::broken(why.to_string()));
+    // Said on every answer, so a deploy can tell its own version is the one answering.
+    if let Some(tag) = deployed_as(&env) {
+        answer.headers.push(("Tisty-Worker", tag));
+    }
     answered(answer)
 }
 

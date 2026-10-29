@@ -40,3 +40,7 @@ crons = ["*/15 * * * *"]
 
 [observability]
 enabled = true
+
+# Lets the Worker say which tagged version answers, which the share workflow checks after a deploy.
+[version_metadata]
+binding = "VERSION"
