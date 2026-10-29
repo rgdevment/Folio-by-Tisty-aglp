@@ -2,7 +2,11 @@ name = "tisty-share"
 main = "build/worker/shim.mjs"
 compatibility_date = "2026-10-01"
 workers_dev = false
-routes = [{ pattern = "tisty.cl", custom_domain = true }]
+# The same Worker answers both, so www.tisty.cl keeps tisty.cl's rules, home included.
+routes = [
+  { pattern = "tisty.cl", custom_domain = true },
+  { pattern = "www.tisty.cl", custom_domain = true },
+]
 
 # worker-build is installed once, as the CI's wasm job does: cargo install worker-build@0.8.7 --locked
 [build]
