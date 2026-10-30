@@ -41,6 +41,9 @@ const ROBOTS: &str = "User-agent: *\nDisallow: /\n";
 /// Where a person who lands on the domain itself, or on a page it does not have, is sent.
 const HOME: &str = "https://www.tisty.app/";
 
+/// Where the reading page sends a link to nothing, so tisty.app answers it as it answers any missing page.
+const LOST: &str = "/404";
+
 /// What a step needs of a request, whatever carried it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asked {
@@ -249,9 +252,13 @@ fn elsewhere(asked: &Asked) -> Result<Answer, Turned> {
     if asked.method != "GET" && asked.method != "HEAD" {
         return Err(Turned::Unknown);
     }
-    let status = if asked.path == "/" { 301 } else { 302 };
+    let (status, to) = match asked.path.as_str() {
+        "/" => (301, HOME.to_owned()),
+        LOST => (302, format!("{HOME}404")),
+        _ => (302, HOME.to_owned()),
+    };
     let mut answer = plain(status, "text/plain", Vec::new());
-    answer.headers.push(("Location", HOME.to_owned()));
+    answer.headers.push(("Location", to));
     Ok(answer)
 }
 
@@ -260,6 +267,7 @@ fn refusal(refused: &Refused, now: i64) -> Answer {
     let (status, word) = match refused {
         Refused::Missing => (404, "missing"),
         Refused::Gone => (410, "gone"),
+        Refused::Unwritten => (404, "unwritten"),
         Refused::Paused => (423, "paused"),
         Refused::Blocked => (451, "blocked"),
         Refused::Forbidden => (403, "forbidden"),

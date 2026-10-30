@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { spanish, wordsFor } from "../src/words";
+import { NOWHERE, refused, spanish, wordsFor } from "../src/words";
 
 describe("the page's words", () => {
   it("are Spanish when the reader's first language is, and English otherwise, as in Tisty", () => {
@@ -12,8 +12,8 @@ describe("the page's words", () => {
   it("turn each refusal the server or the envelope gives into a sentence", () => {
     const say = wordsFor(true);
     for (const word of [
-      "missing",
-      "gone",
+      "nolink",
+      "unwritten",
       "paused",
       "blocked",
       "locked",
@@ -32,5 +32,28 @@ describe("the page's words", () => {
   it("name the callouts as Tisty does", () => {
     expect(wordsFor(true)("saidwarning")).toBe("Aviso");
     expect(wordsFor(false)("saidwarning")).toBe("Warning");
+  });
+});
+
+describe("a refusal", () => {
+  const answered = (word: string) => {
+    const went: string[] = [];
+    const told: string[] = [];
+    refused(
+      word,
+      (to) => went.push(to),
+      (said) => told.push(said),
+    );
+    return { went, told };
+  };
+
+  it("of a document the server no longer has goes where any missing page goes", () => {
+    for (const word of ["missing", "gone"])
+      expect(answered(word), word).toEqual({ went: [NOWHERE], told: [] });
+  });
+
+  it("of anything else is said on the page, a badly copied link and one still uploading too", () => {
+    for (const word of ["nolink", "unwritten", "paused", "blocked", "keyless", "locked", "down"])
+      expect(answered(word), word).toEqual({ went: [], told: [word] });
   });
 });

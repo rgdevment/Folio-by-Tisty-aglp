@@ -526,10 +526,10 @@ fn a_sweep_takes_whatever_ran_out_and_leaves_the_rest() {
 }
 
 #[test]
-fn a_reserved_id_with_nothing_uploaded_cannot_be_read() {
+fn a_reserved_id_with_nothing_uploaded_cannot_be_read_yet() {
     let mut world = World::new();
     let reserved = world.reserve(T0);
-    assert_eq!(world.read(&reserved.id, T0), Err(Refused::Missing));
+    assert_eq!(world.read(&reserved.id, T0), Err(Refused::Unwritten));
     assert_eq!(done(world.share.latest(&reserved.id, HERE, T0)), Ok(None));
 }
 
@@ -1268,4 +1268,12 @@ fn two_readers_racing_to_write_their_visit_are_both_served() {
     share.store.lose.set(true);
 
     assert!(done(share.read(&reserved.id, None, HERE, T0 + DAY)).is_ok());
+}
+
+#[test]
+fn a_version_whose_envelope_the_store_lost_is_a_fault_not_a_missing_document() {
+    let mut world = World::new();
+    let shared = world.shared(T0);
+    world.share.store.lose_envelopes();
+    assert!(matches!(world.read(&shared.id, T0), Err(Refused::Store(_))));
 }

@@ -19,6 +19,11 @@ impl Memory {
         self.envelopes.borrow().len()
     }
 
+    /// Lets every envelope go while the versions naming them stay, as a store that lost them would.
+    pub fn lose_envelopes(&self) {
+        self.envelopes.borrow_mut().clear();
+    }
+
     /// How many names, counters and marks it holds, to show what lapses.
     pub fn kept(&self) -> usize {
         self.counters.borrow().len() + self.holds.borrow().len() + self.reports.borrow().len()

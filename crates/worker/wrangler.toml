@@ -12,7 +12,7 @@ routes = [
 [assets]
 directory = "../../packages/tisty-share-web/dist"
 not_found_handling = "single-page-application"
-run_worker_first = ["/", "/api/*", "/robots.txt"]
+run_worker_first = ["/", "/404", "/api/*", "/robots.txt"]
 
 # worker-build is installed once, as the CI's wasm job does: cargo install worker-build@0.8.7 --locked
 [build]

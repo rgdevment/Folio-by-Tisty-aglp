@@ -69,6 +69,9 @@ pub enum Refused {
     /// It existed and is gone: expired, deleted or emptied from the trash.
     #[error("this document is no longer shared")]
     Gone,
+    /// Reserved, and its first version is not there yet: the link works once the upload ends.
+    #[error("this document is not uploaded yet")]
+    Unwritten,
     #[error("its owner put this document away for now")]
     Paused,
     #[error("reports blocked this document")]
@@ -347,13 +350,13 @@ impl<S: Store, R: Randomness> Share<S, R> {
         self.admit(caller, Act::Read, now).await?;
         let mut doc = self.live(id, now).await?;
         open_to_read(&doc)?;
-        let kept = *doc.versions.last().ok_or(Refused::Missing)?;
+        let kept = *doc.versions.last().ok_or(Refused::Unwritten)?;
         let cleared = self.let_in(&mut doc, password, now).await?;
         let envelope = self
             .store
             .envelope(id, &kept)
             .await?
-            .ok_or(Refused::Missing)?;
+            .ok_or_else(|| lost(id, &kept))?;
         let new_reader = self.first_read_today(id, caller, now).await?;
         if new_reader {
             doc.reads += 1;
@@ -403,7 +406,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             .store
             .envelope(id, kept)
             .await?
-            .ok_or(Refused::Missing)?;
+            .ok_or_else(|| lost(id, kept))?;
         Ok(Served { version, envelope })
     }
 
@@ -647,6 +650,14 @@ fn touched(doc: &mut Doc, now: i64) {
     if doc.paused.is_none() && doc.blocked.is_none() {
         doc.ends = now + doc.idle;
     }
+}
+
+/// The store lost what a version it names holds, so the reader is told of a fault, not of a missing document.
+fn lost(id: &str, kept: &Kept) -> Refused {
+    Refused::Store(Fault(format!(
+        "the envelope of {id} version {} is not in the store",
+        kept.version
+    )))
 }
 
 #[cfg(test)]

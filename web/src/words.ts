@@ -3,8 +3,7 @@ const SPANISH = {
   opening: "Abriendo el documento…",
   nolink:
     "Este link no lleva a un documento. Revisa que lo hayas copiado entero, con lo que va después del #.",
-  missing: "Este documento no existe, o ya caducó.",
-  gone: "Este documento ya no está disponible.",
+  unwritten: "Este documento todavía se está subiendo. Vuelve a intentarlo en un momento.",
   paused: "Quien lo compartió lo dejó en pausa.",
   blocked: "Este documento fue bloqueado tras varias denuncias.",
   password_asked:
@@ -33,8 +32,7 @@ const ENGLISH: Record<Word, string> = {
   opening: "Opening the document…",
   nolink:
     "This link does not lead to a document. Check that you copied all of it, with what comes after the #.",
-  missing: "This document does not exist, or it has expired.",
-  gone: "This document is no longer available.",
+  unwritten: "This document is still being uploaded. Try again in a moment.",
   paused: "Whoever shared it has paused it.",
   blocked: "This document was blocked after several reports.",
   password_asked:
@@ -63,3 +61,12 @@ export const wordsFor = (inSpanish: boolean) => {
   return (word: string): string =>
     Object.hasOwn(words, word) ? words[word as Word] : words.failed;
 };
+
+// The Worker sends it on to tisty.app, which already answers a missing page in the reader's language.
+export const NOWHERE = "/404";
+
+const LOST = new Set(["missing", "gone"]);
+
+// A document the server no longer has goes where any missing page goes; every other refusal is said here.
+export const refused = (word: string, leave: (to: string) => void, tell: (word: string) => void) =>
+  LOST.has(word) ? leave(NOWHERE) : tell(word);

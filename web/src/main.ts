@@ -5,7 +5,7 @@ import wasm from "../wasm/tisty_share_wasm_bg.wasm?url";
 import { drawn, type Opened, type Picture, plain, titleOf } from "./drawn";
 import { fetched, limitsOf } from "./fetched";
 import { linkOf } from "./link";
-import { spanish, wordsFor } from "./words";
+import { refused, spanish, wordsFor } from "./words";
 
 type About = { title?: string | null };
 // What the link opened, with the title its front matter gives, which wins over the first line as in Tisty.
@@ -84,7 +84,7 @@ const shown = async () => {
   themed();
   tell("opening");
   const found = await opened();
-  if (typeof found === "string") return tell(found);
+  if (typeof found === "string") return refused(found, (to) => location.replace(to), tell);
   const draw = () => {
     seen();
     return drawn(frame, found, night.matches, say);

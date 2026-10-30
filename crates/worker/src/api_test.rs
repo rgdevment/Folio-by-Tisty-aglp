@@ -226,6 +226,10 @@ fn the_domain_itself_goes_home_for_good_and_any_other_page_for_now() {
     }
     assert_eq!(world.answer(asked("HEAD", "/")).status, 301);
 
+    let lost = world.answer(asked("GET", "/404"));
+    assert_eq!(lost.status, 302);
+    assert_eq!(header(&lost, "Location"), Some("https://www.tisty.app/404"));
+
     // The API keeps its own words, and nothing but reading is ever sent away.
     let missing = world.answer(asked("GET", "/api/v1/nothing"));
     assert_eq!(said(&missing), json!({ "refused": "unknown" }));
