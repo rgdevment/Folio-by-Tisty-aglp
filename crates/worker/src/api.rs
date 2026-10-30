@@ -11,7 +11,7 @@ use tisty_share_proto::limits::Limits;
 use tisty_share_proto::work::Proof;
 use tisty_share_server::keys::Randomness;
 use tisty_share_server::moderation::{Category, Complaint};
-use tisty_share_server::share::{Ask, Manage, Refused, Share};
+use tisty_share_server::share::{Ask, Manage, Refused, Served, Share};
 use tisty_share_server::store::Store;
 
 /// Where the steps live, so the reading page can have the rest of the domain.
@@ -51,7 +51,7 @@ pub struct Asked {
     pub path: String,
     /// The edit or management token, from `Authorization: Bearer`.
     pub token: Option<String>,
-    /// The reader's password, in `Tisty-Password` so it never sits in a URL or a log.
+    /// The reader's password as its UTF-8 in base64url, in `Tisty-Password` so it never sits in a URL or a log.
     pub password: Option<String>,
     /// The proof of work, as JSON in `Tisty-Work`.
     pub work: Option<String>,
@@ -200,10 +200,9 @@ async fn routed<S: Store, R: Randomness>(
             Ok(said(200, json!({ "version": version })))
         }
         ("GET", ["docs", id]) => {
-            let served = share
-                .read(id, asked.password.as_deref(), caller, now)
-                .await?;
-            Ok(envelope(served.version, served.envelope))
+            let password = asked.password.as_deref().map(password_of).transpose()?;
+            let served = share.read(id, password.as_deref(), caller, now).await?;
+            Ok(envelope(served))
         }
         ("GET", ["docs", id, "latest"]) => {
             let latest = share.latest(id, caller, now).await?;
@@ -213,7 +212,7 @@ async fn routed<S: Store, R: Randomness>(
             let version = version.parse().map_err(|_| Turned::Unknown)?;
             let token = token.ok_or(Refused::Forbidden)?;
             let served = share.version(id, token, version, now).await?;
-            Ok(envelope(served.version, served.envelope))
+            Ok(envelope(served))
         }
         ("GET", ["docs", id, "info"]) => {
             let admin = token.ok_or(Refused::Forbidden)?;
@@ -325,6 +324,14 @@ fn proof(work: Option<&str>) -> Result<Proof, Turned> {
     serde_json::from_str(work).map_err(|_| Turned::Unreadable)
 }
 
+// A header carries only Latin-1, so a password in any language travels as its UTF-8.
+fn password_of(said: &str) -> Result<String, Turned> {
+    let bytes = URL_SAFE_NO_PAD
+        .decode(said)
+        .map_err(|_| Turned::Unreadable)?;
+    String::from_utf8(bytes).map_err(|_| Turned::Unreadable)
+}
+
 fn digest_of(said: &str) -> Option<[u8; 32]> {
     <[u8; 32]>::try_from(URL_SAFE_NO_PAD.decode(said).ok()?.as_slice()).ok()
 }
@@ -333,9 +340,23 @@ fn said(status: u16, body: serde_json::Value) -> Answer {
     plain(status, "application/json", body.to_string().into_bytes())
 }
 
-fn envelope(version: u64, bytes: Vec<u8>) -> Answer {
-    let mut answer = plain(200, "application/octet-stream", bytes);
-    answer.headers.push(("Tisty-Version", version.to_string()));
+/// The envelope, with what the reading page shows around it in headers, so the body stays the sealed bytes alone.
+fn envelope(served: Served) -> Answer {
+    let facts = served.facts;
+    let mut answer = plain(200, "application/octet-stream", served.envelope);
+    answer
+        .headers
+        .push(("Tisty-Version", served.version.to_string()));
+    answer
+        .headers
+        .push(("Tisty-Shared", facts.shared.to_string()));
+    if let Some(written) = facts.written {
+        answer.headers.push(("Tisty-Written", written.to_string()));
+    }
+    answer.headers.push(("Tisty-Ends", facts.ends.to_string()));
+    if facts.gated {
+        answer.headers.push(("Tisty-Gated", "1".into()));
+    }
     answer
 }
 

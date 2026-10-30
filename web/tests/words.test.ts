@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { NOWHERE, refused, spanish, wordsFor } from "../src/words";
+import { REASONS } from "../src/fetched";
+import { filled, gated, NOWHERE, refused, spanish, wordsFor } from "../src/words";
 
 describe("the page's words", () => {
   it("are Spanish when the reader's first language is, and English otherwise, as in Tisty", () => {
@@ -20,8 +21,26 @@ describe("the page's words", () => {
       "keyless",
       "offline",
       "down",
+      "password_asked",
+      "password_wrong",
+      "password_locked",
+      "reported",
+      "thanked",
     ])
       expect(say(word), word).not.toBe(say("failed"));
+  });
+
+  it("name every reason a report can give, in both languages", () => {
+    for (const inSpanish of [true, false])
+      for (const reason of REASONS)
+        expect(wordsFor(inSpanish)(`report_${reason}`), reason).not.toBe(
+          wordsFor(inSpanish)("failed"),
+        );
+  });
+
+  it("keep a date where each language puts it", () => {
+    expect(filled(wordsFor(true)("shared"), "3 de octubre")).toBe("Compartido el 3 de octubre");
+    expect(filled(wordsFor(false)("written"), "2 hours ago")).toBe("edited 2 hours ago");
   });
 
   it("fall back to one plain sentence for a word they do not know", () => {
@@ -55,5 +74,12 @@ describe("a refusal", () => {
   it("of anything else is said on the page, a badly copied link and one still uploading too", () => {
     for (const word of ["nolink", "unwritten", "paused", "blocked", "keyless", "locked", "down"])
       expect(answered(word), word).toEqual({ went: [], told: [word] });
+  });
+
+  it("about the password is answered by saying it, and no other is", () => {
+    for (const word of ["password_asked", "password_wrong", "password_locked"])
+      expect(gated(word), word).toBe(true);
+    for (const word of ["missing", "locked", "keyless", "forbidden"])
+      expect(gated(word), word).toBe(false);
   });
 });

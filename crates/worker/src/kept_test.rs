@@ -58,6 +58,7 @@ fn doc(id: &str) -> Doc {
         paused: None,
         blocked: None,
         reads: 4,
+        written: None,
         revision: 0,
     }
 }

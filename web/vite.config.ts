@@ -15,13 +15,13 @@ const packageAt = (name: string, from: string): string => {
 const pageAt = dirname(fileURLToPath(import.meta.url));
 const reader = packageAt("tisty-reader", pageAt);
 const studio = packageAt("tisty-diagrams", pageAt);
+const root = dirname(dirname(reader));
 
 // The libraries the page carries ask that their notices travel with every copy, so Tisty's own go along.
 const notices: Plugin = {
   name: "notices",
   apply: "build",
   generateBundle() {
-    const root = dirname(dirname(reader));
     for (const [from, to] of [
       ["THIRD-PARTY-BUNDLED.md", "third-party.txt"],
       ["THIRD-PARTY-LICENSES.md", "third-party-licenses.txt"],
@@ -44,7 +44,9 @@ export default defineConfig({
     assetsInlineLimit: 0,
     target: "es2022",
   },
-  server: { fs: { allow: [".", reader, studio] } },
+  server: { fs: { allow: [".", reader, studio, join(root, "assets")] } },
+  // The proof of work's worker imports the wasm as the page does, which only a module worker can.
+  worker: { format: "es" },
   test: {
     environment: "jsdom",
     include: ["tests/**/*.test.ts"],

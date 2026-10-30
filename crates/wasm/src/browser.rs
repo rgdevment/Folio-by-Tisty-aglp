@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 use crate::shown::{Shown, shown};
+use crate::worked;
 
 /// A link's version, opened in the browser.
 #[wasm_bindgen]
@@ -11,6 +12,11 @@ impl Page {
     #[wasm_bindgen(getter)]
     pub fn html(&self) -> String {
         self.0.html.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn text(&self) -> String {
+        self.0.text.to_string()
     }
 
     /// Title, tags, version and signatures, as JSON.
@@ -42,4 +48,10 @@ pub fn open(envelope: Vec<u8>, key: &str, limits: Option<String>) -> Result<Page
     shown(envelope, key, limits.as_deref())
         .map(Page)
         .map_err(|unread| JsError::new(unread.word()))
+}
+
+/// The proof a server's challenge asks for, as the JSON it takes in `Tisty-Work`.
+#[wasm_bindgen]
+pub fn solved(challenge: &str) -> Option<String> {
+    worked::solved(challenge)
 }

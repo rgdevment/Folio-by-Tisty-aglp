@@ -87,6 +87,7 @@ fn names_who_signed_it() {
     let page = read(sealed(TEXT, &[], Some(&signer))).unwrap();
     let holds = Signed::Holds {
         fingerprint: root.person().fingerprint(),
+        suffix: root.person().suffix(),
         since: 1_000,
     };
     assert_eq!(page.about.wrote, Some(holds));
@@ -155,4 +156,25 @@ fn a_picture_keeps_its_place_for_the_page_to_fill() {
         page.html
             .contains(r#"<img src="tisty:picture/0" alt="La consola""#)
     );
+}
+
+#[test]
+fn keeps_the_text_as_written_for_the_reader_to_download() {
+    let page = read(sealed(TEXT, &[], None)).unwrap();
+    assert_eq!(page.text.as_str(), TEXT);
+}
+
+// The app draws a document with this same call (app/src-tauri/src/answers/paging.rs), so the guide to every
+// part of the Tisty language drawn alike here is the web drawn as the app draws it.
+#[test]
+fn every_part_of_the_tisty_language_draws_as_the_app_draws_it() {
+    for spanish in [true, false] {
+        let guide = tisty_markdown::reference(spanish);
+        let page = read(sealed(guide, &[], None)).unwrap();
+        assert_eq!(
+            page.html,
+            tisty_markdown::html(&tisty_markdown::read(guide))
+        );
+        assert_eq!(page.text.as_str(), guide);
+    }
 }

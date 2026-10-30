@@ -1225,6 +1225,7 @@ fn a_stored_document_missing_a_later_field_still_opens_and_one_missing_its_end_d
         paused: None,
         blocked: None,
         reads: 0,
+        written: None,
         revision: 0,
     };
     let written: serde_json::Value = serde_json::to_value(&doc).unwrap();
@@ -1235,6 +1236,7 @@ fn a_stored_document_missing_a_later_field_still_opens_and_one_missing_its_end_d
     };
     assert_eq!(without("reads").unwrap(), doc);
     assert_eq!(without("paused").unwrap(), doc);
+    assert_eq!(without("written").unwrap(), doc);
     assert!(without("ends").is_err());
     assert!(without("admin").is_err());
 }
@@ -1276,4 +1278,33 @@ fn a_version_whose_envelope_the_store_lost_is_a_fault_not_a_missing_document() {
     let shared = world.shared(T0);
     world.share.store.lose_envelopes();
     assert!(matches!(world.read(&shared.id, T0), Err(Refused::Store(_))));
+}
+
+#[test]
+fn a_reader_is_told_when_it_was_shared_and_written_when_it_ends_and_whether_it_asks_a_password() {
+    let mut world = World::new();
+    let reserved = world.reserve(T0);
+    let first = sealed(&reserved.id, 1, None, "uno");
+    world
+        .put(&reserved.id, &reserved.edit, first, T0 + 600)
+        .unwrap();
+    let second = sealed(&reserved.id, 2, Some(1), "dos");
+    world
+        .put(&reserved.id, &reserved.edit, second, T0 + DAY)
+        .unwrap();
+    let facts = world.read(&reserved.id, T0 + 2 * DAY).unwrap().facts;
+    assert_eq!(facts.shared, T0 + 600);
+    assert_eq!(facts.written, Some(T0 + DAY));
+    assert_eq!(facts.ends, T0 + 2 * DAY + world.share.policy.idle);
+    assert!(!facts.gated);
+
+    world
+        .manage(
+            &reserved,
+            Manage::Password(Some("perro azul".into())),
+            T0 + 2 * DAY,
+        )
+        .unwrap();
+    let gated = world.read_from(&reserved.id, Some("perro azul"), HERE, T0 + 2 * DAY);
+    assert!(gated.unwrap().facts.gated);
 }

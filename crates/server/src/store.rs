@@ -16,6 +16,7 @@ pub struct Doc {
     pub gate: Option<Gate>,
     /// The versions still kept, oldest first; the last is the one served.
     pub versions: Vec<Kept>,
+    /// When it was reserved, and then when its first version came: the day the reader is told it was shared.
     pub created: i64,
     /// When it last saw a person read it, its owner visit it, or a new version.
     pub active: i64,
@@ -29,6 +30,9 @@ pub struct Doc {
     /// Readers counted once a day each, never who they were (decision 47).
     #[serde(default)]
     pub reads: u64,
+    /// When its latest version came, for the reader's «edited»; documents from before it was kept have none.
+    #[serde(default)]
+    pub written: Option<i64>,
     /// Bumped on every save, so two writers never both win.
     pub revision: u64,
 }

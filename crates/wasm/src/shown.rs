@@ -6,6 +6,8 @@ use zeroize::Zeroizing;
 
 /// A version as its reader meets it: the page drawn as Tisty draws it, its pictures, and what is known of it.
 pub struct Shown {
+    /// The text as written, for the reader who downloads it.
+    pub text: Zeroizing<String>,
     pub html: String,
     pub about: About,
     pub pictures: Vec<(Kind, Zeroizing<Vec<u8>>)>,
@@ -27,11 +29,13 @@ pub struct About {
 pub enum Signed {
     Holds {
         fingerprint: String,
+        suffix: String,
         since: i64,
     },
     /// The key was taken back, so nothing it signed can be told from a thief's.
     Revoked {
         fingerprint: String,
+        suffix: String,
         at: i64,
     },
     Refused,
@@ -87,6 +91,7 @@ pub fn shown(envelope: Vec<u8>, key: &str, limits: Option<&str>) -> Result<Shown
         sent: opened.sent.map(signed),
     };
     Ok(Shown {
+        text: opened.text,
         html,
         about,
         pictures: opened.pictures,
@@ -115,10 +120,12 @@ fn signed(verdict: Verdict) -> Signed {
     match verdict {
         Verdict::Holds { person, since } => Signed::Holds {
             fingerprint: person.fingerprint(),
+            suffix: person.suffix(),
             since: since.as_second(),
         },
         Verdict::Revoked { person, at } => Signed::Revoked {
             fingerprint: person.fingerprint(),
+            suffix: person.suffix(),
             at: at.as_second(),
         },
         Verdict::Refused => Signed::Refused,
