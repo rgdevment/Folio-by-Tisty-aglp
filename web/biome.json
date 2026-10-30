@@ -1,0 +1,8 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
+  "extends": ["../../app/biome.json"],
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true, "root": "../.." },
+  "files": {
+    "includes": ["src/**/*.ts", "src/**/*.css", "tests/**/*.ts", "*.json", "*.ts"]
+  }
+}

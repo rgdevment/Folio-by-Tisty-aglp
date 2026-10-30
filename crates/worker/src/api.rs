@@ -244,7 +244,7 @@ async fn routed<S: Store, R: Randomness>(
     }
 }
 
-/// A page outside the API goes home: for good from the root, for now elsewhere, since the reading page will take those paths.
+/// A page outside the API that the reading page did not take goes home: for good from the root, for now elsewhere.
 fn elsewhere(asked: &Asked) -> Result<Answer, Turned> {
     if asked.method != "GET" && asked.method != "HEAD" {
         return Err(Turned::Unknown);
