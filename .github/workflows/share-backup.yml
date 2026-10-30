@@ -1,0 +1,95 @@
+name: Share backup
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Apart from share-worker: a group keeps one run waiting, so a backup there could push out a waiting deploy.
+concurrency:
+  group: share-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Export D1 out of Cloudflare
+    if: github.ref == 'refs/heads/main'
+    # Its deployment rules let only main and share-v* tags reach the Cloudflare token.
+    environment: share
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      RECIPIENT: ${{ vars.SHARE_BACKUP_RECIPIENT }}
+    defaults:
+      run:
+        working-directory: crates/tisty-share-worker
+    steps:
+      - name: The account, its token and the backup's key are there
+        run: |
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::the share environment has no CLOUDFLARE_API_TOKEN secret"; exit 1; }
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::the share environment has no CLOUDFLARE_ACCOUNT_ID variable"; exit 1; }
+          case "$RECIPIENT" in
+            age1*) ;;
+            *) echo "::error::the share environment's SHARE_BACKUP_RECIPIENT variable is not an age public key"; exit 1 ;;
+          esac
+        working-directory: .
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      # From the lockfile, so nothing wrangler pulls in is chosen while the token is in reach.
+      - run: npm ci --ignore-scripts
+
+      - name: Export
+        run: npx --no-install wrangler d1 export tisty-share --remote --output "$RUNNER_TEMP/tisty-share.sql"
+
+      # A dump that does not load, or loads into other tables than its own migrations build, is no backup.
+      - name: It restores
+        run: |
+          set -euo pipefail
+          sql() {
+            npx --no-install wrangler d1 execute tisty-share --local --persist-to "$1" --json --command "$2" | jq -c '.[0].results'
+          }
+          schema="SELECT type, name, sql FROM sqlite_master WHERE name NOT GLOB '_cf_*' AND name NOT GLOB 'sqlite_*' AND tbl_name <> 'd1_migrations' ORDER BY name"
+          npx --no-install wrangler d1 execute tisty-share --local --persist-to "$RUNNER_TEMP/restored" --file "$RUNNER_TEMP/tisty-share.sql" > /dev/null
+          # Only the migrations the dump ran: main may hold one no tag has deployed yet.
+          ran=$(sql "$RUNNER_TEMP/restored" "SELECT name FROM d1_migrations ORDER BY id" | jq -r '.[].name')
+          [ -n "$ran" ] || { echo "::error::the restored database lists no migration"; exit 1; }
+          for name in $ran; do
+            [ -f "migrations/$name" ] || { echo "::error::the restored database ran $name, which the repository does not have"; exit 1; }
+            npx --no-install wrangler d1 execute tisty-share --local --persist-to "$RUNNER_TEMP/built" --file "migrations/$name" > /dev/null
+          done
+          if [ "$(sql "$RUNNER_TEMP/restored" "$schema")" != "$(sql "$RUNNER_TEMP/built" "$schema")" ]; then
+            echo "::error::the restored tables differ from the ones its migrations build"
+            exit 1
+          fi
+          sql "$RUNNER_TEMP/restored" "SELECT (SELECT count(*) FROM docs) AS docs, (SELECT count(*) FROM counters) AS counters, (SELECT count(*) FROM holds) AS holds, (SELECT count(*) FROM reports) AS reports" \
+            | jq -r '.[0] | "restored: \(.docs) docs, \(.counters) counters, \(.holds) holds, \(.reports) reports"'
+
+      # The repository is public, so only its keeper's age key opens what it keeps.
+      - name: Seal
+        id: seal
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age > /dev/null
+          name="tisty-share-d1-$(date -u +%Y-%m-%dT%H%MZ)"
+          age --encrypt --recipient "$RECIPIENT" --output "$RUNNER_TEMP/$name.sql.age" "$RUNNER_TEMP/tisty-share.sql"
+          rm "$RUNNER_TEMP/tisty-share.sql"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.seal.outputs.name }}
+          path: ${{ runner.temp }}/${{ steps.seal.outputs.name }}.sql.age
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
