@@ -2,7 +2,7 @@
   "name": "tisty-share-web",
   "private": true,
   "version": "0.1.0",
-  "description": "The page that reads a Tisty Share link in the browser: it opens the envelope with the key in the link's #, which never reaches the server, and draws the body with tisty-reader.",
+  "description": "The page that reads a Tisty Share link in the browser: it opens the envelope with the key in the link's #, which never reaches the server, and draws the body with tisty-editor.",
   "type": "module",
   "scripts": {
     "wasm": "cargo build -p tisty-share-wasm --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir wasm ../../target/wasm32-unknown-unknown/release/tisty_share_wasm.wasm",

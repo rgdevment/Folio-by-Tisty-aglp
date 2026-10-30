@@ -1,24 +1,24 @@
-import "tisty-reader/tokens.css";
+import "tisty-editor/tokens.css";
+import "tisty-editor/side.css";
 import "./web.css";
+import { type Head, heads as headsOf, sided } from "tisty-editor/read";
 import init, { open, type Page } from "../wasm/tisty_share_wasm.js";
 import wasm from "../wasm/tisty_share_wasm_bg.wasm?url";
-import { drawn, type Opened, type Picture, plain, titleOf } from "./drawn";
-import { type Facts, fetched, limitsOf, REASONS, type Reason, reported } from "./fetched";
+import { panelsOf } from "./beside";
 import {
-  type About,
-  accessOf,
-  authored,
-  bylined,
-  endsOf,
-  fileOf,
-  sealed,
-  sealOf,
-  tagged,
-  tistyOf,
-  whenOf,
-} from "./frame";
+  drawn,
+  laidOut,
+  type Opened,
+  type Picture,
+  plain,
+  titleOf,
+  type View,
+  viewOf,
+} from "./drawn";
+import { type Facts, fetched, limitsOf, REASONS, type Reason, reported } from "./fetched";
+import { type About, accessOf, bylined, endsOf, tagged, whenOf } from "./frame";
 import { linkOf } from "./link";
-import { gated, refused, spanish, wordsFor } from "./words";
+import { gated, refused, sheetWordsFor, spanish, wordsFor } from "./words";
 
 // What the link opened: the body, its front matter's title (which wins over the first line, as in Tisty) and the text.
 type Found = Opened & { readonly title: string; readonly text: string; readonly about: About };
@@ -28,6 +28,7 @@ const night = matchMedia("(prefers-color-scheme: dark)");
 const inSpanish = spanish(navigator.language);
 const language = inSpanish ? "es" : "en";
 const say = wordsFor(inSpanish);
+const sheetSays = { say: sheetWordsFor(inSpanish), language };
 const part = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector) as T;
 const told = part(".said");
 const gate = part<HTMLFormElement>(".gate");
@@ -112,35 +113,31 @@ const opened = async (password?: string): Promise<Read | string> => {
   return typeof found === "string" ? found : { ...found, facts: answer.facts };
 };
 
-// The frame around the body, as the mock-up lays it out: when, who signed it, what can be done and for how long.
-const framed = (found: Read, title: string) => {
-  const seal = sealOf(found.about);
-  sealed(part(".seal"), seal, say);
-  authored(part(".author"), seal, say);
+// What can be done with it and for how long sit under the panels, as the mock-up lays them out.
+const framed = (found: Read) => {
   part(".access").textContent = say(accessOf(found.facts));
   part(".ends").textContent = endsOf(found.facts, language);
-  part<HTMLAnchorElement>(".open").href = tistyOf(location.href);
-  const md = part<HTMLAnchorElement>(".md");
-  md.download = fileOf(title, say("document"));
-  md.title = say("download");
-  md.setAttribute("aria-label", say("download"));
-  md.addEventListener("click", () => {
-    URL.revokeObjectURL(md.href);
-    md.href = URL.createObjectURL(new Blob([found.text], { type: "text/markdown" }));
-  });
-  const copied = part(".copy-said");
-  part(".copy").addEventListener("click", () => {
-    navigator.clipboard.writeText(location.href).then(
-      () => {
-        copied.textContent = say("copied");
-        setTimeout(() => {
-          copied.textContent = say("copy");
-        }, 2000);
-      },
-      () => undefined,
-    );
-  });
 };
+
+// The paper keeps its own width: where the panels do not fit beside it, they wait under a button instead.
+const fitted = (across: number) => {
+  const root = document.documentElement;
+  const beside = Number.parseFloat(getComputedStyle(root).getPropertyValue("--beside")) || 0;
+  root.style.setProperty("--across", `${across}px`);
+  root.classList.toggle("tight", innerWidth < across + beside);
+};
+
+// Going to a heading from the panels puts them away again.
+const besideOpen = part<HTMLButtonElement>(".side-open");
+const besideShown = (open: boolean) => {
+  reading.classList.toggle("is-side", open);
+  besideOpen.setAttribute("aria-expanded", String(open));
+};
+besideOpen.textContent = sheetSays.say("outline");
+besideOpen.addEventListener("click", () => besideShown(!reading.classList.contains("is-side")));
+addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && reading.classList.contains("is-side")) besideShown(false);
+});
 
 // A worker of its own for each report: a page reports once, and the work holds nothing worth keeping.
 const solving = (challenge: string): Promise<string | undefined> =>
@@ -199,24 +196,69 @@ const shown = async (password?: string) => {
   }
   const when = whenOf(found.facts, found.about.version ?? 1, Date.now() / 1000, language, say);
   const tags = found.about.tags ?? [];
+  let view = viewOf(found.text);
+  let raw = false;
+  let heads: Head[] = [];
+  let title = found.title;
+  let lay = () => {};
+  const rawText = part(".raw");
+  rawText.textContent = found.text;
+  const laid = () => laidOut(view, sheetSays.say);
+  const across = () => fitted(laid().across);
+  addEventListener("resize", () => across());
+  const paneled = () =>
+    sided(
+      part(".side"),
+      sheetSays.say,
+      panelsOf(
+        { title, text: found.text, about: found.about, view, raw, heads },
+        { onView, onRaw, onShut: () => besideShown(false) },
+        { sheet: sheetSays.say, page: say },
+        location.href,
+      ),
+    );
+  const onView = (next: View) => {
+    view = next;
+    across();
+    lay();
+    paneled();
+  };
+  const onRaw = (on: boolean) => {
+    raw = on;
+    frame.hidden = on;
+    rawText.hidden = !on;
+    if (!on) lay();
+    paneled();
+  };
   // Tags and dates sit under the body's title; a body without one has them above it instead.
   const draw = async () => {
     seen();
-    const page = await drawn(frame, found, night.matches, say);
+    across();
+    const shown = await drawn(frame, found, night.matches, sheetSays, laid);
+    lay = shown.lay;
+    const { page } = shown;
     const inside = bylined(page, tags, when);
     tagged(part(".tags"), inside ? [] : tags);
     part(".when").textContent = inside ? "" : when;
     part(".paper-head").hidden = inside || (tags.length === 0 && !when);
-    return page;
+    heads = headsOf(page).map((one) => ({
+      ...one,
+      go: () => {
+        besideShown(false);
+        one.go();
+      },
+    }));
+    title ||= titleOf(page);
+    paneled();
   };
-  const page = await draw();
-  const title = found.title || titleOf(page);
-  frame.title = title || say("document");
-  if (title) document.title = `${title} · Tisty`;
-  framed(found, title);
-  reportable(linkOf(location.pathname, location.hash)?.id ?? "");
   // One drawing at a time, so two quick changes of theme never draw into the same sheet.
   let drawing = Promise.resolve();
+  await draw();
+  frame.title = title || say("document");
+  if (title) document.title = `${title} · Tisty`;
+  besideOpen.hidden = false;
+  framed(found);
+  reportable(linkOf(location.pathname, location.hash)?.id ?? "");
   night.addEventListener("change", () => {
     themed();
     drawing = drawing.then(draw).then(

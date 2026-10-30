@@ -13,7 +13,7 @@ const packageAt = (name: string, from: string): string => {
   return packageAt(name, up);
 };
 const pageAt = dirname(fileURLToPath(import.meta.url));
-const reader = packageAt("tisty-reader", pageAt);
+const reader = packageAt("tisty-editor", pageAt);
 const studio = packageAt("tisty-diagrams", pageAt);
 const root = dirname(dirname(reader));
 
@@ -37,7 +37,7 @@ const notices: Plugin = {
 export default defineConfig({
   plugins: [notices],
   resolve: {
-    alias: { "tisty-diagrams": join(studio, "src"), "tisty-reader": join(reader, "src") },
+    alias: { "tisty-diagrams": join(studio, "src"), "tisty-editor": join(reader, "src") },
   },
   build: {
     // The wasm loads as a file of its own, so the page's CSP never has to let a script be built from a string.

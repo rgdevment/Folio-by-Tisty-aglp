@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REASONS } from "../src/fetched";
-import { filled, gated, NOWHERE, refused, spanish, wordsFor } from "../src/words";
+import { filled, gated, NOWHERE, refused, sheetWordsFor, spanish, wordsFor } from "../src/words";
 
 describe("the page's words", () => {
   it("are Spanish when the reader's first language is, and English otherwise, as in Tisty", () => {
@@ -48,9 +48,11 @@ describe("the page's words", () => {
       expect(wordsFor(false)(word), word).toBe(wordsFor(false)("failed"));
   });
 
-  it("name the callouts as Tisty does", () => {
-    expect(wordsFor(true)("saidwarning")).toBe("Aviso");
-    expect(wordsFor(false)("saidwarning")).toBe("Warning");
+  it("name the callouts as Tisty does, and fill a sheet's word in its own order", () => {
+    expect(sheetWordsFor(true)("saidwarning")).toBe("Aviso");
+    expect(sheetWordsFor(false)("saidwarning")).toBe("Warning");
+    expect(sheetWordsFor(true)("leafOfMany", "2", "3")).toBe("Página 2 de 3");
+    expect(sheetWordsFor(false)("tableStars", "4")).toBe("4 of 5");
   });
 });
 

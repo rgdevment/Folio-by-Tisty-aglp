@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { linkedOut, linkedWithin, pictured, placeOf, plain, titleOf, unasked } from "../src/drawn";
+import {
+  fitting,
+  laidOut,
+  linkedOut,
+  linkedWithin,
+  pictured,
+  placeOf,
+  plain,
+  titleOf,
+  unasked,
+  viewOf,
+} from "../src/drawn";
 
 const pageOf = (html: string): Document => {
   const page = document.implementation.createHTMLDocument("");
@@ -150,5 +161,43 @@ describe("a click on a link in the frame", () => {
       expect(kept, href).toBe(true);
       expect(scrolled, href).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe("the paper a document asks for", () => {
+  const say = (word: string) => word;
+
+  it("is A4 and flows as one unless the document lays out its sheets", () => {
+    expect(viewOf("# Hola\n")).toEqual({ leaf: "a4", sheets: false, landscape: false });
+    expect(laidOut(viewOf("# Hola\n"), say)).toEqual({ across: 794, sheet: undefined });
+    expect(laidOut(viewOf("---\npaper: letter\n---\n# Hola\n"), say).across).toBe(816);
+  });
+
+  it("lays its sheets across when it says landscape, with the break named in the reader's words", () => {
+    const view = viewOf("---\nsheets: on\norientation: landscape\n---\n# Plan\n");
+    const laid = laidOut(view, say);
+    expect(laid.across).toBe(1123);
+    expect(laid.sheet).toMatchObject({ wide: 1123, tall: 794, said: "sheetsBreak" });
+    expect(laidOut({ ...view, sheets: false }, say)).toEqual({ across: 794, sheet: undefined });
+  });
+});
+
+describe("the sheets a frame can hold", () => {
+  const say = (word: string) => word;
+  const frameOf = (wide: number) => {
+    const frame = document.createElement("iframe");
+    Object.defineProperty(frame, "clientWidth", { value: wide });
+    return frame;
+  };
+
+  it("are laid only where the frame is as wide as the paper, and read the paper asked for now", () => {
+    let view = viewOf("---\nsheets: on\n---\n# Plan\n");
+    const sheet = fitting(frameOf(800), () => laidOut(view, say));
+    expect(sheet()?.wide).toBe(794);
+    view = { ...view, leaf: "letter" };
+    expect(sheet()).toBeUndefined();
+    expect(fitting(frameOf(816), () => laidOut(view, say))()?.wide).toBe(816);
+    view = { ...view, sheets: false };
+    expect(fitting(frameOf(2000), () => laidOut(view, say))()).toBeUndefined();
   });
 });

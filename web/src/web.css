@@ -1,6 +1,8 @@
 /* The frame's own colours, from the mock-up; the body inside wears Tisty's, from tokens.css. */
 :root {
-  --share-ground: #fafaf8;
+  /* The panels' column, its gap and the desk's own margins: what the paper needs beside it. */
+  --beside: 372px;
+  --share-ground: var(--tisty-desk);
   --share-card: var(--tisty-sheet);
   --share-line: #e7e6e1;
   --share-edge: #d9d8d2;
@@ -19,7 +21,6 @@
 }
 html[data-theme="dark"] {
   color-scheme: dark;
-  --share-ground: var(--tisty-desk);
   --share-line: rgb(255 255 255 / 0.1);
   --share-edge: rgb(255 255 255 / 0.18);
   --share-chip: rgb(255 255 255 / 0.07);
@@ -70,12 +71,13 @@ a {
   display: flex;
   align-items: center;
   gap: 16px;
-  max-width: 1200px;
+  max-width: calc(var(--across, 794px) + var(--beside));
   margin: 0 auto;
   padding: 13px 24px;
   box-sizing: border-box;
 }
 .brand {
+  margin-right: auto;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -84,11 +86,9 @@ a {
   font-size: 18px;
   text-decoration: none;
 }
-.get {
-  margin-left: auto;
-}
+/* The desk holds the paper at its own width and the panels beside it. */
 .desk {
-  max-width: 1200px;
+  max-width: calc(var(--across, 794px) + var(--beside));
   margin: 0 auto;
   padding: 28px 24px 72px;
   box-sizing: border-box;
@@ -192,16 +192,13 @@ a {
 }
 .read {
   display: flex;
-  flex-wrap: wrap;
-  gap: 40px;
+  gap: 24px;
   align-items: flex-start;
 }
 .paper {
-  flex: 999 1 600px;
+  flex: 0 1 var(--across, 794px);
   min-width: 0;
-  max-width: 820px;
   background: var(--share-card);
-  border: 1px solid var(--share-line);
   border-radius: 16px;
   overflow: hidden;
 }
@@ -232,138 +229,37 @@ a {
   border: 0;
   background: transparent;
 }
-.seal {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin: 0 40px 36px;
-  padding-top: 20px;
-  border-top: 1px solid var(--share-line);
-  font-size: 14px;
-  color: var(--share-soft);
-}
-.seal-mark {
-  flex: none;
-}
-.seal[data-verdict="holds"] .seal-mark,
-.seal[data-verdict="holds"] .seal-verdict {
-  color: var(--share-green);
-}
-.seal[data-verdict="revoked"] .seal-mark,
-.seal[data-verdict="revoked"] .seal-verdict {
-  color: var(--share-warn);
-}
-.seal:is([data-verdict="refused"], [data-verdict="unreadable"]) :is(.seal-mark, .seal-verdict) {
-  color: var(--share-bad);
-}
-.seal:not([data-verdict="holds"]) .seal-tick,
-.author:not([data-verdict="holds"]) .seal-tick {
-  display: none;
-}
-.seal-who {
-  color: var(--share-ink);
-}
-.seal-print,
-.author-print {
+.raw {
+  margin: 0;
+  padding: 40px;
   font:
-    13px / 1.4 ui-monospace,
+    13px / 1.65 ui-monospace,
     "Cascadia Mono",
     "SF Mono",
     Menlo,
     Consolas,
     monospace;
-}
-.seal-print {
-  background: var(--share-chip);
-  border-radius: 6px;
-  padding: 2px 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: var(--share-ink);
 }
-.seal-verdict {
-  font-weight: 600;
-}
-.seal-who:empty,
-.seal-sender:empty {
-  display: none;
-}
-.side {
-  flex: 1 1 300px;
+.beside {
+  flex: 0 0 300px;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
 }
-.author {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.beside .side {
+  min-height: 0;
+  flex: 0 1 auto;
 }
-.author-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.avatar {
-  flex: none;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--share-green);
-  color: var(--share-green-ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  font-weight: 600;
-}
-.author-name {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.author-who {
-  font:
-    500 15px / 1.4 ui-monospace,
-    "Cascadia Mono",
-    "SF Mono",
-    Menlo,
-    Consolas,
-    monospace;
-  color: var(--share-ink);
-}
-.author-print {
-  color: var(--share-soft);
-  overflow-wrap: anywhere;
-}
-.author-verdict {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 14px;
-  font-weight: 500;
-  background: var(--share-green-soft);
-  color: var(--share-green);
-}
-.author[data-verdict="revoked"] .author-verdict {
-  background: var(--share-warn-soft);
-  color: var(--share-warn);
-}
-.author:is([data-verdict="refused"], [data-verdict="unreadable"]) .author-verdict {
-  background: var(--share-bad-soft);
-  color: var(--share-bad);
-}
-.author[data-verdict="revoked"] .avatar {
-  background: var(--share-warn);
-}
-.acts {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.side-open,
+.beside .side-shut {
+  display: none;
 }
 .facts {
   padding: 0 4px;
@@ -415,7 +311,7 @@ a {
   display: none;
 }
 .foot {
-  max-width: 1200px;
+  max-width: calc(var(--across, 794px) + var(--beside));
   margin: 0 auto;
   padding: 0 24px 32px;
   box-sizing: border-box;
@@ -423,6 +319,32 @@ a {
 }
 .notices {
   color: var(--share-soft);
+}
+/* Where the paper and the panels do not fit side by side, the sheet takes the width and the panels rise from below when asked for. */
+html.tight .side-open {
+  display: inline-flex;
+}
+html.tight .beside .side-shut {
+  display: grid;
+}
+html.tight .beside {
+  display: none;
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 10;
+  max-width: none;
+  max-height: 82vh;
+  padding: 12px 12px 20px;
+  overflow-y: auto;
+  border-radius: 16px 16px 0 0;
+  background: var(--share-ground);
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.25);
+}
+html.tight .read.is-side .beside {
+  display: flex;
+}
+html.tight .paper {
+  flex: 1 1 auto;
 }
 @media (max-width: 560px) {
   .bar-in,

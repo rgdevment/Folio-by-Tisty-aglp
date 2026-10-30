@@ -17,6 +17,7 @@
           <img class="mark" src="../../assets/icons/tisty-light.svg" alt="" width="30" height="30" />
           <span>Tisty</span>
         </a>
+        <button class="button side-open" type="button" hidden aria-controls="beside" aria-expanded="false"></button>
         <a class="button dark get" href="/" data-word="gettisty"></a>
       </div>
     </header>
@@ -37,59 +38,10 @@
             <p class="when"></p>
           </div>
           <iframe class="sheet" title="" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
-          <footer class="seal" hidden>
-            <svg class="seal-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"></path>
-              <path class="seal-tick" d="m9 12 2 2 4-4"></path>
-            </svg>
-            <span class="seal-who"></span>
-            <code class="seal-print"></code>
-            <span class="seal-verdict"></span>
-            <span class="seal-sender"></span>
-          </footer>
+          <pre class="raw" hidden></pre>
         </article>
-        <aside class="side">
-          <section class="card author" hidden>
-            <div class="author-row">
-              <span class="avatar" aria-hidden="true"></span>
-              <div class="author-name">
-                <span class="author-who"></span>
-                <span class="author-print"></span>
-              </div>
-            </div>
-            <p class="author-verdict">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"></path>
-                <path class="seal-tick" d="m9 12 2 2 4-4"></path>
-              </svg>
-              <span class="author-said"></span>
-            </p>
-          </section>
-          <section class="card acts">
-            <a class="button green open">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M14 4h6v6"></path>
-                <path d="M20 4 10 14"></path>
-                <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"></path>
-              </svg>
-              <span data-word="openin"></span>
-            </a>
-            <a class="button md" href="#" download="documento.md">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 4v11"></path>
-                <path d="m7 10 5 5 5-5"></path>
-                <path d="M5 20h14"></path>
-              </svg>
-              <span>.md</span>
-            </a>
-            <button class="button copy" type="button">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path>
-                <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>
-              </svg>
-              <span class="copy-said" data-word="copy"></span>
-            </button>
-          </section>
+        <aside class="beside" id="beside">
+          <div class="side"></div>
           <section class="facts">
             <dl>
               <div><dt data-word="access"></dt><dd class="access"></dd></div>

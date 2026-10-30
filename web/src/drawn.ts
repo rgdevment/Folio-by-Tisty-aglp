@@ -1,4 +1,15 @@
-import { colored, diagrams, saidKinds, shell, TITLED } from "tisty-reader/page";
+import {
+  acrossOf,
+  laidIn,
+  type Paper,
+  readAs,
+  type Say,
+  type Sheet,
+  sheetFor,
+  sheeting,
+  shell,
+  TITLED,
+} from "tisty-editor/read";
 
 export type Picture = { readonly bytes: Uint8Array<ArrayBuffer>; readonly media: string };
 export type Opened = { readonly html: string; readonly pictures: readonly Picture[] };
@@ -92,27 +103,72 @@ const loaded = (frame: HTMLIFrameElement, html: string) =>
     frame.srcdoc = html;
   });
 
+export type View = { readonly leaf: Paper; readonly sheets: boolean; readonly landscape: boolean };
+
+// The paper the document asks for, A4 unless it says otherwise; the reader may look at it on another.
+export const viewOf = (text: string): View => {
+  const laid = laidIn(text);
+  return { leaf: laid.paper ?? "a4", sheets: laid.sheets, landscape: laid.landscape };
+};
+
+export type Laid = { readonly across: number; readonly sheet?: Sheet };
+
+// Lying across only means something while the sheets are laid.
+export const laidOut = ({ leaf, sheets, landscape }: View, say: Say): Laid => {
+  const across = sheets && landscape;
+  return {
+    across: acrossOf(leaf, across),
+    sheet: sheets ? sheetFor(leaf, across, say("sheetsBreak")) : undefined,
+  };
+};
+
+// On a screen narrower than the paper, as a phone's, the sheets would break where no sheet ends, so the body flows as one.
+export const fitting = (frame: HTMLIFrameElement, laid: () => Laid) => () => {
+  const { sheet } = laid();
+  return sheet && frame.clientWidth >= sheet.wide ? sheet : undefined;
+};
+
+export type Drawn = { readonly page: Document; readonly lay: () => void };
+
 // The body as Tisty draws it, in the reader's own frame, grown to its height so the page scrolls as one.
 export const drawn = async (
   frame: HTMLIFrameElement,
   opened: Opened,
   dark: boolean,
-  say: (word: string) => string,
-): Promise<Document> => {
+  said: { readonly say: Say; readonly language: string },
+  laid: () => Laid,
+): Promise<Drawn> => {
   const page = await loaded(frame, shell(unasked(opened.html), dark));
   page.documentElement.classList.add("tall");
   page.querySelector(".page")?.removeAttribute("inert");
-  const made = pictured(page, opened.pictures);
+  const live = () => frame.contentDocument === page;
+  let made: string[] = [];
+  const read = readAs(page, {
+    say: said.say,
+    locale: said.language,
+    live,
+    brought: () => {
+      made = pictured(page, opened.pictures);
+    },
+    sites: {},
+  });
+  // Another paper only lays the same body again: nothing is drawn twice and the reader keeps their place.
+  let sheets = { stop: () => {} };
+  const lay = () => {
+    page.documentElement.style.setProperty("--wide", `${laid().across}px`);
+    sheets.stop();
+    sheets = sheeting(page, fitting(frame, laid));
+  };
+  lay();
   const freed = () => {
     for (const url of made) URL.revokeObjectURL(url);
+    for (const stop of read.kept) stop();
+    sheets.stop();
   };
   frame.addEventListener("load", freed, { once: true });
   linkedOut(page);
   linkedWithin(frame, page);
-  saidKinds(page, (kind) => say(`said${kind}`));
   grows(frame, page);
-  const live = () => frame.contentDocument === page;
-  colored(page, live);
-  await diagrams(page, dark, live);
-  return page;
+  await read.drawn;
+  return { page, lay };
 };

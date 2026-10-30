@@ -14,7 +14,7 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "tisty-diagrams/*": ["../tisty-diagrams/src/*"],
-      "tisty-reader/*": ["../tisty-reader/src/*"]
+      "tisty-editor/*": ["../tisty-editor/src/*"]
     }
   },
   "include": ["src", "tests", "wasm"]
