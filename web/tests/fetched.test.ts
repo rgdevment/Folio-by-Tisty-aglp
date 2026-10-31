@@ -4,12 +4,13 @@ import { fetched, limitsOf, reported } from "../src/fetched";
 const answering = (answer: () => Response) => (async () => answer()) as typeof fetch;
 
 describe("what the server answers for a link", () => {
-  it("is the sealed bytes, and what the server holds in the clear beside them", async () => {
+  it("is the sealed bytes, what the server holds in the clear beside them, and the keys taken back", async () => {
     const headers = {
       "Tisty-Shared": "1793000000",
       "Tisty-Written": "1793100000",
       "Tisty-Ends": "1795600000",
       "Tisty-Gated": "1",
+      "Tisty-Revoked": '[{"root":"r"}]',
     };
     const said = await fetched(
       "k7Qm2xPa",
@@ -18,6 +19,7 @@ describe("what the server answers for a link", () => {
     expect(said).toEqual({
       sealed: new Uint8Array([1, 2, 3]),
       facts: { shared: 1_793_000_000, written: 1_793_100_000, ends: 1_795_600_000, gated: true },
+      revoked: '[{"root":"r"}]',
     });
   });
 

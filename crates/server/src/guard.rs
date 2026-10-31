@@ -24,6 +24,8 @@ pub enum Act {
     /// A Tisty asking whether a document it follows changed.
     Poll,
     Report,
+    /// A root's word taking a key back, carried by whoever has it.
+    Revoke,
 }
 
 impl Act {
@@ -34,12 +36,13 @@ impl Act {
             Act::Read => "read",
             Act::Poll => "poll",
             Act::Report => "report",
+            Act::Revoke => "revoke",
         }
     }
 
     /// A network is many readers behind one address, so reading too much only waits out the hour.
     fn escalates(self) -> bool {
-        !matches!(self, Act::Read | Act::Poll)
+        !matches!(self, Act::Read | Act::Poll | Act::Revoke)
     }
 }
 
@@ -51,6 +54,7 @@ pub struct Allowance {
     pub reads: u64,
     pub polls: u64,
     pub reports: u64,
+    pub revocations: u64,
     pub documents_a_day: u64,
     pub bytes_a_day: u64,
     /// The first time it is too much, the second and every one after, within a week.
@@ -66,6 +70,7 @@ impl Default for Allowance {
             reads: 600,
             polls: 3_600,
             reports: 10,
+            revocations: 30,
             documents_a_day: 50,
             bytes_a_day: 50 * 1024 * 1024,
             waits: [HOUR, DAY, 7 * DAY],
@@ -81,6 +86,7 @@ impl Allowance {
             Act::Read => self.reads,
             Act::Poll => self.polls,
             Act::Report => self.reports,
+            Act::Revoke => self.revocations,
         }
     }
 }

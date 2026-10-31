@@ -63,6 +63,8 @@ export const fetched = (id: string, ask: typeof fetch = fetch, password?: string
     async (answer) => ({
       sealed: new Uint8Array(await answer.arrayBuffer()),
       facts: factsOf(answer.headers),
+      // The keys taken back that sent it, which the page believes only as far as their roots signed them.
+      revoked: answer.headers.get("Tisty-Revoked") ?? undefined,
     }),
     password === undefined ? undefined : { headers: { "Tisty-Password": passwordOf(password) } },
   );

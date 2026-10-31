@@ -28,8 +28,10 @@ const WRITTEN: &[u8] = b"tisty-share.written.v1\0";
 const COMMIT: &[u8] = b"tisty-share.commit.v1\0";
 /// What the outer signature answers for: these sealed bytes, uploaded as this id and version.
 pub const SENT: &str = "tisty-share.envelope.v1";
-/// What the inner signature answers for: these words and pictures, wherever they travel.
+/// What the inner signature answers for: these words and pictures, shared as this id, then, as this name.
 pub const WROTE: &str = "tisty-share.text.v1";
+/// A person's name or alias, as long as Tisty lets one be.
+pub const NAME_AT_MOST: usize = 80;
 
 /// The key in the link's `#`: the server never sees it, and nothing about it comes from a password.
 pub struct LinkKey(Zeroizing<[u8; 32]>);
@@ -160,6 +162,8 @@ pub enum Refused {
     Locked,
     #[error("the signature could not be made")]
     Unsigned,
+    #[error("the name signed with is longer than a name can be")]
+    NameTooLong,
     #[error("there was no randomness to seal with")]
     NoRandomness,
 }
@@ -266,18 +270,38 @@ pub struct Draft<'a> {
     pub pictures: &'a [(Kind, &'a [u8])],
 }
 
-/// The machine's key and the certificate its person gave it.
+/// The machine's key and the certificate its person gave it, when it signs and the name it signs with, if any.
 pub struct Signer<'a> {
     pub key: &'a ShareKey,
     pub certificate: &'a Certificate,
+    pub at: jiff::Timestamp,
+    pub name: Option<&'a str>,
+}
+
+/// The inner signature with what it says beside the words, sealed with them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Wrote {
+    id: String,
+    at: jiff::Timestamp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    signed: Signed,
+}
+
+/// What the writer's signature says besides who: when they signed, and the name they chose to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Written {
+    pub at: jiff::Timestamp,
+    pub name: Option<String>,
 }
 
 pub struct Opened {
     pub manifest: Manifest,
     pub text: Zeroizing<String>,
     pub pictures: Vec<(Kind, Zeroizing<Vec<u8>>)>,
-    /// Who wrote these words and pictures, when the envelope carries their signature.
+    /// Who wrote these words and pictures, when the envelope carries their signature; one signed for another id is refused.
     pub wrote: Option<Verdict>,
+    pub written: Option<Written>,
     /// Who sent these bytes as this version, when the envelope carries that signature.
     pub sent: Option<Verdict>,
 }
@@ -290,13 +314,21 @@ pub fn seal(
     limits: &Limits,
 ) -> Result<Envelope, Refused> {
     check_draft(draft)?;
-    let inner = by
-        .map(|signer| sign(signer, WROTE, &content(draft.text, draft.pictures)))
-        .transpose()?
-        .map(|signed| serde_json::to_vec(&signed).map_err(|_| Refused::Unsigned))
-        .transpose()?;
+    let inner = by.map(|signer| wrote(signer, draft)).transpose()?;
+    sealed_with(key, draft, inner.as_deref(), by, limits)
+}
+
+/// Seals the words with an inner signature already made, which only `seal` and the tests that forge one make.
+#[cfg(feature = "mint")]
+fn sealed_with(
+    key: &LinkKey,
+    draft: &Draft,
+    inner: Option<&[u8]>,
+    by: Option<&Signer>,
+    limits: &Limits,
+) -> Result<Envelope, Refused> {
     let mut plain: Vec<(Kind, &[u8])> = vec![(Kind::Text, draft.text.as_bytes())];
-    if let Some(inner) = inner.as_deref() {
+    if let Some(inner) = inner {
         plain.push((Kind::Signature, inner));
     }
     plain.extend(draft.pictures.iter().copied());
@@ -385,6 +417,27 @@ fn check_draft(draft: &Draft) -> Result<(), Refused> {
     Ok(())
 }
 
+/// The inner signature over the words, the id they are shared as, when and as whom, ready to seal.
+#[cfg(feature = "mint")]
+fn wrote(signer: &Signer, draft: &Draft) -> Result<Vec<u8>, Refused> {
+    if signer.name.is_some_and(|name| !named_well(name)) {
+        return Err(Refused::NameTooLong);
+    }
+    let said = vouched_words(
+        &content(draft.text, draft.pictures),
+        draft.id,
+        signer.at,
+        signer.name,
+    );
+    let wrote = Wrote {
+        id: draft.id.to_owned(),
+        at: signer.at,
+        name: signer.name.map(str::to_owned),
+        signed: sign(signer, WROTE, &said)?,
+    };
+    serde_json::to_vec(&wrote).map_err(|_| Refused::Unsigned)
+}
+
 #[cfg(feature = "mint")]
 fn sign(signer: &Signer, about: &str, said: &[u8]) -> Result<Signed, Refused> {
     signer
@@ -424,21 +477,40 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
             _ => Err(Refused::NotAPicture),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let wrote = if manifest.signed() {
-        let inner: Signed = serde_json::from_slice(&plain[1]).map_err(|_| Refused::Damaged)?;
+    let (wrote, written) = if manifest.signed() {
+        let inner: Wrote = serde_json::from_slice(&plain[1]).map_err(|_| Refused::Damaged)?;
+        if inner.name.as_deref().is_some_and(|name| !named_well(name)) {
+            return Err(Refused::Damaged);
+        }
         let shown: Vec<(Kind, &[u8])> = pictures
             .iter()
             .map(|(kind, bytes)| (*kind, bytes.as_slice()))
             .collect();
-        Some(check(&inner, WROTE, &content(&text, &shown), revoked))
+        let said = vouched_words(
+            &content(&text, &shown),
+            &inner.id,
+            inner.at,
+            inner.name.as_deref(),
+        );
+        // Words signed for another link are someone carrying them elsewhere, never the writer sharing them here.
+        let verdict = match inner.id == manifest.id {
+            true => check(&inner.signed, WROTE, &said, revoked),
+            false => Verdict::Refused,
+        };
+        let written = Written {
+            at: inner.at,
+            name: inner.name,
+        };
+        (Some(verdict), Some(written))
     } else {
-        None
+        (None, None)
     };
     Ok(Opened {
         manifest: manifest.clone(),
         text,
         pictures,
         wrote,
+        written,
         sent: envelope.sender(revoked),
     })
 }
@@ -454,6 +526,12 @@ impl Envelope {
 
     fn part(&self, at: usize) -> &[u8] {
         &self.bytes[self.parts[at].clone()]
+    }
+
+    /// The key that says it sent these bytes and the root that says it vouched for it, unchecked,
+    /// so a server can look for what that root took back.
+    pub fn sender_vouched(&self) -> Option<crate::identity::Vouched> {
+        self.sent.as_ref()?.certificate.unchecked()
     }
 
     /// Who sent these sealed bytes, checked without the key: what the server can say about an upload.
@@ -582,6 +660,58 @@ fn bound(written: &[u8]) -> Vec<u8> {
     let mut aad = PART.to_vec();
     aad.extend_from_slice(&Sha256::digest(written));
     aad
+}
+
+/// A name is a line a person can read as written: not too long, no edge of spaces, nothing unseen that hides
+/// a letter or turns the text around, and no more digits than letters, so it never passes for a fingerprint.
+pub fn named_well(name: &str) -> bool {
+    let letters = name.chars().filter(|one| one.is_alphabetic()).count();
+    let digits = name.chars().filter(char::is_ascii_digit).count();
+    name.trim() == name
+        && name.chars().count() <= NAME_AT_MOST
+        && letters > 0
+        && digits <= letters
+        && !name.chars().any(|one| one.is_control() || unseen(one))
+}
+
+fn unseen(one: char) -> bool {
+    matches!(
+        one,
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{061C}'
+            | '\u{115F}'
+            | '\u{1160}'
+            | '\u{17B4}'..='\u{17B5}'
+            | '\u{180B}'..='\u{180F}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{2800}'
+            | '\u{3164}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E007F}'
+    )
+}
+
+/// The words' digest, the id they are shared as, the second they were signed and the name, each framed so none runs into the next.
+fn vouched_words(content: &[u8], id: &str, at: jiff::Timestamp, name: Option<&str>) -> Vec<u8> {
+    let mut said = content.to_vec();
+    said.extend_from_slice(&(id.len() as u64).to_be_bytes());
+    said.extend_from_slice(id.as_bytes());
+    said.extend_from_slice(&at.as_second().to_be_bytes());
+    match name {
+        Some(name) => {
+            said.push(1);
+            said.extend_from_slice(&(name.len() as u64).to_be_bytes());
+            said.extend_from_slice(name.as_bytes());
+        }
+        None => said.push(0),
+    }
+    said
 }
 
 /// The words and every picture, each with its kind and length, as the inner signature reads them.

@@ -3,21 +3,21 @@ import {
   accessOf,
   bylined,
   endsOf,
-  fileOf,
   type Signed,
   sealOf,
   tagged,
   tistyOf,
   whenOf,
 } from "../src/frame";
+import { day } from "../src/when";
 import { wordsFor } from "../src/words";
 
 const say = wordsFor(true);
 const NOW = 1_793_361_600;
 const DAY = 86_400;
 
-const mario: Signed = { is: "holds", fingerprint: "12345 67890 12345 67890", suffix: "r8f1" };
-const ana: Signed = { is: "holds", fingerprint: "99999 88888 77777 66666", suffix: "k7qp" };
+const mario: Signed = { is: "holds", fingerprint: "12345 67890 12345 67890" };
+const ana: Signed = { is: "holds", fingerprint: "99999 88888 77777 66666" };
 
 describe("when it was shared", () => {
   const facts = { shared: NOW - 3 * DAY, written: NOW - 3 * 3_600, gated: false };
@@ -38,25 +38,34 @@ describe("when it was shared", () => {
 });
 
 describe("the seal", () => {
-  it("names who wrote it and their fingerprint", () => {
-    expect(sealOf({ wrote: mario, sent: mario })).toEqual({
+  it("names the writer by their whole fingerprint, never by the short suffix anyone can forge", () => {
+    expect(sealOf({ wrote: mario, sent: mario }, "es")).toEqual({
       verdict: "holds",
-      who: "r8f1",
       fingerprint: mario.fingerprint,
       sender: undefined,
     });
   });
 
+  it("shows the name and the day the writer signed with, never the uploader's", () => {
+    const named: Signed = { ...mario, name: "Mario Hidalgo", signed: NOW } as Signed;
+    expect(sealOf({ wrote: named, sent: { ...ana, name: "Ana" } as Signed }, "es")).toMatchObject({
+      name: "Mario Hidalgo",
+      signedOn: day(NOW, "es"),
+      sender: ana.fingerprint,
+    });
+    expect(sealOf({ wrote: mario }, "es")).toMatchObject({ name: undefined, signedOn: undefined });
+  });
+
   it("names who uploaded it only when it was someone else", () => {
-    expect(sealOf({ wrote: mario, sent: ana }).sender).toBe("k7qp");
-    expect(sealOf({ sent: ana })).toMatchObject({ verdict: "holds", who: "k7qp" });
+    expect(sealOf({ wrote: mario, sent: ana }, "es").sender).toBe(ana.fingerprint);
   });
 
   it("says when nobody signed it, or the signature does not hold", () => {
-    expect(sealOf({})).toEqual({ verdict: "unsigned" });
-    expect(sealOf({ wrote: { is: "refused" } })).toMatchObject({
+    expect(sealOf({}, "es")).toEqual({ verdict: "unsigned" });
+    expect(sealOf({ sent: ana }, "es")).toEqual({ verdict: "unsigned" });
+    expect(sealOf({ wrote: { is: "refused" } }, "es")).toMatchObject({
       verdict: "refused",
-      who: undefined,
+      fingerprint: undefined,
     });
   });
 });
@@ -93,13 +102,6 @@ describe("the byline", () => {
   it("is left to the frame when the body has no title, or there is nothing to say", () => {
     expect(bylined(pageOf("<figure class='code'><pre>x</pre></figure>"), ["a"], "hoy")).toBe(false);
     expect(bylined(pageOf("<h1>Guía</h1>"), [], "")).toBe(false);
-  });
-});
-
-describe("the downloaded file", () => {
-  it("is named after the title, without what some systems forbid", () => {
-    expect(fileOf("Docker: guía/rápida?", "Documento")).toBe("Docker guíarápida.md");
-    expect(fileOf("  ", "Documento compartido")).toBe("Documento compartido.md");
   });
 });
 

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tisty_share_proto::identity::Revocation;
 
 use crate::guard::{self, Act};
 use crate::keys::Slowness;
@@ -48,6 +49,16 @@ impl Doc {
 pub struct Kept {
     pub version: u64,
     pub digest: [u8; 32],
+    /// Who sent it, so a reader is told when that key was taken back; versions from before have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<Sender>,
+}
+
+/// The key that sent a version and the root that vouched for it: only that root can take it back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Sender {
+    pub share: [u8; 32],
+    pub root: [u8; 32],
 }
 
 /// The password a reader must say, kept as a slow digest and guarded against guessing.
@@ -104,6 +115,10 @@ pub trait Store {
     async fn held(&self, key: &str, now: i64) -> Result<Option<i64>, Fault>;
     async fn file(&self, report: &Report) -> Result<(), Fault>;
     async fn reports(&self, id: &str, now: i64) -> Result<Vec<Report>, Fault>;
+    /// Keeps a root's word taking a key back, for good: one per root and key, the first one said.
+    async fn revoke(&self, share: &str, root: &str, record: &Revocation) -> Result<(), Fault>;
+    /// The word this root said taking this key back, if it said one.
+    async fn revocation(&self, share: &str, root: &str) -> Result<Option<Revocation>, Fault>;
     /// Lets go of every counter, mark and report whose time has passed.
     async fn lapse(&self, now: i64) -> Result<(), Fault>;
 }

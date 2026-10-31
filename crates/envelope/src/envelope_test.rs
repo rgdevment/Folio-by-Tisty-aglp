@@ -64,6 +64,8 @@ impl Machine {
         Signer {
             key: &self.key,
             certificate: &self.certificate,
+            at: jiff::Timestamp::from_second(1_000).unwrap(),
+            name: None,
         }
     }
 }
@@ -372,6 +374,8 @@ fn a_machine_whose_certificate_is_another_key_s_cannot_sign() {
     let borrowed = Signer {
         key: &stranger,
         certificate: &mario.certificate,
+        at: jiff::Timestamp::from_second(1_000).unwrap(),
+        name: None,
     };
     assert_eq!(
         sealed(&key(9), &draft("hola", &[]), Some(&borrowed)).err(),
@@ -682,4 +686,127 @@ fn the_digest_is_the_same_whether_sealed_here_or_read_there() {
 
     assert_eq!(sealed.digest(), arrived.digest());
     assert!(matches!(arrived.sender(&[]), Some(Verdict::Holds { .. })));
+}
+
+#[test]
+fn the_writer_signs_the_id_the_moment_and_the_name_they_chose() {
+    let mario = machine(1);
+    let signer = Signer {
+        name: Some("Mario Hidalgo"),
+        ..mario.signer()
+    };
+    let sealed = sealed(&key(9), &draft("Hola", &[]), Some(&signer)).unwrap();
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+
+    assert!(holds_for(opened.wrote, &mario));
+    assert_eq!(
+        opened.written,
+        Some(Written {
+            at: Timestamp::from_second(1_000).unwrap(),
+            name: Some("Mario Hidalgo".into()),
+        })
+    );
+}
+
+#[test]
+fn words_signed_for_another_link_are_not_the_writer_sharing_them_here() {
+    let mario = machine(1);
+    let elsewhere = Draft {
+        id: "otro",
+        ..draft("Hola", &[])
+    };
+    let carried = wrote(&mario.signer(), &elsewhere).unwrap();
+    let thief = machine(5);
+    let sealed = sealed_with(
+        &key(9),
+        &draft("Hola", &[]),
+        Some(&carried),
+        Some(&thief.signer()),
+        &Limits::default(),
+    )
+    .unwrap();
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+
+    assert_eq!(opened.wrote, Some(Verdict::Refused));
+    assert!(holds_for(opened.sent, &thief));
+}
+
+#[test]
+fn a_name_changed_after_signing_does_not_hold() {
+    let mario = machine(1);
+    let signer = Signer {
+        name: Some("Mario"),
+        ..mario.signer()
+    };
+    let honest = wrote(&signer, &draft("Hola", &[])).unwrap();
+    let mut wrote_: Wrote = serde_json::from_slice(&honest).unwrap();
+    wrote_.name = Some("Ana".into());
+    let changed = serde_json::to_vec(&wrote_).unwrap();
+    let sealed = sealed_with(
+        &key(9),
+        &draft("Hola", &[]),
+        Some(&changed),
+        Some(&mario.signer()),
+        &Limits::default(),
+    )
+    .unwrap();
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+
+    assert_eq!(opened.wrote, Some(Verdict::Refused));
+}
+
+#[test]
+fn a_name_is_a_readable_line_of_at_most_eighty_characters_with_nothing_unseen() {
+    let mario = machine(1);
+    let long = "x".repeat(NAME_AT_MOST + 1);
+    for name in [
+        "",
+        "   ",
+        " Mario",
+        "una\nlínea",
+        "\u{200B}",
+        "Ana\u{202E}zeréP",
+        "\u{3164}",
+        "Ana\u{2028}Pérez",
+        "12345 67890 12345 67890",
+        "12345 67890 12345 6789O",
+        "Ana\u{180B}",
+        "Ana\u{17B4}",
+        "Ana\u{1D173}",
+        "Ana\u{E0041}",
+        long.as_str(),
+    ] {
+        let signer = Signer {
+            name: Some(name),
+            ..mario.signer()
+        };
+        assert_eq!(
+            sealed(&key(9), &draft("Hola", &[]), Some(&signer)).err(),
+            Some(Refused::NameTooLong),
+            "{name:?}"
+        );
+    }
+}
+
+#[test]
+fn a_name_of_any_alphabet_up_to_eighty_characters_is_signed() {
+    let mario = machine(1);
+    let longest = "日".repeat(NAME_AT_MOST);
+    for name in [
+        "Mario Hidalgo",
+        "José Núñez",
+        "王小明",
+        "R2D2",
+        "Sala 101",
+        longest.as_str(),
+    ] {
+        let signer = Signer {
+            name: Some(name),
+            ..mario.signer()
+        };
+        assert!(
+            sealed(&key(9), &draft("Hola", &[]), Some(&signer)).is_ok(),
+            "{name}"
+        );
+    }
 }

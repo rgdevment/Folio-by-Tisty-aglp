@@ -6,6 +6,8 @@ fn started() -> Connection {
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch(include_str!("../migrations/0001_start.sql"))
         .unwrap();
+    db.execute_batch(include_str!("../migrations/0002_revocations.sql"))
+        .unwrap();
     db
 }
 
@@ -123,4 +125,24 @@ fn holds_and_reports_last_until_their_moment_and_then_lapse() {
         )
         .unwrap();
     assert_eq!(left, 2);
+}
+
+#[test]
+fn a_revocation_is_kept_once_per_root_and_key_and_read_back_by_both() {
+    let db = started();
+    let revoke = |share: &str, root: &str, body: &str| {
+        db.execute(REVOKE, params![share, root, body]).unwrap()
+    };
+    assert_eq!(revoke("k1", "r1", "first"), 1);
+    assert_eq!(revoke("k1", "r1", "again"), 0);
+    assert_eq!(revoke("k1", "r2", "other"), 1);
+    assert_eq!(revoke("k2", "r1", "elsewhere"), 1);
+
+    let said = |share: &str, root: &str| -> Option<String> {
+        db.query_row(REVOCATION, params![share, root], |row| row.get(0))
+            .ok()
+    };
+    assert_eq!(said("k1", "r1").as_deref(), Some("first"));
+    assert_eq!(said("k1", "r2").as_deref(), Some("other"));
+    assert_eq!(said("k2", "r2"), None);
 }

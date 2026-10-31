@@ -4,6 +4,7 @@ use std::net::IpAddr;
 
 use futures_util::StreamExt;
 use serde::de::DeserializeOwned;
+use tisty_share_proto::identity::Revocation;
 use tisty_share_server::guard::{self, Act, Allowance};
 use tisty_share_server::keys::{Randomness, Slowness};
 use tisty_share_server::moderation::Report;
@@ -217,6 +218,20 @@ impl Store for Cloud {
     async fn reports(&self, id: &str, now: i64) -> Result<Vec<Report>, Fault> {
         let held: Vec<Body> = self.all(sql::REPORTS, &[id.into(), number(now)]).await?;
         held.iter().map(|held| parsed(&held.body)).collect()
+    }
+
+    async fn revoke(&self, share: &str, root: &str, record: &Revocation) -> Result<(), Fault> {
+        let body = serde_json::to_string(record).map_err(fault)?;
+        let values = [share.into(), root.into(), body.into()];
+        self.changes(sql::REVOKE, &values).await?;
+        Ok(())
+    }
+
+    async fn revocation(&self, share: &str, root: &str) -> Result<Option<Revocation>, Fault> {
+        let held: Option<Body> = self
+            .first(sql::REVOCATION, &[share.into(), root.into()])
+            .await?;
+        held.map(|held| parsed(&held.body)).transpose()
     }
 
     async fn lapse(&self, now: i64) -> Result<(), Fault> {

@@ -17,12 +17,12 @@ import {
 } from "./drawn";
 import { type Facts, fetched, limitsOf, REASONS, type Reason, reported } from "./fetched";
 import { type About, accessOf, bylined, endsOf, tagged, whenOf } from "./frame";
-import { linkOf } from "./link";
+import { type Link, linkOf, readLinkOf } from "./link";
 import { gated, refused, sheetWordsFor, spanish, wordsFor } from "./words";
 
 // What the link opened: the body, its front matter's title (which wins over the first line, as in Tisty) and the text.
 type Found = Opened & { readonly title: string; readonly text: string; readonly about: About };
-type Read = Found & { readonly facts: Facts };
+type Read = Found & { readonly facts: Facts; readonly link: Link };
 
 const night = matchMedia("(prefers-color-scheme: dark)");
 const inSpanish = spanish(navigator.language);
@@ -84,9 +84,19 @@ const taken = (page: Page): Found => {
   }
 };
 
-const read = (sealed: Uint8Array, key: string, limits?: string): Found | string => {
+// Every document is signed by whoever wrote it; one that is not never reaches the page (decision 71).
+const read = (
+  sealed: Uint8Array,
+  key: string,
+  revoked?: string,
+  limits?: string,
+): Found | string => {
   try {
-    return taken(open(sealed, key, limits));
+    const found = taken(open(sealed, key, revoked, limits));
+    const wrote = found.about.wrote;
+    if (!wrote) return "unsigned";
+    // A signature that does not hold claims someone it is not, which is worse than none.
+    return wrote.is === "refused" || wrote.is === "unreadable" ? "forged" : found;
   } catch (error_) {
     return wordOf(error_);
   }
@@ -104,13 +114,16 @@ const opened = async (password?: string): Promise<Read | string> => {
   const [answer, loaded] = await Promise.all([fetched(link.id, fetch, password), loading]);
   if ("refused" in answer) return answer.refused;
   if (!loaded) return "offline";
-  let found = read(answer.sealed, link.key);
+  let found = read(answer.sealed, link.key, answer.revoked);
   // Only an envelope over Tisty's own limits needs the server's, so a reading mostly asks the Worker once.
   if (found === "over") {
     const limits = await limitsOf();
-    found = "refused" in limits ? limits.refused : read(answer.sealed, link.key, limits.limits);
+    found =
+      "refused" in limits
+        ? limits.refused
+        : read(answer.sealed, link.key, answer.revoked, limits.limits);
   }
-  return typeof found === "string" ? found : { ...found, facts: answer.facts };
+  return typeof found === "string" ? found : { ...found, facts: answer.facts, link };
 };
 
 // What can be done with it and for how long sit under the panels, as the mock-up lays them out.
@@ -213,8 +226,8 @@ const shown = async (password?: string) => {
       panelsOf(
         { title, text: found.text, about: found.about, view, raw, heads },
         { onView, onRaw, onShut: () => besideShown(false) },
-        { sheet: sheetSays.say, page: say },
-        location.href,
+        { sheet: sheetSays.say, page: say, language },
+        { opened: location.href, read: readLinkOf(location.origin, found.link) },
       ),
     );
   const onView = (next: View) => {

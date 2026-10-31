@@ -4,7 +4,13 @@ import { ago, day } from "./when";
 import { filled } from "./words";
 
 export type Signed =
-  | { readonly is: "holds" | "revoked"; readonly fingerprint: string; readonly suffix: string }
+  | {
+      readonly is: "holds" | "revoked";
+      readonly fingerprint: string;
+      /** The name and the moment the writer signed with, which their key vouches for; an uploader's has neither. */
+      readonly name?: string;
+      readonly signed?: number;
+    }
   | { readonly is: "refused" | "unreadable" };
 
 export type About = {
@@ -35,16 +41,18 @@ export const whenOf = (
     .join(" · ");
 
 // Who wrote it is what the reader asks; who uploaded it is said too, but only when it was someone else.
-export const sealOf = (about: About): Seal => {
-  const signed = about.wrote ?? about.sent;
+// The uploader never stands in for the writer: a body with no signature of its own is nobody's.
+export const sealOf = (about: About, language: string): Seal => {
+  const signed = about.wrote;
   if (!signed) return { verdict: "unsigned" };
-  const writer = "suffix" in signed ? signed : undefined;
-  const sent = about.sent && "suffix" in about.sent ? about.sent : undefined;
+  const writer = "fingerprint" in signed ? signed : undefined;
+  const sent = about.sent && "fingerprint" in about.sent ? about.sent : undefined;
   return {
     verdict: signed.is,
-    who: writer?.suffix,
+    name: writer?.name,
+    signedOn: writer?.signed === undefined ? undefined : day(writer.signed, language),
     fingerprint: writer?.fingerprint,
-    sender: sent && sent.fingerprint !== writer?.fingerprint ? sent.suffix : undefined,
+    sender: sent && sent.fingerprint !== writer?.fingerprint ? sent.fingerprint : undefined,
   };
 };
 
@@ -90,10 +98,6 @@ export const accessOf = (facts: Facts): string => (facts.gated ? "gated" : "unli
 // Every reading pushes the end back (decision 50), which the note under the date says.
 export const endsOf = (facts: Facts, language: string): string =>
   facts.ends === undefined ? "" : day(facts.ends, language, "medium");
-
-// A name every system takes: the title without the characters some forbid, or the page's own word for it.
-export const fileOf = (title: string, fallback: string): string =>
-  `${title.replaceAll(/[\\/:*?"<>|]/g, "").trim() || fallback}.md`;
 
 // Tisty takes the whole link, key and all, from its own scheme; the browser hands it over only on a click.
 export const tistyOf = (link: string): string => `tisty://share?link=${encodeURIComponent(link)}`;

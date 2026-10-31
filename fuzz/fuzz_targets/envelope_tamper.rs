@@ -31,6 +31,8 @@ fuzz_target!(|input: Input| {
     let signer = Signer {
         key: &share,
         certificate: &certificate,
+        at: Timestamp::from_second(2_000).unwrap(),
+        name: Some("Fuzz"),
     };
     let pictures: Vec<Vec<u8>> = input.pictures.iter().take(3).map(|one| png(one)).collect();
     let shown: Vec<(Kind, &[u8])> = pictures

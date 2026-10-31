@@ -11,7 +11,7 @@ workspace = true
 
 [features]
 # The helpers its own tests use, for the tests of whoever hosts it.
-testing = []
+testing = ["dep:jiff"]
 
 [dependencies]
 base64.workspace = true
@@ -20,6 +20,7 @@ scrypt.workspace = true
 serde.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+jiff = { workspace = true, optional = true }
 tisty-share-proto.workspace = true
 zeroize.workspace = true
 

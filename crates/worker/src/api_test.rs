@@ -1,13 +1,13 @@
 use std::net::{IpAddr, Ipv4Addr};
 
 use serde_json::Value;
-use tisty_share_proto::envelope::{self, Draft, Envelope, LinkKey};
+use tisty_share_proto::envelope::{self, Draft, Envelope, LinkKey, Signer};
 use tisty_share_proto::work::{self, Challenge};
 use tisty_share_server::guard::{Allowance, Work};
 use tisty_share_server::keys::Slowness;
 use tisty_share_server::memory::Memory;
 use tisty_share_server::share::Policy;
-use tisty_share_server::testing::{Counting, done};
+use tisty_share_server::testing::{Counting, SIGNED_AT, done, taken_back, vouched};
 
 use super::*;
 
@@ -37,10 +37,17 @@ fn sealed(id: &str, version: u64, from: Option<u64>) -> Vec<u8> {
         text: "hola",
         pictures: &[],
     };
+    let (machine, certificate) = vouched();
+    let signer = Signer {
+        key: &machine,
+        certificate: &certificate,
+        at: SIGNED_AT,
+        name: None,
+    };
     envelope::seal(
         &LinkKey::from_bytes(&[9; 32]),
         &draft,
-        None,
+        Some(&signer),
         &Limits::default(),
     )
     .unwrap()
@@ -422,4 +429,19 @@ fn a_body_too_large_to_be_any_envelope_is_turned_away_unread() {
     let refused = too_large(&limits, ceiling + 1).unwrap();
     assert_eq!(refused.status, 413);
     assert_eq!(header(&refused, "Cache-Control"), Some("no-store"));
+}
+
+#[test]
+fn a_revocation_anyone_carries_reaches_every_reader_of_what_that_key_sent() {
+    let mut world = World::new();
+    let shared = world.shared();
+    let taken = taken_back(T0);
+    let mut asked_ = asked("POST", "/api/v1/revocations");
+    asked_.body = serde_json::to_vec(&[&taken]).unwrap();
+    assert_eq!(world.answer(asked_).status, 204);
+
+    let read = world.answer(asked("GET", &format!("/api/v1/docs/{}", shared.id)));
+    let told: Vec<tisty_share_proto::identity::Revocation> =
+        serde_json::from_str(header(&read, "Tisty-Revoked").unwrap()).unwrap();
+    assert_eq!(told, vec![taken]);
 }

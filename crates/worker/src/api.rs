@@ -7,6 +7,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tisty_share_proto::identity::Revocation;
 use tisty_share_proto::limits::Limits;
 use tisty_share_proto::work::Proof;
 use tisty_share_server::keys::Randomness;
@@ -236,6 +237,11 @@ async fn routed<S: Store, R: Randomness>(
             share.report(id, complaint, caller, &proof, now).await?;
             Ok(plain(204, "text/plain", Vec::new()))
         }
+        ("POST", ["revocations"]) => {
+            let revocations: Vec<Revocation> = read(&asked.body)?;
+            share.revoke(&revocations, caller, now).await?;
+            Ok(plain(204, "text/plain", Vec::new()))
+        }
         ("POST", ["docs", id, "appeal"]) => {
             let admin = token.ok_or(Refused::Forbidden)?;
             let appealing: Appealing = read(&asked.body)?;
@@ -356,6 +362,12 @@ fn envelope(served: Served) -> Answer {
     answer.headers.push(("Tisty-Ends", facts.ends.to_string()));
     if facts.gated {
         answer.headers.push(("Tisty-Gated", "1".into()));
+    }
+    // Each one is the root's own signed word, so the page checks it rather than taking the server's.
+    if !served.revoked.is_empty() {
+        answer
+            .headers
+            .push(("Tisty-Revoked", json!(served.revoked).to_string()));
     }
     answer
 }

@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use tisty_share_proto::identity::Revocation;
+
 use crate::moderation::Report;
 use crate::store::{Doc, Fault, Kept, Saved, Store};
 
@@ -12,6 +14,7 @@ pub struct Memory {
     counters: RefCell<HashMap<String, (u64, i64)>>,
     holds: RefCell<HashMap<String, i64>>,
     reports: RefCell<Vec<Report>>,
+    revocations: RefCell<HashMap<(String, String), Revocation>>,
 }
 
 impl Memory {
@@ -128,6 +131,22 @@ impl Store for Memory {
             .filter(|report| report.id == id && report.until >= now)
             .cloned()
             .collect())
+    }
+
+    async fn revoke(&self, share: &str, root: &str, record: &Revocation) -> Result<(), Fault> {
+        self.revocations
+            .borrow_mut()
+            .entry((share.to_owned(), root.to_owned()))
+            .or_insert_with(|| record.clone());
+        Ok(())
+    }
+
+    async fn revocation(&self, share: &str, root: &str) -> Result<Option<Revocation>, Fault> {
+        Ok(self
+            .revocations
+            .borrow()
+            .get(&(share.to_owned(), root.to_owned()))
+            .cloned())
     }
 
     async fn lapse(&self, now: i64) -> Result<(), Fault> {

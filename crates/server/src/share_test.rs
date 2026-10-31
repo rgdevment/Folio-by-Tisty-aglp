@@ -3,14 +3,14 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use jiff::Timestamp;
 use tisty_share_proto::envelope::{self, Draft, Kind, LinkKey, Signer};
-use tisty_share_proto::identity::{Root, ShareKey};
+use tisty_share_proto::identity::Revocation;
 use tisty_share_proto::work;
 
 use super::*;
 use crate::memory::Memory;
 use crate::moderation::{Category, Complaint, DETAIL_AT_MOST};
 use crate::store::Doc;
-use crate::testing::{Counting, done};
+use crate::testing::{Counting, done, taken_back, vouched};
 
 struct Empty;
 
@@ -56,7 +56,14 @@ fn sealed(id: &str, version: u64, from: Option<u64>, text: &str) -> Vec<u8> {
         text,
         pictures: &[],
     };
-    envelope::seal(&key(), &draft, None, &Limits::default())
+    let (machine, certificate) = vouched();
+    let signer = Signer {
+        key: &machine,
+        certificate: &certificate,
+        at: Timestamp::from_second(T0).unwrap(),
+        name: None,
+    };
+    envelope::seal(&key(), &draft, Some(&signer), &Limits::default())
         .unwrap()
         .to_bytes()
 }
@@ -264,12 +271,12 @@ fn an_envelope_over_the_server_s_limits_is_refused() {
 fn a_signed_envelope_is_taken_with_its_signature() {
     let mut world = World::new();
     let reserved = world.reserve(T0);
-    let root = Root::from_bytes(&[1; 32]);
-    let machine = ShareKey::from_bytes(&[2; 32]);
-    let certificate = root.certify(&machine.public(), Timestamp::from_second(1_000).unwrap());
+    let (machine, certificate) = vouched();
     let signer = Signer {
         key: &machine,
         certificate: &certificate,
+        at: Timestamp::from_second(T0).unwrap(),
+        name: None,
     };
     let draft = Draft {
         id: &reserved.id,
@@ -283,6 +290,27 @@ fn a_signed_envelope_is_taken_with_its_signature() {
         .to_bytes();
 
     assert_eq!(world.put(&reserved.id, &reserved.edit, bytes, T0), Ok(1));
+}
+
+#[test]
+fn an_unsigned_envelope_is_refused() {
+    let mut world = World::new();
+    let reserved = world.reserve(T0);
+    let draft = Draft {
+        id: &reserved.id,
+        version: 1,
+        from: None,
+        text: "sin firma",
+        pictures: &[],
+    };
+    let bytes = envelope::seal(&key(), &draft, None, &Limits::default())
+        .unwrap()
+        .to_bytes();
+
+    assert_eq!(
+        world.put(&reserved.id, &reserved.edit, bytes, T0),
+        Err(Refused::Unsigned)
+    );
 }
 
 #[test]
@@ -629,7 +657,14 @@ fn a_heavier_envelope_costs_more_work_than_it_was_asked_for_when_it_claims_to_be
         text: "pesado",
         pictures: &pictures,
     };
-    let heavy = envelope::seal(&key(), &draft, None, &Limits::default())
+    let (machine, certificate) = vouched();
+    let signer = Signer {
+        key: &machine,
+        certificate: &certificate,
+        at: Timestamp::from_second(T0).unwrap(),
+        name: None,
+    };
+    let heavy = envelope::seal(&key(), &draft, Some(&signer), &Limits::default())
         .unwrap()
         .to_bytes();
     assert!(heavy.len() > 1024 * 1024);
@@ -1032,6 +1067,12 @@ impl Store for Faulty {
     async fn reports(&self, id: &str, now: i64) -> Result<Vec<crate::moderation::Report>, Fault> {
         self.inner.reports(id, now).await
     }
+    async fn revoke(&self, share: &str, root: &str, record: &Revocation) -> Result<(), Fault> {
+        self.inner.revoke(share, root, record).await
+    }
+    async fn revocation(&self, share: &str, root: &str) -> Result<Option<Revocation>, Fault> {
+        self.inner.revocation(share, root).await
+    }
     async fn lapse(&self, now: i64) -> Result<(), Fault> {
         if self.unlapsing.get() {
             return Err(Fault("the old counters would not go".into()));
@@ -1307,4 +1348,95 @@ fn a_reader_is_told_when_it_was_shared_and_written_when_it_ends_and_whether_it_a
         .unwrap();
     let gated = world.read_from(&reserved.id, Some("perro azul"), HERE, T0 + 2 * DAY);
     assert!(gated.unwrap().facts.gated);
+}
+
+#[test]
+fn a_key_taken_back_is_told_to_every_reader_and_sends_nothing_more() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    done(world.share.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
+
+    let served = world.read(&reserved.id, T0).unwrap();
+    assert_eq!(served.revoked, vec![taken_back(T0)]);
+    let opened = Envelope::read(served.envelope, &Limits::default()).unwrap();
+    assert!(matches!(
+        opened.sender(&served.revoked),
+        Some(Verdict::Revoked { .. })
+    ));
+
+    let second = sealed(&reserved.id, 2, Some(1), "dos");
+    assert_eq!(
+        world.put(&reserved.id, &reserved.edit, second, T0),
+        Err(Refused::Unsigned)
+    );
+}
+
+#[test]
+fn a_revocation_that_does_not_hold_is_not_kept() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    let mut forged = taken_back(T0);
+    forged.at = Timestamp::from_second(T0 + 1).unwrap();
+
+    assert_eq!(
+        done(world.share.revoke(&[forged], HERE, T0)),
+        Err(Refused::Unsigned)
+    );
+    assert!(world.read(&reserved.id, T0).unwrap().revoked.is_empty());
+}
+
+#[test]
+fn the_same_revocation_carried_twice_is_kept_once() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    done(world.share.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
+    done(world.share.revoke(&[taken_back(T0)], there(2), T0)).unwrap();
+
+    assert_eq!(world.read(&reserved.id, T0).unwrap().revoked.len(), 1);
+}
+
+#[test]
+fn another_root_taking_back_the_same_key_is_kept_but_never_told_nor_heeded() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    let (machine, _) = vouched();
+    let stranger = tisty_share_proto::identity::Root::from_bytes(&[4; 32])
+        .revoke(&machine.public(), Timestamp::from_second(T0).unwrap());
+    done(world.share.revoke(&[stranger], HERE, T0)).unwrap();
+
+    assert!(world.read(&reserved.id, T0).unwrap().revoked.is_empty());
+    let second = sealed(&reserved.id, 2, Some(1), "dos");
+    assert_eq!(world.put(&reserved.id, &reserved.edit, second, T0), Ok(2));
+}
+
+#[test]
+fn many_revocations_go_in_one_request_and_too_many_are_turned_away() {
+    let mut world = World::new();
+    let many = vec![taken_back(T0); tisty_share_proto::identity::REVOCATIONS_AT_ONCE + 1];
+
+    assert_eq!(
+        done(world.share.revoke(&many, HERE, T0)),
+        Err(Refused::TooLong)
+    );
+    let enough = &many[..tisty_share_proto::identity::REVOCATIONS_AT_ONCE];
+    assert_eq!(done(world.share.revoke(enough, HERE, T0)), Ok(()));
+}
+
+#[test]
+fn carrying_too_many_revocations_waits_out_the_hour_and_blocks_nothing_else() {
+    let mut world = World::with(Policy {
+        allowance: guard::Allowance {
+            revocations: 1,
+            ..guard::Allowance::default()
+        },
+        ..policy()
+    });
+    let reserved = world.shared(T0);
+    done(world.share.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
+
+    assert!(matches!(
+        done(world.share.revoke(&[taken_back(T0)], HERE, T0)),
+        Err(Refused::Slow { .. })
+    ));
+    assert!(world.read(&reserved.id, T0).is_ok());
 }

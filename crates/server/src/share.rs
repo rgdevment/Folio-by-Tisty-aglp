@@ -2,14 +2,14 @@ use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 use tisty_share_proto::envelope::{Envelope, Refused as Unread};
-use tisty_share_proto::identity::Verdict;
+use tisty_share_proto::identity::{Revocation, Verdict};
 use tisty_share_proto::limits::Limits;
 use tisty_share_proto::work::{Challenge, Proof};
 use zeroize::Zeroizing;
 
 use crate::guard::{self, Act, Allowance, Work};
 use crate::keys::{self, Randomness, Slowness};
-use crate::store::{Doc, Fault, Kept, Saved, Store};
+use crate::store::{Doc, Fault, Kept, Saved, Sender, Store};
 
 const DAY: i64 = 24 * 60 * 60;
 /// A read writes down activity at most this often: days decide an expiry, and every write costs a store.
@@ -91,8 +91,8 @@ pub enum Refused {
     Misaddressed,
     #[error("the envelope was refused: {0}")]
     Envelope(Unread),
-    /// A signature the envelope carries does not hold, so it would claim someone it is not.
-    #[error("the envelope's signature does not hold")]
+    /// Unsigned, or signed by a key that does not hold: the key is the only identity there is (decision 71).
+    #[error("the envelope is not signed by a key that holds")]
     Unsigned,
     /// The work asked for is missing, short, spent, expired or not this server's.
     #[error("the work asked for was not done")]
@@ -125,6 +125,8 @@ pub struct Served {
     pub version: u64,
     pub envelope: Vec<u8>,
     pub facts: Facts,
+    /// What took back the key that sent it, so the reader is told rather than shown it as holding.
+    pub revoked: Vec<Revocation>,
 }
 
 /// What a reader is told beside the words: nothing the server does not already hold in the clear.
@@ -317,10 +319,12 @@ impl<S: Store, R: Randomness> Share<S, R> {
         if manifest.id != doc.id {
             return Err(Refused::Misaddressed);
         }
-        if matches!(
-            envelope.sender(&[]),
-            Some(Verdict::Refused | Verdict::Unreadable)
-        ) {
+        let by = envelope.sender_vouched().map(|vouched| Sender {
+            share: vouched.share.to_bytes(),
+            root: vouched.person.to_bytes(),
+        });
+        let revoked = self.revoked(by.as_ref()).await?;
+        if !matches!(envelope.sender(&revoked), Some(Verdict::Holds { .. })) {
             return Err(Refused::Unsigned);
         }
         let latest = doc.latest();
@@ -341,6 +345,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         let kept = Kept {
             version: manifest.version,
             digest: envelope.digest(),
+            by,
         };
         self.store.keep(id, &kept, envelope.into_bytes()).await?;
         // A reserved id may wait an hour for its first version, and the reader is told when it was shared, not reserved.
@@ -400,6 +405,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             version: kept.version,
             envelope,
             facts: Facts::of(&doc),
+            revoked: self.revoked(kept.by.as_ref()).await?,
         })
     }
 
@@ -439,6 +445,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             version,
             envelope,
             facts: Facts::of(&doc),
+            revoked: self.revoked(kept.by.as_ref()).await?,
         })
     }
 

@@ -42,10 +42,15 @@ impl Page {
     }
 }
 
-/// Opens the envelope, or says in one word why it would not open.
+/// Opens the envelope, told of the keys taken back the server sent beside it, or says in one word why it would not open.
 #[wasm_bindgen]
-pub fn open(envelope: Vec<u8>, key: &str, limits: Option<String>) -> Result<Page, JsError> {
-    shown(envelope, key, limits.as_deref())
+pub fn open(
+    envelope: Vec<u8>,
+    key: &str,
+    revoked: Option<String>,
+    limits: Option<String>,
+) -> Result<Page, JsError> {
+    shown(envelope, key, limits.as_deref(), revoked.as_deref())
         .map(Page)
         .map_err(|unread| JsError::new(unread.word()))
 }
