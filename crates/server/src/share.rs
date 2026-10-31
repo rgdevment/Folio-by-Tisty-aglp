@@ -27,9 +27,15 @@ pub struct Policy {
     pub trash: i64,
     /// Seconds a reserved id waits for its first version.
     pub reserved: i64,
-    /// Wrong passwords in a row before the gate closes for a while.
-    pub misses: u32,
+    /// Wrong passwords one network may say to one document in `locked` seconds; past them, that network waits the rest.
+    pub misses: u64,
+    /// The same for a whole IPv6 /48, which holds 65,536 networks of its own.
+    pub misses_wide: u64,
     pub locked: i64,
+    /// Wrong passwords a document hears in a day from everywhere before every try costs work (decision 76).
+    pub guessed: u64,
+    /// Past these in a day, every network and block gets a fifth of its tries, so spreading out buys a guesser little.
+    pub guessed_most: u64,
     pub slowness: Slowness,
     pub allowance: Allowance,
     pub work: Work,
@@ -51,7 +57,10 @@ impl Default for Policy {
             trash: 30 * DAY,
             reserved: 60 * 60,
             misses: 5,
+            misses_wide: 20,
             locked: 15 * 60,
+            guessed: 50,
+            guessed_most: 1_000,
             slowness: Slowness::default(),
             allowance: Allowance::default(),
             work: Work::default(),
@@ -82,8 +91,12 @@ pub enum Refused {
     PasswordAsked,
     #[error("that is not its password")]
     PasswordWrong,
+    /// Too many wrong ones from this place: only it waits, never the document's other readers (decision 76).
     #[error("too many wrong passwords; try again later")]
     PasswordLocked { until: i64 },
+    /// Guessed at from everywhere today, so a password is weighed only with a proof of work beside it.
+    #[error("this document asks for work with its password")]
+    WorkAsked,
     /// Someone else uploaded first; Tisty shows both and lets the person choose.
     #[error("there is a newer version than the one this was written on")]
     Behind { latest: Option<u64> },
@@ -198,6 +211,10 @@ pub enum Ask<'a> {
     Report {
         id: &'a str,
     },
+    /// A password said to a document guessed at from everywhere today.
+    Password {
+        id: &'a str,
+    },
 }
 
 impl Ask<'_> {
@@ -208,6 +225,7 @@ impl Ask<'_> {
                 [b"upload:".as_slice(), id.as_bytes(), digest].concat()
             }
             Ask::Report { id } => [b"report:".as_slice(), id.as_bytes()].concat(),
+            Ask::Password { id } => [b"password:".as_slice(), id.as_bytes()].concat(),
         }
     }
 }
@@ -231,12 +249,27 @@ impl<S: Store, R: Randomness> Share<S, R> {
     }
 
     /// The work a step costs, signed so only this server's challenges are taken.
-    pub fn challenge(&mut self, ask: Ask, now: i64) -> Result<Challenge, Refused> {
+    pub async fn challenge(
+        &mut self,
+        ask: Ask<'_>,
+        caller: IpAddr,
+        now: i64,
+    ) -> Result<Challenge, Refused> {
         let work = self.policy.work;
         let bits = match ask {
             Ask::Reserve => work.reserve,
             Ask::Upload { bytes, .. } => work.for_upload(bytes),
             Ask::Report { .. } => work.report,
+            Ask::Password { id } => {
+                // Counted as a read, and only for a document a reader could open with a password, so no other id costs a look.
+                self.admit(caller, Act::Read, now).await?;
+                let doc = self.live(id, now).await?;
+                open_to_read(&doc)?;
+                if doc.gate.is_none() {
+                    return Err(Refused::Forbidden);
+                }
+                u8::max(self.password_work(id, now).await?, work.password)
+            }
         };
         let mut salt = [0u8; 16];
         if !self.random.fill(&mut salt) {
@@ -376,6 +409,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         &mut self,
         id: &str,
         password: Option<&str>,
+        proof: Option<&Proof>,
         caller: IpAddr,
         now: i64,
     ) -> Result<Served, Refused> {
@@ -383,7 +417,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         let mut doc = self.live(id, now).await?;
         open_to_read(&doc)?;
         let kept = *doc.versions.last().ok_or(Refused::Unwritten)?;
-        let cleared = self.let_in(&mut doc, password, now).await?;
+        self.let_in(&doc, password, proof, caller, now).await?;
         let envelope = self
             .store
             .envelope(id, &kept)
@@ -393,7 +427,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         if new_reader {
             doc.reads += 1;
         }
-        if new_reader || cleared || now - doc.active >= ACTIVITY_GRAIN {
+        if new_reader || now - doc.active >= ACTIVITY_GRAIN {
             touched(&mut doc, now);
             // Another reader saving the same activity first loses nothing, so a race is no refusal.
             match self.saved(&mut doc).await {
@@ -591,47 +625,6 @@ impl<S: Store, R: Randomness> Share<S, R> {
             }
             Some(doc) => Ok(doc),
         }
-    }
-
-    /// A wrong password counts, and enough in a row close the gate for a while (decision 32).
-    /// True when letting in cleared earlier misses, which the caller then saves.
-    async fn let_in(
-        &mut self,
-        doc: &mut Doc,
-        password: Option<&str>,
-        now: i64,
-    ) -> Result<bool, Refused> {
-        let Some(gate) = doc.gate.as_mut() else {
-            return Ok(false);
-        };
-        if let Some(until) = gate.locked_until.filter(|until| *until > now) {
-            return Err(Refused::PasswordLocked { until });
-        }
-        let Some(password) = password else {
-            return Err(Refused::PasswordAsked);
-        };
-        if keys::opens(gate, password) {
-            let cleared = gate.missed > 0 || gate.locked_until.is_some();
-            gate.missed = 0;
-            gate.locked_until = None;
-            return Ok(cleared);
-        }
-        let (misses, locked) = (self.policy.misses, self.policy.locked);
-        // A miss is written on what is stored now, so two guesses at once both count, and a lost race is still a wrong password.
-        let _ = self
-            .retried(&doc.id, now, |held| {
-                let Some(gate) = held.gate.as_mut() else {
-                    return false;
-                };
-                gate.missed += 1;
-                if gate.missed >= misses {
-                    gate.missed = 0;
-                    gate.locked_until = Some(now + locked);
-                }
-                true
-            })
-            .await;
-        Err(Refused::PasswordWrong)
     }
 
     /// Reads the document again and applies `change` until it saves, for what must not be lost to a race.

@@ -96,6 +96,9 @@ enum Asking {
     Report {
         id: String,
     },
+    Password {
+        id: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -172,13 +175,18 @@ async fn routed<S: Store, R: Randomness>(
         ("POST", ["challenge"]) => {
             let asking: Asking = read(&asked.body)?;
             let challenge = match &asking {
-                Asking::Reserve => share.challenge(Ask::Reserve, now)?,
+                Asking::Reserve => share.challenge(Ask::Reserve, caller, now).await?,
                 Asking::Upload { id, digest, bytes } => {
                     let digest = digest_of(digest).ok_or(Turned::Unreadable)?;
                     let bytes = *bytes;
-                    share.challenge(Ask::Upload { id, digest, bytes }, now)?
+                    share
+                        .challenge(Ask::Upload { id, digest, bytes }, caller, now)
+                        .await?
                 }
-                Asking::Report { id } => share.challenge(Ask::Report { id }, now)?,
+                Asking::Report { id } => share.challenge(Ask::Report { id }, caller, now).await?,
+                Asking::Password { id } => {
+                    share.challenge(Ask::Password { id }, caller, now).await?
+                }
             };
             Ok(said(200, json!(challenge)))
         }
@@ -202,7 +210,14 @@ async fn routed<S: Store, R: Randomness>(
         }
         ("GET", ["docs", id]) => {
             let password = asked.password.as_deref().map(password_of).transpose()?;
-            let served = share.read(id, password.as_deref(), caller, now).await?;
+            // Work matters only once a document asked for it, so a header that is no proof is read as none.
+            let proof = asked
+                .work
+                .as_deref()
+                .and_then(|work| serde_json::from_str::<Proof>(work).ok());
+            let served = share
+                .read(id, password.as_deref(), proof.as_ref(), caller, now)
+                .await?;
             Ok(envelope(served))
         }
         ("GET", ["docs", id, "latest"]) => {
@@ -279,6 +294,7 @@ fn refusal(refused: &Refused, now: i64) -> Answer {
         Refused::PasswordAsked => (401, "password_asked"),
         Refused::PasswordWrong => (401, "password_wrong"),
         Refused::PasswordLocked { .. } => (429, "password_locked"),
+        Refused::WorkAsked => (428, "work_asked"),
         Refused::Behind { .. } => (409, "behind"),
         Refused::Misaddressed => (422, "misaddressed"),
         Refused::Envelope(_) => (422, "envelope"),

@@ -55,8 +55,30 @@ export const passwordOf = (password: string): string =>
     .replaceAll("/", "_")
     .replace(/=+$/, "");
 
-// The password travels in a header of its own, so it never sits in a URL or a log.
-export const fetched = (id: string, ask: typeof fetch = fetch, password?: string) =>
+type Solve = (challenge: string) => Promise<string | undefined>;
+
+const ENDS = new Set(["missing", "gone", "paused", "blocked"]);
+
+// Too many reads from this network is a wait, which the reader is told rather than a plain «try again».
+const worded = (refusal: Refusal) =>
+  refusal.refused === "slow" ? "password_locked" : "work_refused";
+
+// The server's challenge for one step, worked in the page: the proof, or why there is none.
+const worked = async (
+  asking: object,
+  solve: Solve,
+  ask: typeof fetch,
+): Promise<string | Refusal> => {
+  const challenge = await asked("challenge", ask, (answer) => answer.text(), {
+    method: "POST",
+    body: JSON.stringify(asking),
+  });
+  if (typeof challenge !== "string") return challenge;
+  const work = await solve(challenge);
+  return work ? work : { refused: "failed" };
+};
+
+const sealedOf = (id: string, ask: typeof fetch, headers: Record<string, string>) =>
   asked(
     `docs/${encodeURIComponent(id)}`,
     ask,
@@ -66,8 +88,25 @@ export const fetched = (id: string, ask: typeof fetch = fetch, password?: string
       // The keys taken back that sent it, which the page believes only as far as their roots signed them.
       revoked: answer.headers.get("Tisty-Revoked") ?? undefined,
     }),
-    password === undefined ? undefined : { headers: { "Tisty-Password": passwordOf(password) } },
+    Object.keys(headers).length > 0 ? { headers } : undefined,
   );
+
+// The password travels in a header of its own, never in a URL or a log; work asked beside it is done and said once (decision 76).
+export const fetched = async (
+  id: string,
+  ask: typeof fetch = fetch,
+  password?: string,
+  solve?: Solve,
+) => {
+  if (password === undefined) return sealedOf(id, ask, {});
+  const headers = { "Tisty-Password": passwordOf(password) };
+  const first = await sealedOf(id, ask, headers);
+  if (!("refused" in first) || first.refused !== "work_asked" || !solve) return first;
+  const work = await worked({ for: "password", id }, solve, ask);
+  // Only a document gone or put away ends the reading; any other trouble with the work asks for the password again.
+  if (typeof work !== "string") return ENDS.has(work.refused) ? work : { refused: worded(work) };
+  return sealedOf(id, ask, { ...headers, "Tisty-Work": work });
+};
 
 export const limitsOf = (ask: typeof fetch = fetch) =>
   asked("limits", ask, async (answer) => ({ limits: await answer.text() }));
@@ -91,16 +130,11 @@ export const reported = async (
   id: string,
   reason: Reason,
   detail: string,
-  solve: (challenge: string) => Promise<string | undefined>,
+  solve: Solve,
   ask: typeof fetch = fetch,
 ): Promise<string> => {
-  const challenge = await asked("challenge", ask, (answer) => answer.text(), {
-    method: "POST",
-    body: JSON.stringify({ for: "report", id }),
-  });
-  if (typeof challenge !== "string") return challenge.refused;
-  const work = await solve(challenge);
-  if (!work) return "failed";
+  const work = await worked({ for: "report", id }, solve, ask);
+  if (typeof work !== "string") return work.refused;
   const answer = await asked(
     `docs/${encodeURIComponent(id)}/reports`,
     ask,

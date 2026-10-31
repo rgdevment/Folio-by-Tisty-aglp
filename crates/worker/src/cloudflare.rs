@@ -172,6 +172,11 @@ impl Store for Cloud {
             .ok_or_else(|| Fault("a counter came back empty".into()))
     }
 
+    async fn counted(&self, key: &str, now: i64) -> Result<u64, Fault> {
+        let counted: Option<Value> = self.first(sql::COUNTED, &[key.into(), number(now)]).await?;
+        Ok(counted.map_or(0, |counted| counted.value))
+    }
+
     async fn hold(&self, key: &str, until: i64) -> Result<(), Fault> {
         self.changes(sql::HOLD, &[key.into(), number(until)])
             .await?;

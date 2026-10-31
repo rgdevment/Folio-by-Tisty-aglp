@@ -111,7 +111,7 @@ const opened = async (password?: string): Promise<Read | string> => {
     () => true,
     () => false,
   );
-  const [answer, loaded] = await Promise.all([fetched(link.id, fetch, password), loading]);
+  const [answer, loaded] = await Promise.all([fetched(link.id, fetch, password, checked), loading]);
   if ("refused" in answer) return answer.refused;
   if (!loaded) return "offline";
   let found = read(answer.sealed, link.key, answer.revoked);
@@ -152,7 +152,7 @@ addEventListener("keydown", (event) => {
   if (event.key === "Escape" && reading.classList.contains("is-side")) besideShown(false);
 });
 
-// A worker of its own for each report: a page reports once, and the work holds nothing worth keeping.
+// A worker of its own for each piece of work: a page does little of it, and the work holds nothing worth keeping.
 const solving = (challenge: string): Promise<string | undefined> =>
   new Promise((done) => {
     const solver = new Worker(new URL("./solver.ts", import.meta.url), { type: "module" });
@@ -166,6 +166,12 @@ const solving = (challenge: string): Promise<string | undefined> =>
     solver.addEventListener("error", () => finished());
     solver.postMessage(challenge);
   });
+
+// Work beside a password can take a few seconds, so the reader is told it is under way.
+const checked = (challenge: string) => {
+  tell("checking");
+  return solving(challenge);
+};
 
 const reportable = (id: string) => {
   const form = part<HTMLFormElement>(".report");

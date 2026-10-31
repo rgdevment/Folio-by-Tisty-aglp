@@ -14,6 +14,7 @@ const DAY: i64 = 24 * HOUR;
 const CHALLENGE: &[u8] = b"tisty-share.challenge.v1\0";
 const WHO_TODAY: &[u8] = b"tisty-share.who.day.v1\0";
 const WHO: &[u8] = b"tisty-share.who.v1\0";
+const WHO_WIDE: &[u8] = b"tisty-share.who.wide.v1\0";
 
 /// What a caller is about to do, each with its own hourly allowance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +100,10 @@ pub struct Work {
     /// Added for every megabyte an upload carries, so a heavy one costs more than a note (decision 33).
     pub per_megabyte: u8,
     pub report: u8,
+    /// What a password costs once a document was guessed at enough today, and the most it ever costs.
+    pub password: u8,
+    /// Low enough for a phone to answer in about a second, so guessers can never price readers out (decision 76).
+    pub password_most: u8,
     pub lasts: i64,
 }
 
@@ -109,6 +114,8 @@ impl Default for Work {
             upload: 14,
             per_megabyte: 2,
             report: 18,
+            password: 16,
+            password_most: 22,
             lasts: 10 * 60,
         }
     }
@@ -120,6 +127,16 @@ impl Work {
         let added = megabytes.saturating_mul(u64::from(self.per_megabyte));
         let bits = u64::from(self.upload).saturating_add(added);
         bits.min(u64::from(work::BITS_AT_MOST)) as u8
+    }
+
+    /// Nothing below `guessed` wrong passwords today, then `password` bits and two more each time they double, up to `password_most`.
+    pub fn for_password(&self, misses: u64, guessed: u64) -> u8 {
+        if guessed == 0 || misses < guessed {
+            return 0;
+        }
+        let doublings = u64::from((misses / guessed).ilog2());
+        let bits = u64::from(self.password).saturating_add(2 * doublings);
+        bits.min(u64::from(self.password_most.min(work::BITS_AT_MOST))) as u8
     }
 }
 
@@ -196,6 +213,21 @@ pub fn today(secret: &[u8; 32], ip: IpAddr, now: i64) -> String {
     ))
 }
 
+/// Today's name for a caller's IPv6 /48, where one holder has thousands of networks; an IPv4 caller has none.
+pub fn today_wide(secret: &[u8; 32], ip: IpAddr, now: i64) -> Option<String> {
+    let IpAddr::V6(six) = ip else {
+        return None;
+    };
+    if six.to_ipv4_mapped().is_some() {
+        return None;
+    }
+    let day = now.div_euclid(DAY);
+    Some(hex(&keyed(
+        secret,
+        &[WHO_WIDE, &day.to_be_bytes(), &six.octets()[..6]],
+    )))
+}
+
 /// A name that holds across days but not past `period`, kept only while a wait or a report needs it (decisions 41 and 42).
 pub fn lasting(secret: &[u8; 32], ip: IpAddr, now: i64, period: i64) -> String {
     let epoch = now.div_euclid(period.max(1));
@@ -269,8 +301,8 @@ pub async fn affords<S: Store>(
 ) -> Result<(), Refused> {
     let (made, sent, until) = day_keys(secret, ip, now);
     let allowance = &policy.allowance;
-    let made_so_far = store.count(&made, 0, until, now).await?;
-    let sent_so_far = store.count(&sent, 0, until, now).await?;
+    let made_so_far = store.counted(&made, now).await?;
+    let sent_so_far = store.counted(&sent, now).await?;
     if made_so_far.saturating_add(documents) > allowance.documents_a_day
         || sent_so_far.saturating_add(bytes) > allowance.bytes_a_day
     {
@@ -331,7 +363,7 @@ fn keyed(secret: &[u8; 32], parts: &[&[u8]]) -> [u8; 32] {
     over.finalize().into_bytes().into()
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 

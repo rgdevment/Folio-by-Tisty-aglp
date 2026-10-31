@@ -23,6 +23,8 @@ fn policy() -> Policy {
             upload: 4,
             per_megabyte: 1,
             report: 4,
+            password: 4,
+            password_most: 8,
             lasts: 10 * 60,
         },
         ..Policy::default()
@@ -343,6 +345,42 @@ fn a_password_travels_in_its_own_header_and_is_asked_for_by_name() {
     let mut with_it = asked("GET", &path);
     with_it.password = Some(URL_SAFE_NO_PAD.encode("perro azul"));
     assert_eq!(world.answer(with_it).body, shared.first);
+}
+
+#[test]
+fn a_document_guessed_at_asks_work_beside_the_password_and_takes_it_in_its_header() {
+    let mut world = World::with(Policy {
+        guessed: 1,
+        ..policy()
+    });
+    let shared = world.shared();
+    world.manage(&shared, json!({ "do": "password", "with": "perro azul" }));
+    let path = format!("/api/v1/docs/{}", shared.id);
+    let saying = |password: &str| {
+        let mut one = asked("GET", &path);
+        one.password = Some(URL_SAFE_NO_PAD.encode(password));
+        one
+    };
+    assert_eq!(world.answer(saying("gato")).status, 401);
+
+    let unworked = world.answer(saying("perro azul"));
+    assert_eq!(unworked.status, 428);
+    assert_eq!(said(&unworked), json!({ "refused": "work_asked" }));
+
+    let mut worked = saying("perro azul");
+    worked.work = Some(world.work(json!({ "for": "password", "id": shared.id })));
+    assert_eq!(world.answer(worked).body, shared.first);
+}
+
+#[test]
+fn a_work_header_that_is_no_proof_never_spoils_a_read() {
+    let mut world = World::new();
+    let shared = world.shared();
+    let mut odd = asked("GET", &format!("/api/v1/docs/{}", shared.id));
+    odd.work = Some("not a proof".into());
+    let answer = world.answer(odd);
+    assert_eq!(answer.status, 200);
+    assert_eq!(answer.body, shared.first);
 }
 
 #[test]

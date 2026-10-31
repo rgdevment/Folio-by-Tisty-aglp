@@ -61,15 +61,18 @@ pub struct Sender {
     pub root: [u8; 32],
 }
 
-/// The password a reader must say, kept as a slow digest and guarded against guessing.
+/// The password a reader must say, kept as a slow digest; guesses are counted apart, against whoever said them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gate {
     pub salt: [u8; 16],
     pub digest: [u8; 32],
     /// Kept with the digest, so a server that grows slower still opens the gates it made before.
     pub slowness: Slowness,
-    pub missed: u32,
-    pub locked_until: Option<i64>,
+    // Still written for the Worker before decision 76, which a failed deploy rolls back to and which cannot read a gate without them.
+    #[serde(default)]
+    pub(crate) missed: u32,
+    #[serde(default)]
+    pub(crate) locked_until: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -98,6 +101,8 @@ pub trait Store {
     async fn ending(&self, now: i64, at_most: usize) -> Result<Vec<String>, Fault>;
     /// Atomically adds `by` to a counter that lapses at `until` and says what it holds now, or requests together slip past.
     async fn count(&self, key: &str, by: u64, until: i64, now: i64) -> Result<u64, Fault>;
+    /// What a counter holds now, writing nothing: looking costs a store far less than counting.
+    async fn counted(&self, key: &str, now: i64) -> Result<u64, Fault>;
     /// Marks `key` until a moment, as a wait a caller must sit out.
     async fn hold(&self, key: &str, until: i64) -> Result<(), Fault>;
     /// Marks `key` until a moment if nothing holds it now, and says whether it did; a mark already there writes nothing.

@@ -97,6 +97,88 @@ describe("the server's limits", () => {
   });
 });
 
+describe("a password to a document guessed at from everywhere", () => {
+  type Asked = { url: string; password: string | null; work: string | null; body?: string };
+
+  const server = (answers: Response[]) => {
+    const asked: Asked[] = [];
+    const ask = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      asked.push({
+        url: String(url),
+        password: headers.get("Tisty-Password"),
+        work: headers.get("Tisty-Work"),
+        body: init?.body as string | undefined,
+      });
+      return answers.shift() as Response;
+    }) as typeof fetch;
+    return { asked, ask };
+  };
+
+  const workAsked = () => new Response('{"refused":"work_asked"}', { status: 428 });
+
+  it("works the challenge for that document and says the password again once, with the proof", async () => {
+    const { asked, ask } = server([
+      workAsked(),
+      new Response('{"seed":"s","bits":16}'),
+      new Response(new Uint8Array([7])),
+    ]);
+    const solve = async (challenge: string) => `proof of ${challenge}`;
+    const said = await fetched("k7Qm2xPa", ask, "perro azul", solve);
+    expect("sealed" in said && said.sealed).toEqual(new Uint8Array([7]));
+    expect(asked).toEqual([
+      { url: "/api/v1/docs/k7Qm2xPa", password: "cGVycm8gYXp1bA", work: null, body: undefined },
+      {
+        url: "/api/v1/challenge",
+        password: null,
+        work: null,
+        body: '{"for":"password","id":"k7Qm2xPa"}',
+      },
+      {
+        url: "/api/v1/docs/k7Qm2xPa",
+        password: "cGVycm8gYXp1bA",
+        work: 'proof of {"seed":"s","bits":16}',
+        body: undefined,
+      },
+    ]);
+  });
+
+  it("asks for the password again without saying it when the work cannot be done", async () => {
+    const { asked, ask } = server([workAsked(), new Response("{}")]);
+    expect(await fetched("k7Qm2xPa", ask, "perro azul", async () => undefined)).toEqual({
+      refused: "work_refused",
+    });
+    expect(asked).toHaveLength(2);
+  });
+
+  it("asks for the password again, saying to wait, when the challenge is refused for being too much", async () => {
+    const { ask } = server([workAsked(), new Response('{"refused":"slow"}', { status: 429 })]);
+    expect(await fetched("k7Qm2xPa", ask, "perro azul", async () => "w")).toEqual({
+      refused: "password_locked",
+    });
+  });
+
+  it("ends the reading when the document went away meanwhile", async () => {
+    const { ask } = server([workAsked(), new Response('{"refused":"paused"}', { status: 423 })]);
+    expect(await fetched("k7Qm2xPa", ask, "perro azul", async () => "w")).toEqual({
+      refused: "paused",
+    });
+  });
+
+  it("never sends an empty proof", async () => {
+    const { asked, ask } = server([workAsked(), new Response("{}")]);
+    expect(await fetched("k7Qm2xPa", ask, "perro azul", async () => "")).toEqual({
+      refused: "work_refused",
+    });
+    expect(asked).toHaveLength(2);
+  });
+
+  it("is told as it came when the page has no way to work", async () => {
+    const { ask } = server([workAsked()]);
+    expect(await fetched("k7Qm2xPa", ask, "perro azul")).toEqual({ refused: "work_asked" });
+  });
+});
+
 describe("a report", () => {
   type Asked = { url: string; method?: string; work: string | null; body?: string };
 

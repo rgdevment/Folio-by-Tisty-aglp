@@ -91,3 +91,16 @@ fn a_challenge_answers_only_for_what_it_was_bound_to_and_only_until_it_expires()
         Err(Refused::WorkRefused)
     );
 }
+
+#[test]
+fn a_password_costs_nothing_until_guessed_at_then_two_bits_each_doubling() {
+    let work = Work::default();
+    assert_eq!(work.for_password(0, 50), 0);
+    assert_eq!(work.for_password(49, 50), 0);
+    assert_eq!(work.for_password(50, 50), work.password);
+    assert_eq!(work.for_password(99, 50), work.password);
+    assert_eq!(work.for_password(100, 50), work.password + 2);
+    assert_eq!(work.for_password(400, 50), work.password + 6);
+    assert_eq!(work.for_password(u64::MAX, 50), work.password_most);
+    assert_eq!(work.for_password(1_000, 0), 0, "a server may turn it off");
+}

@@ -24,6 +24,8 @@ describe("the page's words", () => {
       "password_asked",
       "password_wrong",
       "password_locked",
+      "checking",
+      "work_refused",
       "reported",
       "thanked",
     ])
@@ -89,7 +91,7 @@ describe("a refusal", () => {
   });
 
   it("about the password is answered by saying it, and no other is", () => {
-    for (const word of ["password_asked", "password_wrong", "password_locked"])
+    for (const word of ["password_asked", "password_wrong", "password_locked", "work_refused"])
       expect(gated(word), word).toBe(true);
     for (const word of ["missing", "locked", "keyless", "forbidden"])
       expect(gated(word), word).toBe(false);

@@ -95,6 +95,14 @@ impl Store for Memory {
         Ok(held.0)
     }
 
+    async fn counted(&self, key: &str, now: i64) -> Result<u64, Fault> {
+        let counters = self.counters.borrow();
+        Ok(counters
+            .get(key)
+            .filter(|(_, until)| *until >= now)
+            .map_or(0, |(value, _)| *value))
+    }
+
     async fn hold(&self, key: &str, until: i64) -> Result<(), Fault> {
         self.holds.borrow_mut().insert(key.to_owned(), until);
         Ok(())

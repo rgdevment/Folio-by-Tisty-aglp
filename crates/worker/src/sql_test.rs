@@ -28,6 +28,23 @@ fn a_counter_adds_until_it_lapses_and_then_starts_again() {
 }
 
 #[test]
+fn looking_at_a_counter_writes_nothing_and_a_lapsed_one_reads_as_none() {
+    let db = started();
+    let looked = |key: &str, now: i64| -> i64 {
+        db.query_row(COUNTED, params![key, now], |row| row.get(0))
+            .unwrap_or(0)
+    };
+    assert_eq!(looked("rate", 10), 0);
+    let rows: i64 = db
+        .query_row("SELECT count(*) FROM counters", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 0);
+    counted(&db, "rate", 2, 100, 10);
+    assert_eq!(looked("rate", 50), 2);
+    assert_eq!(looked("rate", 101), 0);
+}
+
+#[test]
 fn a_document_is_saved_first_once_and_after_only_on_its_revision() {
     let db = started();
     let insert = |body: &str| db.execute(INSERT_DOC, params!["abc", 0, 50, body]).unwrap();
