@@ -188,7 +188,7 @@ fn a_document_is_reserved_shared_and_read_as_tisty_sealed_it() {
     assert_eq!(served.version, 1);
     assert_eq!(opened(&served), "uno");
     assert_eq!(
-        done(world.share.latest(&reserved.id, HERE, T0)),
+        done(world.share.latest(&reserved.id, None, HERE, T0)),
         Ok(Some(1))
     );
 }
@@ -743,6 +743,66 @@ fn a_network_already_waiting_spends_no_proof() {
 }
 
 #[test]
+fn a_block_of_blocks_shares_one_allowance_too() {
+    // Work and the day's cut are another test's: here only the blocks count.
+    let mut world = World::with(Policy {
+        guessed: 10_000,
+        guessed_most: 10_000,
+        ..policy()
+    });
+    let reserved = world.shared(T0);
+    world
+        .manage(&reserved, Manage::Password(Some("perro azul".into())), T0)
+        .unwrap();
+    // Each /48 of one /32 stays under its own allowance, and the /32 still fills up.
+    let wider = world.share.policy.misses_wider as u16;
+    let per = world.share.policy.misses_wide as u16 - 1;
+    let mut said = 0;
+    for block in 0.. {
+        for net in 0..per {
+            if said == wider {
+                break;
+            }
+            let caller = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, block, net, 0, 0, 0, 1));
+            assert_eq!(
+                world.read_from(&reserved.id, Some("gato"), caller, T0),
+                Err(Refused::PasswordWrong)
+            );
+            said += 1;
+        }
+        if said == wider {
+            break;
+        }
+    }
+    let fresh = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 999, 1, 0, 0, 0, 1));
+    assert!(matches!(
+        world.read_from(&reserved.id, Some("perro azul"), fresh, T0),
+        Err(Refused::PasswordLocked { .. })
+    ));
+}
+
+#[test]
+fn behind_a_password_only_its_own_links_see_the_latest_version() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    world
+        .manage(&reserved, Manage::Password(Some("perro azul".into())), T0)
+        .unwrap();
+    assert_eq!(
+        done(world.share.latest(&reserved.id, None, HERE, T0)),
+        Err(Refused::Forbidden)
+    );
+    assert_eq!(
+        done(
+            world
+                .share
+                .latest(&reserved.id, Some(&reserved.edit), HERE, T0)
+        ),
+        Ok(Some(1))
+    );
+}
+
+#[test]
 fn a_document_nobody_reads_for_thirty_days_is_gone() {
     let mut world = World::new();
     let reserved = world.shared(T0);
@@ -765,12 +825,12 @@ fn tisty_asking_for_the_latest_version_is_not_activity() {
 
     for day in [10, 20, 29] {
         assert_eq!(
-            done(world.share.latest(&reserved.id, HERE, T0 + day * DAY)),
+            done(world.share.latest(&reserved.id, None, HERE, T0 + day * DAY)),
             Ok(Some(1))
         );
     }
     assert_eq!(
-        done(world.share.latest(&reserved.id, HERE, T0 + 31 * DAY)),
+        done(world.share.latest(&reserved.id, None, HERE, T0 + 31 * DAY)),
         Err(Refused::Gone)
     );
 }
@@ -853,7 +913,7 @@ fn a_paused_document_is_not_served_and_its_trash_time_runs_instead() {
 
     assert_eq!(world.read(&reserved.id, T0 + DAY), Err(Refused::Paused));
     assert_eq!(
-        done(world.share.latest(&reserved.id, HERE, T0 + DAY)),
+        done(world.share.latest(&reserved.id, None, HERE, T0 + DAY)),
         Err(Refused::Paused)
     );
     let next = sealed(&reserved.id, 2, Some(1), "dos");
@@ -949,7 +1009,10 @@ fn a_reserved_id_with_nothing_uploaded_cannot_be_read_yet() {
     let mut world = World::new();
     let reserved = world.reserve(T0);
     assert_eq!(world.read(&reserved.id, T0), Err(Refused::Unwritten));
-    assert_eq!(done(world.share.latest(&reserved.id, HERE, T0)), Ok(None));
+    assert_eq!(
+        done(world.share.latest(&reserved.id, None, HERE, T0)),
+        Ok(None)
+    );
 }
 
 #[test]
@@ -1160,16 +1223,16 @@ fn tisty_asking_for_changes_has_its_own_allowance_and_waits_only_the_hour() {
     world.read(&reserved.id, T0).unwrap();
     for _ in 0..2 {
         assert_eq!(
-            done(world.share.latest(&reserved.id, HERE, T0)),
+            done(world.share.latest(&reserved.id, None, HERE, T0)),
             Ok(Some(1))
         );
     }
     assert_eq!(
-        done(world.share.latest(&reserved.id, HERE, T0)),
+        done(world.share.latest(&reserved.id, None, HERE, T0)),
         Err(Refused::Slow { until: T0 + HOUR })
     );
     assert_eq!(
-        done(world.share.latest(&reserved.id, HERE, T0 + HOUR)),
+        done(world.share.latest(&reserved.id, None, HERE, T0 + HOUR)),
         Ok(Some(1))
     );
 }
@@ -1281,7 +1344,7 @@ fn reports_from_three_places_block_the_document_and_keep_it_as_evidence() {
 
     assert_eq!(world.read(&reserved.id, T0), Err(Refused::Blocked));
     assert_eq!(
-        done(world.share.latest(&reserved.id, HERE, T0)),
+        done(world.share.latest(&reserved.id, None, HERE, T0)),
         Err(Refused::Blocked)
     );
     assert_eq!(

@@ -31,6 +31,8 @@ Share as a non-profit. Contact: <rgdevment@tisty.app>.
 | If you sign, your public key and its certificate | So readers know it is yours | As long as the document |
 | How many times it was read, counted once a day per visitor | To show you the reads in Tisty | As long as the document |
 | A digest of your IP (an HMAC with a key that changes) | Per-IP limits and blocks against abuse | As long as the quota or the block lasts |
+| For a document with a password: a digest of your network and of the IPv6 blocks it sits in, the wrong passwords counted against them, and that it gave the right one today | So wrong passwords make only the network that says them wait, and a reader who already got in is not slowed | Until the 15-minute stretch or the day ends |
+| Keys you took back, as your root signed them: the key's public part and your root's | So readers learn that a stolen or retired key no longer speaks for you | For good, since a reader must always be able to tell |
 | Reports: category, detail, the link if given, and a digest of the reporter's network (an HMAC with a key that changes every 90 days), so each network reports only once | To moderate and pass them where they belong | 90 days, or 180 if the prosecutor orders it |
 
 **About signing:** if you sign what you share, your public key lets anyone tell

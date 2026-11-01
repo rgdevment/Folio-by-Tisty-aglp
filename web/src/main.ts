@@ -51,7 +51,10 @@ const asked = (word: string) => {
   reading.hidden = true;
   part(".gate-said").textContent = say(word);
   gate.hidden = false;
-  part<HTMLInputElement>("#password").focus();
+  const password = part<HTMLInputElement>("#password");
+  // Said on the field itself, since the gate is hidden and shown again and its words may go unannounced.
+  password.setAttribute("aria-invalid", String(word === "password_wrong"));
+  password.focus();
 };
 
 const seen = () => {
@@ -146,7 +149,8 @@ const besideShown = (open: boolean) => {
   reading.classList.toggle("is-side", open);
   besideOpen.setAttribute("aria-expanded", String(open));
 };
-besideOpen.textContent = sheetSays.say("outline");
+// On a phone this opens every panel, the signature and the expiry among them, not only the outline.
+besideOpen.textContent = say("besideDetails");
 besideOpen.addEventListener("click", () => besideShown(!reading.classList.contains("is-side")));
 addEventListener("keydown", (event) => {
   if (event.key === "Escape" && reading.classList.contains("is-side")) besideShown(false);
@@ -183,12 +187,15 @@ const reportable = (id: string) => {
   pick.disabled = true;
   reason.add(pick);
   for (const one of REASONS) reason.add(new Option(say(`report_${one}`), one));
-  part(".report-open").addEventListener("click", () => {
-    form.hidden = !form.hidden;
-  });
-  part(".report-cancel").addEventListener("click", () => {
-    form.hidden = true;
-  });
+  const opener = part<HTMLButtonElement>(".report-open");
+  const shown = (open: boolean) => {
+    form.hidden = !open;
+    opener.setAttribute("aria-expanded", String(open));
+    if (open) reason.focus();
+    else opener.focus();
+  };
+  opener.addEventListener("click", () => shown(form.hidden !== false));
+  part(".report-cancel").addEventListener("click", () => shown(false));
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     // Spaces alone pass `required`, so they are cleared and the browser asks for the words again.

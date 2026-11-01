@@ -492,10 +492,13 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
             inner.at,
             inner.name.as_deref(),
         );
-        // Words signed for another link are someone carrying them elsewhere, never the writer sharing them here.
-        let verdict = match inner.id == manifest.id {
-            true => check(&inner.signed, WROTE, &said, revoked),
-            false => Verdict::Refused,
+        // The server tells only the sender's revocations, so words another key wrote, or signed for another link, never hold.
+        let verdict = match (inner.id == manifest.id, &envelope.sent) {
+            (false, _) => Verdict::Refused,
+            (true, Some(sent)) if !same_key(&sent.certificate, &inner.signed.certificate) => {
+                Verdict::Refused
+            }
+            (true, _) => check(&inner.signed, WROTE, &said, revoked),
         };
         let written = Written {
             at: inner.at,
@@ -513,6 +516,11 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
         written,
         sent: envelope.sender(revoked),
     })
+}
+
+// One machine's key under one root, whatever certificate it carried that day.
+fn same_key(one: &Certificate, other: &Certificate) -> bool {
+    one.share == other.share && one.root == other.root
 }
 
 impl Envelope {

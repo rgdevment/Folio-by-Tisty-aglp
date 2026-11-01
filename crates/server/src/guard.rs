@@ -213,8 +213,8 @@ pub fn today(secret: &[u8; 32], ip: IpAddr, now: i64) -> String {
     ))
 }
 
-/// Today's name for a caller's IPv6 /48, where one holder has thousands of networks; an IPv4 caller has none.
-pub fn today_wide(secret: &[u8; 32], ip: IpAddr, now: i64) -> Option<String> {
+/// Today's name for the IPv6 block of `bits` a caller sits in, where one holder has thousands of networks; IPv4 has none.
+pub fn today_block(secret: &[u8; 32], ip: IpAddr, now: i64, bits: u8) -> Option<String> {
     let IpAddr::V6(six) = ip else {
         return None;
     };
@@ -222,9 +222,11 @@ pub fn today_wide(secret: &[u8; 32], ip: IpAddr, now: i64) -> Option<String> {
         return None;
     }
     let day = now.div_euclid(DAY);
+    let octets = six.octets();
+    let block = octets.get(..usize::from(bits / 8))?;
     Some(hex(&keyed(
         secret,
-        &[WHO_WIDE, &day.to_be_bytes(), &six.octets()[..6]],
+        &[WHO_WIDE, &[bits], &day.to_be_bytes(), block],
     )))
 }
 

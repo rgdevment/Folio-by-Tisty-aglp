@@ -30,6 +30,21 @@ export type Links = { readonly opened: string; readonly read: string };
 const copying = (what: string, said: string, done: string) => (at: HTMLElement) =>
   copyFrom(at, what, said, done);
 
+/** Where Tisty is downloaded, which the page's own header links to as well. */
+export const GET_TISTY = "/";
+
+// A link to an app nobody installed opens nothing, so with the page still in front a moment later it offers the app instead.
+export const falling =
+  (hint: string, wait = 1500) =>
+  (at: HTMLElement) => {
+    setTimeout(() => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      if (!(at instanceof HTMLAnchorElement)) return;
+      at.href = GET_TISTY;
+      at.textContent = hint;
+    }, wait);
+  };
+
 // The panels a reader of a shared document needs, from the same catalogue the window draws from.
 export const panelsOf = (now: Now, asked: Asked, words: Words, links: Links): Panel[] => {
   const { view } = now;
@@ -56,7 +71,13 @@ export const panelsOf = (now: Now, asked: Asked, words: Words, links: Links): Pa
     {
       kind: "acts",
       acts: [
-        { key: "open", label: words.page("openin"), main: true, href: tistyOf(links.opened) },
+        {
+          key: "open",
+          label: words.page("openin"),
+          main: true,
+          href: tistyOf(links.opened),
+          onPick: falling(words.page("notopened")),
+        },
         {
           key: "md",
           label: words.page("copymd"),

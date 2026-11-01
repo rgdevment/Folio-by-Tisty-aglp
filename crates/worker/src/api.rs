@@ -221,7 +221,7 @@ async fn routed<S: Store, R: Randomness>(
             Ok(envelope(served))
         }
         ("GET", ["docs", id, "latest"]) => {
-            let latest = share.latest(id, caller, now).await?;
+            let latest = share.latest(id, token, caller, now).await?;
             Ok(said(200, json!({ "latest": latest })))
         }
         ("GET", ["docs", id, "versions", version]) => {

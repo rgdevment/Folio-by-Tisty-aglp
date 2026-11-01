@@ -732,6 +732,27 @@ fn words_signed_for_another_link_are_not_the_writer_sharing_them_here() {
 }
 
 #[test]
+fn words_another_key_wrote_are_not_vouched_for_by_the_key_that_sent_them() {
+    // A thief with a key its owner took back signs the words with it and sends them with a fresh one of their own:
+    // the server only tells of revocations for the sender, so the stolen writer must never read as holding.
+    let stolen = machine(1);
+    let words = wrote(&stolen.signer(), &draft("Hola", &[])).unwrap();
+    let thief = machine(5);
+    let sealed = sealed_with(
+        &key(9),
+        &draft("Hola", &[]),
+        Some(&words),
+        Some(&thief.signer()),
+        &Limits::default(),
+    )
+    .unwrap();
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+
+    assert_eq!(opened.wrote, Some(Verdict::Refused));
+    assert!(holds_for(opened.sent, &thief));
+}
+
+#[test]
 fn a_name_changed_after_signing_does_not_hold() {
     let mario = machine(1);
     let signer = Signer {

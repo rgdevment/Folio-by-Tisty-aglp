@@ -1,6 +1,6 @@
 import type { Panel } from "tisty-editor/read";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type Asked, type Now, panelsOf } from "../src/beside";
+import { type Asked, falling, GET_TISTY, type Now, panelsOf } from "../src/beside";
 import type { View } from "../src/drawn";
 import { wordsFor } from "../src/words";
 
@@ -89,5 +89,32 @@ describe("the panels beside a shared document", () => {
     await Promise.resolve();
     expect(writeText).toHaveBeenCalledWith(LINK);
     expect(button.textContent).toBe(say("copied"));
+  });
+});
+
+describe("opening in Tisty", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("offers Tisty instead when the page is still in front a moment later", () => {
+    vi.useFakeTimers();
+    const link = document.createElement("a");
+    link.href = "tisty://share?link=x";
+    link.textContent = "Abrir en Tisty";
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    falling("¿No se abrió? Descarga Tisty")(link);
+    vi.advanceTimersByTime(1500);
+    expect(link.textContent).toBe("¿No se abrió? Descarga Tisty");
+    expect(link.getAttribute("href")).toBe(GET_TISTY);
+  });
+
+  it("leaves the link as it was when Tisty took the page's place", () => {
+    vi.useFakeTimers();
+    const link = document.createElement("a");
+    link.href = "tisty://share?link=x";
+    link.textContent = "Abrir en Tisty";
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    falling("¿No se abrió? Descarga Tisty")(link);
+    vi.advanceTimersByTime(1500);
+    expect(link.textContent).toBe("Abrir en Tisty");
   });
 });

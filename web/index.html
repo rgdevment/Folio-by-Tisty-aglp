@@ -24,10 +24,10 @@
     <main class="desk">
       <p class="said" role="status" aria-live="polite"></p>
       <form class="gate card" hidden>
-        <p class="gate-said" role="status" aria-live="polite"></p>
+        <p class="gate-said" id="gate-said" role="status" aria-live="polite"></p>
         <label class="gate-label" for="password" data-word="gatelabel"></label>
         <div class="gate-row">
-          <input id="password" class="field" type="password" autocomplete="off" required />
+          <input id="password" class="field" type="password" autocomplete="off" required aria-describedby="gate-said" />
           <button class="button green" type="submit" data-word="gateopen"></button>
         </div>
       </form>
@@ -48,9 +48,9 @@
               <div><dt data-word="ends"></dt><dd class="ends"></dd></div>
             </dl>
             <p class="facts-note" data-word="endsnote"></p>
-            <button class="quiet report-open" type="button" data-word="report"></button>
+            <button class="quiet report-open" type="button" data-word="report" aria-expanded="false" aria-controls="report"></button>
           </section>
-          <form class="report card" hidden>
+          <form class="report card" id="report" hidden>
             <label class="report-label" for="reason" data-word="reportwhy"></label>
             <select id="reason" class="field" required></select>
             <label class="report-label" for="detail" data-word="reportdetail"></label>

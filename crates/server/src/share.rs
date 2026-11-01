@@ -31,6 +31,8 @@ pub struct Policy {
     pub misses: u64,
     /// The same for a whole IPv6 /48, which holds 65,536 networks of its own.
     pub misses_wide: u64,
+    /// The same for a whole IPv6 /32, which holds 65,536 /48s.
+    pub misses_wider: u64,
     pub locked: i64,
     /// Wrong passwords a document hears in a day from everywhere before every try costs work (decision 76).
     pub guessed: u64,
@@ -58,6 +60,7 @@ impl Default for Policy {
             reserved: 60 * 60,
             misses: 5,
             misses_wide: 20,
+            misses_wider: 60,
             locked: 15 * 60,
             guessed: 50,
             guessed_most: 1_000,
@@ -444,10 +447,23 @@ impl<S: Store, R: Randomness> Share<S, R> {
     }
 
     /// The latest version's number, for a Tisty looking for changes; asking is not activity (decision 50).
-    pub async fn latest(&self, id: &str, caller: IpAddr, now: i64) -> Result<Option<u64>, Refused> {
+    /// Behind a password, only the links that edit or manage it may ask, or anyone with the id would see it change.
+    pub async fn latest(
+        &self,
+        id: &str,
+        token: Option<&str>,
+        caller: IpAddr,
+        now: i64,
+    ) -> Result<Option<u64>, Refused> {
         self.admit(caller, Act::Poll, now).await?;
         let doc = self.live(id, now).await?;
         open_to_read(&doc)?;
+        if doc.gate.is_some() {
+            let hash = token.map(keys::hashed);
+            if hash != Some(doc.edit) && hash != Some(doc.admin) {
+                return Err(Refused::Forbidden);
+            }
+        }
         Ok(doc.latest())
     }
 

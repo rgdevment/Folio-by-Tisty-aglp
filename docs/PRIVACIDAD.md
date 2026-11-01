@@ -31,6 +31,8 @@ Tisty Share sin fines de lucro. Contacto: <rgdevment@tisty.app>.
 | Si firmas, tu llave pública y su certificado | Que quien lee sepa que es tuyo | Lo mismo que el documento |
 | Cuántas veces se leyó, contando una vez por día y por visitante | Mostrarte las lecturas en Tisty | Lo mismo que el documento |
 | Un resumen de tu IP (un HMAC con una llave que cambia) | Topes por IP y bloqueos ante abuso | Lo que dura la cuota o el bloqueo |
+| En un documento con clave: un resumen de tu red y de los bloques IPv6 en que está, las claves equivocadas que se le cuentan y que hoy dijo la correcta | Para que las claves equivocadas hagan esperar solo a la red que las dice, y quien ya entró no espere | Hasta que terminan el tramo de 15 minutos o el día |
+| Las llaves que retiraste, como las firmó tu raíz: la parte pública de la llave y la de tu raíz | Para que quien lea sepa que una llave robada o retirada ya no habla por ti | Para siempre, porque quien lea siempre tiene que poder saberlo |
 | Las denuncias: categoría, detalle, si lo dejaron el link, y un resumen de la red de quien denuncia (un HMAC con una llave que cambia cada 90 días), para que cada red denuncie una sola vez | Moderar y enviarlas a quien corresponde | 90 días, o 180 si la Fiscalía lo ordena |
 
 **Sobre la firma:** si firmas lo que compartes, tu llave pública permite saber
