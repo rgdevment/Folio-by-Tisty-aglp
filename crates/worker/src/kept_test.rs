@@ -17,11 +17,7 @@ fn started() -> Connection {
 /// Each row as D1 hands it to the Worker: an object named by its columns.
 fn rows<T: DeserializeOwned>(db: &Connection, query: &str, values: impl Params) -> Vec<T> {
     let mut asked = db.prepare(query).unwrap();
-    let names: Vec<String> = asked
-        .column_names()
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
+    let names: Vec<String> = asked.column_names().map(str::to_owned).collect();
     asked
         .query_map(values, |row| {
             let mut object = Map::new();
