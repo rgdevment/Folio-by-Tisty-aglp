@@ -13,6 +13,7 @@ struct Input {
     pictures: Vec<Vec<u8>>,
     signed: bool,
     cites: bool,
+    drawn: bool,
     at: usize,
     flip: u8,
     cut: bool,
@@ -58,6 +59,8 @@ fuzz_target!(|input: Input| {
         from: Some(1),
         text: &input.text,
         cited: &cited,
+        // A drawn page lays the envelope out with an index, whose hashes a change must break too.
+        html: input.drawn.then_some("<p>fuzzed</p>"),
         pictures: &shown,
     };
     let Ok(sealed) = envelope::seal(
@@ -78,6 +81,11 @@ fuzz_target!(|input: Input| {
     assert_eq!(opened.text.as_str(), input.text);
     assert_eq!(opened.cited, cited);
     assert_eq!(opened.pictures.len(), pictures.len());
+    assert_eq!(opened.html.as_deref().map(String::as_str), draft.html);
+    assert_eq!(
+        matches!(opened.wrote, Some(Verdict::Holds { .. })),
+        input.signed
+    );
 
     let at = input.at % bytes.len();
     if input.cut {

@@ -18,8 +18,10 @@ use tisty_share_server::store::Store;
 /// Where the steps live, so the reading page can have the rest of the domain.
 pub const ROOT: &str = "/api/v1/";
 
-/// Room for an envelope's manifest, signature and tags beside what its limits let it carry.
-const ENVELOPE_OVERHEAD: u64 = 64 * 1024;
+/// Room for the manifest (16 KB), both signatures (4 KB), what it cites (64 KB) and the tags of the words and the page.
+const ENVELOPE_OVERHEAD: u64 = 96 * 1024;
+/// What each picture adds beside its bytes: its tag, its hash in the index and its hash in the writer's signature.
+const PICTURE_OVERHEAD: u64 = 16 + 32 + 48;
 
 /// Said on every answer: nothing private is cached or indexed (decision 63), and the browser keeps to HTTPS.
 const ALWAYS: [(&str, &str); 6] = [
@@ -130,7 +132,9 @@ pub fn too_large(limits: &Limits, length: u64) -> Option<Answer> {
 pub fn ceiling(limits: &Limits) -> u64 {
     limits
         .text
+        .saturating_add(limits.html)
         .saturating_add(limits.all_pictures)
+        .saturating_add(limits.pictures.saturating_mul(PICTURE_OVERHEAD))
         .saturating_add(ENVELOPE_OVERHEAD)
 }
 

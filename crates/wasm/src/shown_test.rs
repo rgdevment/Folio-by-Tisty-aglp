@@ -24,6 +24,7 @@ fn sealed(text: &str, pictures: &[(Kind, &[u8])], by: Option<&Signer>) -> Vec<u8
         from: Some(3),
         text,
         cited: &[],
+        html: None,
         pictures,
     };
     seal(&key(1), &draft, by, &Limits::default())
@@ -151,6 +152,7 @@ fn a_server_that_takes_more_opens_what_only_it_took() {
         from: None,
         text: &long,
         cited: &[],
+        html: None,
         pictures: &[],
     };
     let envelope = seal(&key(1), &draft, None, &roomy).unwrap().into_bytes();
@@ -241,6 +243,7 @@ fn hands_the_reader_what_the_words_cite_with_the_keys_that_open_them() {
         from: None,
         text: "![Instalar en Windows](tisty:doc/guia-2)",
         cited: &cited,
+        html: None,
         pictures: &[],
     };
     let sealed = seal(&key(1), &draft, None, &Limits::default())

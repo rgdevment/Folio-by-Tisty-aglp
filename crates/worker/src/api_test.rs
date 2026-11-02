@@ -38,6 +38,7 @@ fn sealed(id: &str, version: u64, from: Option<u64>) -> Vec<u8> {
         from,
         text: "hola",
         cited: &[],
+        html: None,
         pictures: &[],
     };
     let (machine, certificate) = vouched();
@@ -463,7 +464,8 @@ fn a_host_that_cannot_reach_a_step_still_answers_as_every_answer_does() {
 #[test]
 fn a_body_too_large_to_be_any_envelope_is_turned_away_unread() {
     let limits = Limits::default();
-    let ceiling = limits.text + limits.all_pictures + 64 * 1024;
+    let ceiling =
+        limits.text + limits.html + limits.all_pictures + limits.pictures * 96 + 96 * 1024;
     assert!(too_large(&limits, ceiling).is_none());
     let refused = too_large(&limits, ceiling + 1).unwrap();
     assert_eq!(refused.status, 413);

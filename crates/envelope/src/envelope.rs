@@ -14,6 +14,8 @@ use crate::limits::Limits;
 
 /// A signature, its certificate and their names fit well inside this.
 const SIGNATURE_AT_MOST: usize = 2 * 1024;
+// One picture's hash as the inner signature lists it: 43 characters, quotes and a comma, with room to spare.
+const HASHED_PICTURE: usize = 48;
 /// What any server could ask for stays far below; only reading the format is held here, never a quota.
 const MANIFEST_AT_MOST: usize = 16 * 1024;
 const ID_AT_MOST: usize = 64;
@@ -21,11 +23,17 @@ const ID_AT_MOST: usize = 64;
 const MAGIC: &[u8; 4] = b"\xffTSE";
 /// Whatever changes the shape of the manifest or the signature is a new version, so an older reader says newer, not damaged.
 const VERSION: u8 = 1;
+/// Laid out with an index and the sender's signature before the parts, so each is checked as it arrives (decision 92).
+const LAID: u8 = 2;
 const SAID: u32 = 1;
 /// A manifest that lists what its words cite, so an older Tisty says it is newer rather than damaged (decision 64).
 const CITING: u32 = 2;
+/// A manifest that carries the page Tisty drew, so the web only opens and shows it (decision 91).
+const RENDERED: u32 = 3;
 const PART: &[u8] = b"tisty-share.part.v1\0";
 const SEALED: &[u8] = b"tisty-share.sealed.v1\0";
+const INDEXED: &[u8] = b"tisty-share.indexed.v1\0";
+const HASH: usize = 32;
 const WRITTEN: &[u8] = b"tisty-share.written.v1\0";
 const COMMIT: &[u8] = b"tisty-share.commit.v1\0";
 /// What the outer signature answers for: these sealed bytes, uploaded as this id and version.
@@ -82,6 +90,8 @@ pub enum Kind {
     Signature,
     /// The documents the words lead to, each in its own envelope (decision 64).
     Cited,
+    /// The page Tisty drew from the words, which the web shows as it is (decision 91).
+    Html,
     Png,
     Jpeg,
     Webp,
@@ -90,13 +100,17 @@ pub enum Kind {
 
 impl Kind {
     pub fn is_picture(self) -> bool {
-        !matches!(self, Kind::Text | Kind::Signature | Kind::Cited)
+        !matches!(
+            self,
+            Kind::Text | Kind::Signature | Kind::Cited | Kind::Html
+        )
     }
 
     pub fn media(self) -> &'static str {
         match self {
             Kind::Text => "text/markdown",
             Kind::Signature | Kind::Cited => "application/json",
+            Kind::Html => "text/html",
             Kind::Png => "image/png",
             Kind::Jpeg => "image/jpeg",
             Kind::Webp => "image/webp",
@@ -157,6 +171,8 @@ pub enum Refused {
     Damaged,
     #[error("the text is over what this server takes")]
     TextTooBig,
+    #[error("the drawn page is over what this server takes")]
+    HtmlTooBig,
     #[error("a picture is over what this server takes")]
     PictureTooBig,
     #[error("there are more pictures than this server takes")]
@@ -181,8 +197,8 @@ impl Manifest {
     /// Every rule a server can hold without the key, so the server and every Tisty refuse the same things.
     pub fn holds(&self, limits: &Limits) -> Result<(), Refused> {
         match self.v {
-            SAID | CITING => {}
-            newer if newer > CITING => return Err(Refused::Newer),
+            SAID | CITING | RENDERED => {}
+            newer if newer > RENDERED => return Err(Refused::Newer),
             _ => return Err(Refused::Damaged),
         }
         let named = named_id(&self.id);
@@ -196,6 +212,14 @@ impl Manifest {
 
     fn parts_hold(&self, limits: &Limits) -> Result<(), Refused> {
         let (text, rest) = self.parts.split_first().ok_or(Refused::Damaged)?;
+        let hashed = match self.v {
+            RENDERED => self
+                .parts
+                .iter()
+                .filter(|one| one.kind.is_picture())
+                .count(),
+            _ => 0,
+        };
         if text.kind != Kind::Text || text.size < TAG as u64 {
             return Err(Refused::Damaged);
         }
@@ -204,21 +228,37 @@ impl Manifest {
         }
         let rest = match rest.split_first() {
             Some((signature, rest)) if signature.kind == Kind::Signature => {
-                if signature.size < TAG as u64 || signature.plain() > SIGNATURE_AT_MOST as u64 {
+                if signature.size < TAG as u64
+                    || signature.plain() > (SIGNATURE_AT_MOST + HASHED_PICTURE * hashed) as u64
+                {
                     return Err(Refused::Damaged);
                 }
                 rest
             }
             _ => rest,
         };
-        let pictures = match rest.split_first() {
-            Some((cited, pictures)) if cited.kind == Kind::Cited => {
+        let rest = match rest.split_first() {
+            Some((cited, rest)) if cited.kind == Kind::Cited => {
                 let fits = cited.size >= TAG as u64 && cited.plain() <= CITED_BYTES_AT_MOST;
-                if !fits || self.v != CITING {
+                if !fits || self.v < CITING {
                     return Err(Refused::Damaged);
+                }
+                rest
+            }
+            _ => rest,
+        };
+        // The drawn page comes exactly when the manifest says the envelope carries one.
+        let pictures = match rest.split_first() {
+            Some((html, pictures)) if html.kind == Kind::Html && self.v == RENDERED => {
+                if html.size < TAG as u64 {
+                    return Err(Refused::Damaged);
+                }
+                if html.plain() > limits.html {
+                    return Err(Refused::HtmlTooBig);
                 }
                 pictures
             }
+            _ if self.v == RENDERED => return Err(Refused::Damaged),
             _ => rest,
         };
         if pictures
@@ -260,18 +300,36 @@ impl Manifest {
             .is_some_and(|one| one.kind == Kind::Signature)
     }
 
-    /// Where the list of cited documents sits, if the envelope carries one.
-    fn cited_at(&self) -> Option<usize> {
-        let at = if self.signed() { 2 } else { 1 };
+    /// Where the parts an envelope may leave out begin: past the words and their signature.
+    fn first_optional(&self) -> usize {
+        if self.signed() { 2 } else { 1 }
+    }
+
+    fn kind_at(&self, at: usize, kind: Kind) -> Option<usize> {
         self.parts
             .get(at)
-            .is_some_and(|one| one.kind == Kind::Cited)
+            .is_some_and(|one| one.kind == kind)
             .then_some(at)
     }
 
+    fn cited_at(&self) -> Option<usize> {
+        self.kind_at(self.first_optional(), Kind::Cited)
+    }
+
+    fn html_at(&self) -> Option<usize> {
+        let at = self.cited_at().map_or(self.first_optional(), |at| at + 1);
+        self.kind_at(at, Kind::Html)
+    }
+
     fn first_picture(&self) -> usize {
-        self.cited_at()
-            .map_or(if self.signed() { 2 } else { 1 }, |at| at + 1)
+        self.html_at()
+            .or_else(|| self.cited_at())
+            .map_or(self.first_optional(), |at| at + 1)
+    }
+
+    /// Laid out with an index of its parts, which every manifest that carries a drawn page is.
+    fn indexed(&self) -> bool {
+        self.v == RENDERED
     }
 }
 
@@ -283,6 +341,8 @@ pub struct Envelope {
     bytes: Vec<u8>,
     /// The manifest as it was written, since the seal holds these bytes and not their meaning.
     written: Range<usize>,
+    /// The hash of every sealed part, in the clear, when the envelope is laid out with one.
+    index: Option<Range<usize>>,
     parts: Vec<Range<usize>>,
     /// Worked out once, since checking the sender and keeping the bytes both ask for it.
     digest: [u8; 32],
@@ -296,6 +356,8 @@ pub struct Draft<'a> {
     pub from: Option<u64>,
     pub text: &'a str,
     pub cited: &'a [Cited],
+    /// The page Tisty drew from the words; an envelope that carries one is sealed as `v: 3` (decision 91).
+    pub html: Option<&'a str>,
     pub pictures: &'a [(Kind, &'a [u8])],
 }
 
@@ -334,7 +396,7 @@ fn named_id(id: &str) -> bool {
 
 /// The list as it is sealed: none at all when nothing is cited, so such an envelope is what it always was.
 #[cfg(feature = "mint")]
-fn cited_bytes(cited: &[Cited]) -> Result<Option<Vec<u8>>, Refused> {
+fn cited_bytes(cited: &[Cited]) -> Result<Option<Zeroizing<Vec<u8>>>, Refused> {
     if cited.is_empty() {
         return Ok(None);
     }
@@ -342,7 +404,7 @@ fn cited_bytes(cited: &[Cited]) -> Result<Option<Vec<u8>>, Refused> {
         return Err(Refused::Damaged);
     }
     serde_json::to_vec(cited)
-        .map(Some)
+        .map(|said| Some(Zeroizing::new(said)))
         .map_err(|_| Refused::Damaged)
 }
 
@@ -361,6 +423,9 @@ struct Wrote {
     at: jiff::Timestamp,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,
+    /// The hash of every picture as written, so the words hold before the pictures arrive and each one when it does.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pictures: Vec<String>,
     signed: Signed,
 }
 
@@ -375,6 +440,8 @@ pub struct Opened {
     pub manifest: Manifest,
     pub text: Zeroizing<String>,
     pub cited: Vec<Cited>,
+    /// The page Tisty drew, when the envelope carries one: the writer's word, so whoever shows it still cleans it.
+    pub html: Option<Zeroizing<String>>,
     pub pictures: Vec<(Kind, Zeroizing<Vec<u8>>)>,
     /// Who wrote these words and pictures, when the envelope carries their signature; one signed for another id is refused.
     pub wrote: Option<Verdict>,
@@ -392,10 +459,9 @@ pub fn seal(
 ) -> Result<Envelope, Refused> {
     check_draft(draft)?;
     let cited = cited_bytes(draft.cited)?;
-    let inner = by
-        .map(|signer| wrote(signer, draft, cited.as_deref()))
-        .transpose()?;
-    sealed_with(key, draft, inner.as_deref(), cited.as_deref(), by, limits)
+    let cited = cited.as_ref().map(|said| said.as_slice());
+    let inner = by.map(|signer| wrote(signer, draft, cited)).transpose()?;
+    sealed_with(key, draft, inner.as_deref(), cited, by, limits)
 }
 
 /// Seals the words with an inner signature already made, which only `seal` and the tests that forge one make.
@@ -415,6 +481,9 @@ fn sealed_with(
     if let Some(cited) = cited {
         plain.push((Kind::Cited, cited));
     }
+    if let Some(html) = draft.html {
+        plain.push((Kind::Html, html.as_bytes()));
+    }
     plain.extend(draft.pictures.iter().copied());
 
     let head: [u8; HEAD] = {
@@ -424,7 +493,11 @@ fn sealed_with(
             .map_err(|_| Refused::NoRandomness)?
     };
     let manifest = Manifest {
-        v: if cited.is_some() { CITING } else { SAID },
+        v: match (draft.html, cited) {
+            (Some(_), _) => RENDERED,
+            (None, Some(_)) => CITING,
+            (None, None) => SAID,
+        },
         id: draft.id.to_owned(),
         version: draft.version,
         from: draft.from,
@@ -444,15 +517,12 @@ fn sealed_with(
     if written.len() > MANIFEST_AT_MOST {
         return Err(Refused::TooManyPictures);
     }
-    let mut bytes = MAGIC.to_vec();
-    bytes.push(VERSION);
-    let written_at = framing(&mut bytes, &written);
     let aad = bound(&written);
     let cipher = key.cipher();
     let last = plain.len() - 1;
-    let mut parts = Vec::with_capacity(plain.len());
-    for (at, (_, said)) in plain.iter().enumerate() {
-        let mut sealed = Zeroizing::new(said.to_vec());
+    let sealed = plain.iter().enumerate().map(|(at, (_, said))| {
+        let mut sealed = Zeroizing::new(Vec::with_capacity(said.len() + TAG));
+        sealed.extend_from_slice(said);
         cipher
             .encrypt_in_place(
                 &nonced(&head, at as u32, at == last).into(),
@@ -460,22 +530,45 @@ fn sealed_with(
                 &mut *sealed,
             )
             .map_err(|_| Refused::Locked)?;
-        let start = bytes.len();
-        bytes.extend_from_slice(&sealed);
-        parts.push(start..bytes.len());
-    }
+        Ok(std::mem::take(&mut *sealed))
+    });
+    let indexed = manifest.indexed();
+    let mut bytes = MAGIC.to_vec();
+    bytes.push(if indexed { LAID } else { VERSION });
+    let written_at = framing(&mut bytes, &written);
     let mut envelope = Envelope {
-        digest: digested(&bytes, &written_at, &parts),
+        digest: [0; HASH],
         manifest,
         bytes,
         written: written_at,
-        parts,
+        index: None,
+        parts: Vec::with_capacity(plain.len()),
         sent: None,
     };
+    // Laid out with an index, the parts come after the sender's signature, so they wait for it.
+    if indexed {
+        let sealed = sealed.collect::<Result<Vec<_>, Refused>>()?;
+        let hashes: Vec<u8> = sealed.iter().flat_map(Sha256::digest).collect();
+        envelope.index = Some(framing(&mut envelope.bytes, &hashes));
+        envelope.digest = envelope.indexed_digest();
+        signed_by(&mut envelope, by)?;
+        sealed.iter().for_each(|part| envelope.append(part));
+    } else {
+        for part in sealed {
+            envelope.append(&part?);
+        }
+        envelope.digest = digested(&envelope.bytes, &envelope.written, &envelope.parts);
+        signed_by(&mut envelope, by)?;
+    }
+    Ok(envelope)
+}
+
+// Written here, where a failure can still say so, rather than dropped later on the way out.
+#[cfg(feature = "mint")]
+fn signed_by(envelope: &mut Envelope, by: Option<&Signer>) -> Result<(), Refused> {
     let sent = by
         .map(|signer| sign(signer, SENT, &envelope.answered()))
         .transpose()?;
-    // Written here, where a failure can still say so, rather than dropped later on the way out.
     let trailer = match &sent {
         Some(sent) => serde_json::to_vec(sent).map_err(|_| Refused::Unsigned)?,
         None => Vec::new(),
@@ -485,7 +578,7 @@ fn sealed_with(
     }
     framing(&mut envelope.bytes, &trailer);
     envelope.sent = sent;
-    Ok(envelope)
+    Ok(())
 }
 
 /// The pictures must be what they say, so a file passed off as a picture never leaves Tisty.
@@ -507,16 +600,25 @@ fn wrote(signer: &Signer, draft: &Draft, cited: Option<&[u8]>) -> Result<Vec<u8>
     if signer.name.is_some_and(|name| !named_well(name)) {
         return Err(Refused::NameTooLong);
     }
-    let said = vouched_words(
-        &content(draft.text, cited, draft.pictures),
-        draft.id,
-        signer.at,
-        signer.name,
-    );
+    let pictures: Vec<String> = match draft.html {
+        Some(_) => draft
+            .pictures
+            .iter()
+            .map(|(_, bytes)| URL_SAFE_NO_PAD.encode(Sha256::digest(bytes)))
+            .collect(),
+        None => Vec::new(),
+    };
+    let covered = match draft.html {
+        Some(html) => drawn_content(draft.text, cited, html, draft.pictures, &pictures)
+            .ok_or(Refused::Unsigned)?,
+        None => content(draft.text, cited, draft.pictures),
+    };
+    let said = vouched_words(&covered, draft.id, signer.at, signer.name);
     let wrote = Wrote {
         id: draft.id.to_owned(),
         at: signer.at,
         name: signer.name.map(str::to_owned),
+        pictures,
         signed: sign(signer, WROTE, &said)?,
     };
     serde_json::to_vec(&wrote).map_err(|_| Refused::Unsigned)
@@ -551,7 +653,7 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
             .map_err(|_| Refused::Locked)?;
         plain.push(bytes);
     }
-    let text = Zeroizing::new(String::from_utf8(plain[0].to_vec()).map_err(|_| Refused::Damaged)?);
+    let text = Zeroizing::new(worded(&plain[0])?);
     let cited_bytes = manifest.cited_at().map(|at| plain[at].as_slice());
     let cited: Vec<Cited> = match cited_bytes {
         Some(bytes) => serde_json::from_slice(bytes).map_err(|_| Refused::Damaged)?,
@@ -563,6 +665,10 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
     {
         return Err(Refused::Damaged);
     }
+    let html = match manifest.html_at() {
+        Some(at) => Some(Zeroizing::new(worded(&plain[at])?)),
+        None => None,
+    };
     let first_picture = manifest.first_picture();
     let pictures = manifest.parts[first_picture..]
         .iter()
@@ -581,19 +687,21 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
             .iter()
             .map(|(kind, bytes)| (*kind, bytes.as_slice()))
             .collect();
-        let said = vouched_words(
-            &content(&text, cited_bytes, &shown),
-            &inner.id,
-            inner.at,
-            inner.name.as_deref(),
-        );
+        let covered = match &html {
+            Some(html) => drawn_content(&text, cited_bytes, html, &shown, &inner.pictures),
+            None => Some(content(&text, cited_bytes, &shown)),
+        };
+        let said = covered
+            .map(|covered| vouched_words(&covered, &inner.id, inner.at, inner.name.as_deref()));
+        // Each picture must be the one the writer hashed, which holds them apart from the words they signed.
+        let pictured = html.is_none() || pictures_hold(&shown, &inner.pictures);
         // The server tells only the sender's revocations, so words another key wrote, or signed for another link, never hold.
-        let verdict = match (inner.id == manifest.id, &envelope.sent) {
-            (false, _) => Verdict::Refused,
-            (true, Some(sent)) if !same_key(&sent.certificate, &inner.signed.certificate) => {
+        let verdict = match (said, inner.id == manifest.id && pictured, &envelope.sent) {
+            (None, _, _) | (_, false, _) => Verdict::Refused,
+            (_, true, Some(sent)) if !same_key(&sent.certificate, &inner.signed.certificate) => {
                 Verdict::Refused
             }
-            (true, _) => check(&inner.signed, WROTE, &said, revoked),
+            (Some(said), true, _) => check(&inner.signed, WROTE, &said, revoked),
         };
         let written = Written {
             at: inner.at,
@@ -607,6 +715,7 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
         manifest: manifest.clone(),
         text,
         cited,
+        html,
         pictures,
         wrote,
         written,
@@ -655,9 +764,26 @@ impl Envelope {
         said
     }
 
-    /// Over the manifest as written and every sealed part, each with its length.
+    /// Over the manifest and every sealed part, or over the manifest and the index that hashes every part.
     pub fn digest(&self) -> [u8; 32] {
         self.digest
+    }
+
+    #[cfg(feature = "mint")]
+    fn append(&mut self, part: &[u8]) {
+        let start = self.bytes.len();
+        self.bytes.extend_from_slice(part);
+        self.parts.push(start..self.bytes.len());
+    }
+
+    fn indexed_digest(&self) -> [u8; 32] {
+        let mut over = Sha256::new();
+        over.update(INDEXED);
+        for range in std::iter::once(&self.written).chain(self.index.as_ref()) {
+            over.update((range.len() as u64).to_be_bytes());
+            over.update(&self.bytes[range.clone()]);
+        }
+        over.finalize().into()
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -678,42 +804,102 @@ impl Envelope {
             return Err(Refused::Foreign);
         }
         let mut at = MAGIC.len();
-        match bytes.get(at).copied().ok_or(Refused::Damaged)? {
-            VERSION => {}
-            newer if newer > VERSION => return Err(Refused::Newer),
+        let laid = match bytes.get(at).copied().ok_or(Refused::Damaged)? {
+            VERSION => false,
+            LAID => true,
+            newer if newer > LAID => return Err(Refused::Newer),
             _ => return Err(Refused::Damaged),
-        }
+        };
         at += 1;
         let written = framed(&bytes, &mut at, MANIFEST_AT_MOST)?;
         let manifest: Manifest =
             serde_json::from_slice(&bytes[written.clone()]).map_err(|_| Refused::Damaged)?;
         manifest.holds(limits)?;
-        let mut parts = Vec::with_capacity(manifest.parts.len());
-        for part in &manifest.parts {
-            let end = usize::try_from(part.size)
-                .ok()
-                .and_then(|size| at.checked_add(size))
-                .filter(|end| *end <= bytes.len())
-                .ok_or(Refused::Damaged)?;
-            parts.push(at..end);
-            at = end;
+        // A drawn page comes only laid out with an index, and an index only with a drawn page.
+        if laid != manifest.indexed() {
+            return Err(Refused::Damaged);
         }
+        if laid {
+            return Self::read_laid(bytes, at, written, manifest);
+        }
+        let parts = parts_from(&manifest, &bytes, &mut at)?;
         let trailer = framed(&bytes, &mut at, SIGNATURE_AT_MOST)?;
         if at != bytes.len() {
             return Err(Refused::Damaged);
         }
-        let sent = match &bytes[trailer] {
-            [] => None,
-            said => Some(canonical(said)?),
-        };
+        let sent = sent_in(&bytes[trailer])?;
         Ok(Self {
             digest: digested(&bytes, &written, &parts),
             manifest,
             bytes,
             written,
+            index: None,
             parts,
             sent,
         })
+    }
+
+    // The index and the sender's signature come before the parts, and every part must be the one the index hashes.
+    fn read_laid(
+        bytes: Vec<u8>,
+        mut at: usize,
+        written: Range<usize>,
+        manifest: Manifest,
+    ) -> Result<Self, Refused> {
+        let index = framed(&bytes, &mut at, HASH * manifest.parts.len())?;
+        if index.len() != HASH * manifest.parts.len() {
+            return Err(Refused::Damaged);
+        }
+        let trailer = framed(&bytes, &mut at, SIGNATURE_AT_MOST)?;
+        let sent = sent_in(&bytes[trailer])?;
+        let parts = parts_from(&manifest, &bytes, &mut at)?;
+        let unlike = parts
+            .iter()
+            .zip(bytes[index.clone()].chunks(HASH))
+            .any(|(part, hash)| Sha256::digest(&bytes[part.clone()]).as_slice() != hash);
+        if unlike || at != bytes.len() {
+            return Err(Refused::Damaged);
+        }
+        let mut envelope = Self {
+            digest: [0; HASH],
+            manifest,
+            bytes,
+            written,
+            index: Some(index),
+            parts,
+            sent,
+        };
+        envelope.digest = envelope.indexed_digest();
+        Ok(envelope)
+    }
+}
+
+/// Every part the manifest lists, one after the other from `at`, never past the bytes; `at` moves past them.
+fn parts_from(
+    manifest: &Manifest,
+    bytes: &[u8],
+    at: &mut usize,
+) -> Result<Vec<Range<usize>>, Refused> {
+    manifest
+        .parts
+        .iter()
+        .map(|part| {
+            let start = *at;
+            let end = usize::try_from(part.size)
+                .ok()
+                .and_then(|size| start.checked_add(size))
+                .filter(|end| *end <= bytes.len())
+                .ok_or(Refused::Damaged)?;
+            *at = end;
+            Ok(start..end)
+        })
+        .collect()
+}
+
+fn sent_in(trailer: &[u8]) -> Result<Option<Signed>, Refused> {
+    match trailer {
+        [] => Ok(None),
+        said => canonical(said).map(Some),
     }
 }
 
@@ -837,6 +1023,56 @@ fn content(text: &str, cited: Option<&[u8]>, pictures: &[(Kind, &[u8])]) -> Vec<
         over.update(bytes);
     }
     over.finalize().to_vec()
+}
+
+/// What the inner signature reads beside a drawn page: each picture's hash stands in for it, so the words hold alone.
+fn drawn_content(
+    text: &str,
+    cited: Option<&[u8]>,
+    html: &str,
+    pictures: &[(Kind, &[u8])],
+    hashes: &[String],
+) -> Option<Vec<u8>> {
+    if pictures.len() != hashes.len() {
+        return None;
+    }
+    let mut over = Sha256::new();
+    over.update(WRITTEN);
+    over.update(b"drawn");
+    let parts: [(&[u8], &[u8]); 3] = [
+        (b"text", text.as_bytes()),
+        (b"cited", cited.unwrap_or_default()),
+        (b"html", html.as_bytes()),
+    ];
+    for (named, said) in parts {
+        over.update(named);
+        over.update((said.len() as u64).to_be_bytes());
+        over.update(said);
+    }
+    over.update((hashes.len() as u64).to_be_bytes());
+    for ((kind, _), hash) in pictures.iter().zip(hashes) {
+        for said in [kind.media(), hash] {
+            over.update((said.len() as u64).to_be_bytes());
+            over.update(said.as_bytes());
+        }
+    }
+    Some(over.finalize().to_vec())
+}
+
+// Checked before it is copied, so words that are not text never leave a copy behind.
+fn worded(plain: &[u8]) -> Result<String, Refused> {
+    std::str::from_utf8(plain)
+        .map(str::to_owned)
+        .map_err(|_| Refused::Damaged)
+}
+
+// Each picture hashes to what the writer listed, and there are as many as the list says.
+fn pictures_hold(pictures: &[(Kind, &[u8])], hashes: &[String]) -> bool {
+    pictures.len() == hashes.len()
+        && pictures
+            .iter()
+            .zip(hashes)
+            .all(|((_, bytes), hash)| URL_SAFE_NO_PAD.encode(Sha256::digest(bytes)) == *hash)
 }
 
 fn decoded<const N: usize>(said: &str) -> Option<[u8; N]> {

@@ -84,6 +84,7 @@ impl Unread {
             // Over Tisty's own limits, which the server's may be wider than.
             Self::Envelope(
                 Refused::TextTooBig
+                | Refused::HtmlTooBig
                 | Refused::PictureTooBig
                 | Refused::TooManyPictures
                 | Refused::PicturesTooBig
@@ -146,6 +147,7 @@ fn roomier(server: Limits) -> Limits {
     }
     Limits {
         text: server.text.max(own.text),
+        html: server.html.max(own.html),
         picture: server.picture.max(own.picture),
         pictures: server.pictures.max(own.pictures),
         all_pictures: server.all_pictures.max(own.all_pictures),
