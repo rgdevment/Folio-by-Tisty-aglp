@@ -8,6 +8,25 @@
     <!-- Tisty's own mark, served as an asset, so the browser never asks the Worker for /favicon.ico. -->
     <link rel="icon" type="image/svg+xml" href="../../assets/icons/tisty-light.svg" />
     <title>Tisty</title>
+    <!-- Painted before any script: the system's own theme until the page sets Tisty's, so nothing flashes light. -->
+    <style>
+      html:not([data-theme]) {
+        background: #eceef1;
+      }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme]) {
+          color-scheme: dark;
+          background: #151516;
+          --tisty-desk: #151516;
+          --tisty-sheet: #232326;
+          --tisty-ink: #f2f2f7;
+          --tisty-soft: #adadb4;
+          --tisty-line: rgb(255 255 255 / 0.2);
+          --tisty-hue-green: #6fc44a;
+          --share-soft: #adadb4;
+        }
+      }
+    </style>
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
@@ -23,6 +42,20 @@
       </div>
     </header>
     <main class="desk">
+      <!-- A pen writes on a sheet from the first frame, before any script, until the document is drawn. -->
+      <div class="wait" aria-hidden="true">
+        <svg class="quill" viewBox="0 0 160 180" width="160" height="180">
+          <rect class="leaf" x="22" y="14" width="116" height="152" rx="10" />
+          <path class="line one" d="M42 54h76" />
+          <path class="line two" d="M42 78h76" />
+          <path class="line three" d="M42 102h76" />
+          <path class="line four" d="M42 126h48" />
+          <g class="pen">
+            <path class="pen-body" d="M-2 -6 L24 -32 L32 -24 L6 2 Z" />
+            <path class="pen-nib" d="M-2 -6 L6 2 L-4 4 Z" />
+          </g>
+        </svg>
+      </div>
       <p class="said" role="status" aria-live="polite"></p>
       <form class="gate card" hidden>
         <p class="gate-said" id="gate-said" role="status" aria-live="polite"></p>
@@ -65,8 +98,5 @@
         </aside>
       </div>
     </main>
-    <footer class="foot">
-      <a class="notices" href="/third-party.txt" data-word="notices"></a>
-    </footer>
   </body>
 </html>

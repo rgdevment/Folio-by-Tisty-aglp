@@ -13,6 +13,7 @@ const now = (more: Partial<Now> = {}): Now => ({
   title: "Guía",
   text: "# Guía\n\nHola",
   about: {},
+  facts: { gated: false },
   view: { leaf: "a4", sheets: false, landscape: false },
   raw: false,
   heads: [],
@@ -149,5 +150,27 @@ describe("a cited document signed by another key", () => {
     const host = drawnFor({});
     signedApart(host, say("otherWriter"));
     expect(host.textContent).not.toContain(say("otherWriter"));
+  });
+
+  it("says in its details who signed it, when it was shared and edited, and its size, as the window does", () => {
+    const { asked } = asking();
+    const details = of(
+      panelsOf(
+        now({
+          text: "ñandú",
+          about: { wrote: { is: "holds", fingerprint: "ABCD", name: "Ana" } },
+          facts: { shared: 1_800_000_000, written: 1_800_086_400, gated: false },
+        }),
+        asked,
+        words,
+        LINKS,
+      ),
+      "details",
+    );
+    expect(details.facts.author).toBe("Ana");
+    expect(details.facts.made).toMatch(/\d/);
+    expect(details.facts.wrote).not.toBe(details.facts.made);
+    // Counted in bytes as the file takes them, so «ñ» and «ú» weigh two each.
+    expect(details.facts.weighs).toBe("7 B");
   });
 });

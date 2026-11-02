@@ -35,21 +35,25 @@ const part = <T extends HTMLElement>(selector: string) => document.querySelector
 const told = part(".said");
 const gate = part<HTMLFormElement>(".gate");
 const reading = part(".read");
+const wait = part(".wait");
 const frame = part<HTMLIFrameElement>("iframe.sheet");
 
 const themed = () => {
   document.documentElement.dataset.theme = night.matches ? "dark" : "light";
 };
 
+// The pen writes only while something is on its way; a word that says why nothing came stands alone.
 const tell = (word: string) => {
   told.textContent = say(word);
   told.hidden = false;
+  wait.hidden = word !== "opening";
   gate.hidden = true;
   reading.hidden = true;
 };
 
 const asked = (word: string) => {
   told.hidden = true;
+  wait.hidden = true;
   reading.hidden = true;
   part(".gate-said").textContent = say(word);
   gate.hidden = false;
@@ -59,10 +63,17 @@ const asked = (word: string) => {
   password.focus();
 };
 
+// The sheet is laid out unseen behind the pen, and shown once it is drawn, so no empty frame shows meanwhile.
 const seen = () => {
   told.hidden = true;
   gate.hidden = true;
   reading.hidden = false;
+  reading.classList.add("is-drawing");
+};
+
+const drawnNow = () => {
+  wait.hidden = true;
+  reading.classList.remove("is-drawing");
 };
 
 const wordOf = (refused: unknown): string =>
@@ -251,7 +262,7 @@ const reader = async (root: Read) => {
       side,
       sheetSays.say,
       panelsOf(
-        { title, text: now.text, about: now.about, view, raw, heads },
+        { title, text: now.text, about: now.about, facts: now.facts, view, raw, heads },
         { onView, onRaw, onShut: () => besideShown(false) },
         { sheet: sheetSays.say, page: say, language },
         { opened: now === root ? location.href : read, read },
@@ -285,7 +296,6 @@ const reader = async (root: Read) => {
   const draw = async () => {
     const now = found;
     if (!now) return;
-    seen();
     across();
     const when = whenOf(now.facts, now.about.version ?? 1, Date.now() / 1000, language, say);
     const tags = now.about.tags ?? [];
@@ -317,7 +327,9 @@ const reader = async (root: Read) => {
     rawText.hidden = true;
     frame.hidden = false;
     besideShown(false);
+    seen();
     await draw();
+    drawnNow();
     frame.title = title || say("document");
     document.title = title ? `${title} · Tisty` : "Tisty";
     besideOpen.hidden = false;

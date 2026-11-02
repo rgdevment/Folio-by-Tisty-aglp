@@ -1,11 +1,14 @@
-import { copyFrom, fields, type Head, type Panel, type Say } from "tisty-editor/read";
+import { copyFrom, fields, type Head, type Panel, type Say, weighed } from "tisty-editor/read";
 import type { View } from "./drawn";
+import type { Facts } from "./fetched";
 import { type About, sealOf, tistyOf } from "./frame";
+import { stamped } from "./when";
 
 export type Now = {
   readonly title: string;
   readonly text: string;
   readonly about: About;
+  readonly facts: Facts;
   readonly view: View;
   readonly raw: boolean;
   readonly heads: readonly Head[];
@@ -45,6 +48,19 @@ export const falling =
     }, wait);
   };
 
+// What the window's details say of a document, from what the link holds: who signed it, when it was shared and last edited, and its size.
+const detailsOf = (now: Now, language: string) => {
+  const writer = now.about.wrote && "fingerprint" in now.about.wrote ? now.about.wrote : undefined;
+  return {
+    body: now.text,
+    fields: fields(now.text),
+    author: writer?.name,
+    made: now.facts.shared === undefined ? undefined : stamped(now.facts.shared, language),
+    wrote: now.facts.written === undefined ? undefined : stamped(now.facts.written, language),
+    weighs: weighed(new TextEncoder().encode(now.text).length),
+  };
+};
+
 // The panels a reader of a shared document needs, from the same catalogue the window draws from.
 export const panelsOf = (now: Now, asked: Asked, words: Words, links: Links): Panel[] => {
   const { view } = now;
@@ -66,7 +82,7 @@ export const panelsOf = (now: Now, asked: Asked, words: Words, links: Links): Pa
       raw: { on: now.raw, onTurn: asked.onRaw },
     },
     { kind: "index", heads: now.heads },
-    { kind: "details", facts: { body: now.text, fields: fields(now.text) } },
+    { kind: "details", facts: detailsOf(now, words.language) },
     { kind: "seal", seal: sealOf(now.about, words.language) },
     {
       kind: "acts",

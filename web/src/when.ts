@@ -2,6 +2,16 @@
 export const day = (seconds: number, language: string, style: "long" | "medium" = "long"): string =>
   new Intl.DateTimeFormat(language, { dateStyle: style }).format(seconds * 1000);
 
+// A moment as the window's details say one: the weekday, the date and the hour, in the reader's language.
+export const stamped = (seconds: number, language: string): string =>
+  new Intl.DateTimeFormat(language, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(seconds * 1000);
+
 const STEPS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
   ["year", 365 * 86_400],
   ["month", 30 * 86_400],

@@ -98,6 +98,18 @@ a {
   color: var(--share-soft);
   text-align: center;
 }
+.wait {
+  display: flex;
+  justify-content: center;
+  margin: 12vh 0 0;
+}
+.wait:not([hidden]) + .said {
+  margin-top: 20px;
+}
+/* Laid out while the document is drawn, so the sheet takes its height, and shown only once it is there. */
+.read.is-drawing {
+  visibility: hidden;
+}
 .card {
   background: var(--share-card);
   border: 1px solid var(--share-line);
@@ -310,16 +322,6 @@ a {
 .report-said:empty {
   display: none;
 }
-.foot {
-  max-width: calc(var(--across, 794px) + var(--beside));
-  margin: 0 auto;
-  padding: 0 24px 32px;
-  box-sizing: border-box;
-  font-size: 13px;
-}
-.notices {
-  color: var(--share-soft);
-}
 /* Where the paper and the panels do not fit side by side, the sheet takes the width and the panels rise from below when asked for. */
 html.tight .side-open {
   display: inline-flex;
@@ -348,8 +350,7 @@ html.tight .paper {
 }
 @media (max-width: 560px) {
   .bar-in,
-  .desk,
-  .foot {
+  .desk {
     padding-left: 16px;
     padding-right: 16px;
   }
