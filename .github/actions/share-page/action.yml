@@ -26,3 +26,4 @@ runs:
       run: |
         npm run wasm
         npm run build
+        npm run budget

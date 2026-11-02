@@ -7,6 +7,7 @@
   "scripts": {
     "wasm": "cargo build -p tisty-share-wasm --profile share-wasm --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir wasm ../../target/wasm32-unknown-unknown/share-wasm/tisty_share_wasm.wasm",
     "build": "tsc && vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "budget": "node budget.mjs"
   }
 }

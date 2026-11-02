@@ -17,14 +17,16 @@ fn png(len: usize) -> Vec<u8> {
     bytes
 }
 
+// Sealed as Tisty seals a version now: the words with the page it drew from them.
 fn sealed(text: &str, pictures: &[(Kind, &[u8])], by: Option<&Signer>) -> Vec<u8> {
+    let drawn = drawn(text);
     let draft = Draft {
         id: "k7Qm2xPa",
         version: 4,
         from: Some(3),
         text,
         cited: &[],
-        html: None,
+        html: Some(&drawn),
         pictures,
     };
     seal(&key(1), &draft, by, &Limits::default())
@@ -36,12 +38,33 @@ fn read(envelope: Vec<u8>) -> Result<Shown, Unread> {
     shown(envelope, &key(1).to_text(), None, None)
 }
 
+fn drawn(text: &str) -> String {
+    tisty_markdown::html(&tisty_markdown::read(text))
+}
+
 #[test]
-fn draws_the_text_as_tisty_does() {
+fn shows_the_page_tisty_drew_without_drawing_it() {
     let page = read(sealed(TEXT, &[], None)).unwrap();
-    let body = tisty_markdown::read(TEXT);
-    assert_eq!(page.html, tisty_markdown::html(&body));
+    assert_eq!(page.html, drawn(TEXT));
     assert!(page.html.contains("Antes de empezar"));
+}
+
+#[test]
+fn a_version_sealed_without_its_page_is_not_shown() {
+    let draft = Draft {
+        id: "k7Qm2xPa",
+        version: 4,
+        from: Some(3),
+        text: TEXT,
+        cited: &[],
+        html: None,
+        pictures: &[],
+    };
+    let envelope = seal(&key(1), &draft, None, &Limits::default())
+        .unwrap()
+        .into_bytes();
+    let refused = read(envelope).err();
+    assert_eq!(refused.as_ref().map(Unread::word), Some("damaged"));
 }
 
 #[test]
@@ -152,7 +175,7 @@ fn a_server_that_takes_more_opens_what_only_it_took() {
         from: None,
         text: &long,
         cited: &[],
-        html: None,
+        html: Some("<p>a</p>"),
         pictures: &[],
     };
     let envelope = seal(&key(1), &draft, None, &roomy).unwrap().into_bytes();
@@ -178,17 +201,14 @@ fn keeps_the_text_as_written_for_the_reader_to_download() {
     assert_eq!(page.text.as_str(), TEXT);
 }
 
-// The app draws a document with this same call (app/src-tauri/src/answers/paging.rs), so the guide to every
-// part of the Tisty language drawn alike here is the web drawn as the app draws it.
+// The app draws every version with this same call (app/src-tauri/src/sharing.rs), so the guide to every part of
+// the Tisty language comes through the envelope as the app drew it.
 #[test]
-fn every_part_of_the_tisty_language_draws_as_the_app_draws_it() {
+fn every_part_of_the_tisty_language_comes_through_as_the_app_drew_it() {
     for spanish in [true, false] {
         let guide = tisty_markdown::reference(spanish);
         let page = read(sealed(guide, &[], None)).unwrap();
-        assert_eq!(
-            page.html,
-            tisty_markdown::html(&tisty_markdown::read(guide))
-        );
+        assert_eq!(page.html, drawn(guide));
         assert_eq!(page.text.as_str(), guide);
     }
 }
@@ -237,13 +257,15 @@ fn hands_the_reader_what_the_words_cite_with_the_keys_that_open_them() {
         title: "Instalar en Windows".into(),
         page: Some((2, 3)),
     }];
+    let text = "![Instalar en Windows](tisty:doc/guia-2)";
+    let page = drawn(text);
     let draft = Draft {
         id: "k7Qm2xPa",
         version: 1,
         from: None,
-        text: "![Instalar en Windows](tisty:doc/guia-2)",
+        text,
         cited: &cited,
-        html: None,
+        html: Some(&page),
         pictures: &[],
     };
     let sealed = seal(&key(1), &draft, None, &Limits::default())

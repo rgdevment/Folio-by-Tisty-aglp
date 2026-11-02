@@ -9,8 +9,7 @@ use crate::envelope::Kind;
 pub struct Limits {
     /// Bytes of text a version may carry.
     pub text: u64,
-    /// Bytes of the drawn page (decision 91); none from a server that predates it, so Tisty never sends it one.
-    #[serde(default)]
+    /// Bytes of the page Tisty drew from that text (decision 91).
     pub html: u64,
     /// Bytes each picture may weigh.
     pub picture: u64,

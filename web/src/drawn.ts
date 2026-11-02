@@ -11,6 +11,7 @@ import {
   TITLED,
 } from "tisty-editor/read";
 import { type Cited, cardOf, citing } from "./cited";
+import { cleaned } from "./clean";
 
 export type Picture = { readonly bytes: Uint8Array<ArrayBuffer>; readonly media: string };
 export type Opened = {
@@ -144,7 +145,7 @@ export const drawn = async (
   laid: () => Laid,
   onCited: (one: Cited) => void,
 ): Promise<Drawn> => {
-  const page = await loaded(frame, shell(unasked(opened.html), dark));
+  const page = await loaded(frame, shell(unasked(cleaned(opened.html)), dark));
   page.documentElement.classList.add("tall");
   page.querySelector(".page")?.removeAttribute("inert");
   const live = () => frame.contentDocument === page;

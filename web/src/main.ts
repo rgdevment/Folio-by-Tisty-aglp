@@ -168,7 +168,7 @@ const besideShown = (open: boolean) => {
   besideOpen.setAttribute("aria-expanded", String(open));
 };
 // On a phone this opens every panel, the signature and the expiry among them, not only the outline.
-besideOpen.textContent = say("besideDetails");
+besideOpen.textContent = sheetSays.say("besideDetails");
 besideOpen.addEventListener("click", () => besideShown(!reading.classList.contains("is-side")));
 addEventListener("keydown", (event) => {
   if (event.key === "Escape" && reading.classList.contains("is-side")) besideShown(false);

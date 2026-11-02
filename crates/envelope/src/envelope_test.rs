@@ -1245,11 +1245,8 @@ fn a_signed_drawn_page_carries_as_many_pictures_as_a_roomier_server_takes() {
 }
 
 #[test]
-fn a_server_that_says_nothing_of_drawn_pages_takes_none() {
-    let older: Limits = serde_json::from_str(r#"{"text":100}"#).unwrap();
-    assert_eq!(older.html, 0);
-    assert_eq!(
-        seal(&key(9), &drawn("hola", "<p>hola</p>", &[]), None, &older).err(),
-        Some(Refused::HtmlTooBig)
-    );
+fn a_server_that_says_nothing_of_drawn_pages_takes_tisty_s_own() {
+    let said: Limits = serde_json::from_str(r#"{"text":100}"#).unwrap();
+    assert_eq!(said.html, Limits::default().html);
+    assert!(seal(&key(9), &drawn("hola", "<p>hola</p>", &[]), None, &said).is_ok());
 }

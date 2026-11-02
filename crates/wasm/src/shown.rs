@@ -8,6 +8,7 @@ use zeroize::Zeroizing;
 pub struct Shown {
     /// The text as written, for the reader who downloads it.
     pub text: Zeroizing<String>,
+    /// The page Tisty drew when it sealed the version (decision 91).
     pub html: String,
     pub about: About,
     /// The documents the words lead to, each opened from its own link (decision 64).
@@ -110,7 +111,12 @@ pub fn shown(
     };
     let envelope = Envelope::read(envelope, &limits).map_err(Unread::Envelope)?;
     let opened = open(&key, &envelope, &taken_back(revoked)).map_err(Unread::Envelope)?;
-    let html = tisty_markdown::html(&tisty_markdown::read(&opened.text));
+    // Nobody shared before Tisty sent the page with the words, so a version without it is not one Tisty sealed.
+    let html = opened
+        .html
+        .as_deref()
+        .map(|drawn| drawn.to_string())
+        .ok_or(Unread::Envelope(Refused::Damaged))?;
     let about = About {
         title: tisty_markdown::front::title(&opened.text),
         tags: tisty_markdown::front::tags(&opened.text),
