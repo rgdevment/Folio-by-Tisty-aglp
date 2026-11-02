@@ -15,6 +15,7 @@ testing = ["dep:jiff"]
 
 [dependencies]
 base64.workspace = true
+futures-util = { version = "0.3", default-features = false }
 hmac.workspace = true
 scrypt.workspace = true
 serde.workspace = true

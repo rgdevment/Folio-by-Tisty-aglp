@@ -34,8 +34,34 @@ const notices: Plugin = {
   },
 };
 
+// The wasm is asked for only once the page's script has run, so the page asks for it from the start, beside that script.
+const wasmEarly: Plugin = {
+  name: "wasm-early",
+  apply: "build",
+  transformIndexHtml: {
+    order: "post",
+    handler(_html, context) {
+      const wasm = Object.keys(context.bundle ?? {}).find((name) => name.endsWith(".wasm"));
+      if (!wasm) return [];
+      return [
+        {
+          tag: "link",
+          attrs: {
+            rel: "preload",
+            href: `/${wasm}`,
+            as: "fetch",
+            type: "application/wasm",
+            crossorigin: "",
+          },
+          injectTo: "head",
+        },
+      ];
+    },
+  },
+};
+
 export default defineConfig({
-  plugins: [notices],
+  plugins: [notices, wasmEarly],
   resolve: {
     alias: { "tisty-diagrams": join(studio, "src"), "tisty-editor": join(reader, "src") },
   },

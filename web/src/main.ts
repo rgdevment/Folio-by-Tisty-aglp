@@ -175,19 +175,41 @@ addEventListener("keydown", (event) => {
 });
 
 // A worker of its own for each piece of work: a page does little of it, and the work holds nothing worth keeping.
-const solving = (challenge: string): Promise<string | undefined> =>
+// One worker for the page's life, so a second password or a report never loads and compiles the wasm again.
+let solver: Worker | null = null;
+let solves: Promise<string | undefined> = Promise.resolve(undefined);
+
+const solvedBy = (worker: Worker, challenge: string): Promise<string | undefined> =>
   new Promise((done) => {
-    const solver = new Worker(new URL("./solver.ts", import.meta.url), { type: "module" });
-    const finished = (work?: string) => {
-      solver.terminate();
-      done(work);
+    const heard = ({ data }: MessageEvent<string | null>) => {
+      off();
+      done(data ?? undefined);
     };
-    solver.addEventListener("message", ({ data }: MessageEvent<string | null>) =>
-      finished(data ?? undefined),
-    );
-    solver.addEventListener("error", () => finished());
-    solver.postMessage(challenge);
+    // A worker that failed is let go, and the next work starts a fresh one.
+    const failed = () => {
+      off();
+      worker.terminate();
+      if (solver === worker) solver = null;
+      done(undefined);
+    };
+    const off = () => {
+      worker.removeEventListener("message", heard);
+      worker.removeEventListener("error", failed);
+    };
+    worker.addEventListener("message", heard);
+    worker.addEventListener("error", failed);
+    worker.postMessage(challenge);
   });
+
+// One piece of work at a time, so each answer is the one its challenge asked for.
+const solving = (challenge: string): Promise<string | undefined> => {
+  const turn = solves.then(() => {
+    solver ??= new Worker(new URL("./solver.ts", import.meta.url), { type: "module" });
+    return solvedBy(solver, challenge);
+  });
+  solves = turn;
+  return turn;
+};
 
 // Work beside a password can take a few seconds, so the reader is told it is under way.
 const checked = (challenge: string) => {

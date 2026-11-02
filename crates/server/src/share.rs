@@ -1,5 +1,6 @@
 use std::net::IpAddr;
 
+use futures_util::future::join3;
 use serde::{Deserialize, Serialize};
 use tisty_share_proto::envelope::{Envelope, Refused as Unread};
 use tisty_share_proto::identity::{Revocation, Verdict};
@@ -436,12 +437,15 @@ impl<S: Store, R: Randomness> Share<S, R> {
         open_to_read(&doc)?;
         let held_end = self.held_up(&doc, now).await?;
         let kept = *doc.versions.last().ok_or(Refused::Unwritten)?;
-        self.let_in(&doc, password, proof, caller, now).await?;
-        let envelope = self
-            .store
-            .envelope(id, &kept)
-            .await?
-            .ok_or_else(|| lost(id, &kept))?;
+        // Each waits on a store, so the envelope and what took its key back come while the password is weighed; neither goes out unless it holds.
+        let (allowed, envelope, revoked) = join3(
+            self.let_in(&doc, password, proof, caller, now),
+            self.store.envelope(id, &kept),
+            self.revoked(kept.by.as_ref()),
+        )
+        .await;
+        allowed?;
+        let envelope = envelope?.ok_or_else(|| lost(id, &kept))?;
         let new_reader = self.first_read_today(id, caller, now).await?;
         if new_reader {
             doc.reads += 1;
@@ -463,7 +467,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             version: kept.version,
             envelope,
             facts: Facts::of(&doc, ends),
-            revoked: self.revoked(kept.by.as_ref()).await?,
+            revoked: revoked?,
         })
     }
 
