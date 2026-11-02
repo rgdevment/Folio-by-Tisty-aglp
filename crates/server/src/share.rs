@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use futures_util::future::join3;
+use futures_util::future::{join, join3};
 use serde::{Deserialize, Serialize};
 use tisty_share_proto::envelope::{Envelope, Refused as Unread};
 use tisty_share_proto::identity::{Revocation, Verdict};
@@ -148,6 +148,17 @@ pub struct Served {
     pub facts: Facts,
     /// What took back the key that sent it, so the reader is told rather than shown it as holding.
     pub revoked: Vec<Revocation>,
+}
+
+/// What a read leaves to be written down once its reader has the envelope: who read it today, and that it is in use.
+#[derive(Debug)]
+pub struct Seen {
+    id: String,
+    caller: IpAddr,
+    now: i64,
+    doc: Doc,
+    /// Holders found gone without letting go, as a store failing midway can leave them.
+    lost: Vec<String>,
 }
 
 /// What a reader is told beside the words: nothing the server does not already hold in the clear.
@@ -423,7 +434,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         Ok(kept.version)
     }
 
-    /// What a reader gets: only ever the latest version, so nobody is served one already replaced.
+    /// Only ever the latest version, so nobody is served one already replaced; what it writes down waits in `Seen`.
     pub async fn read(
         &mut self,
         id: &str,
@@ -431,11 +442,12 @@ impl<S: Store, R: Randomness> Share<S, R> {
         proof: Option<&Proof>,
         caller: IpAddr,
         now: i64,
-    ) -> Result<Served, Refused> {
-        self.admit(caller, Act::Read, now).await?;
-        let mut doc = self.live(id, now).await?;
+    ) -> Result<(Served, Seen), Refused> {
+        let (admitted, doc) = join(self.admit(caller, Act::Read, now), self.live(id, now)).await;
+        admitted?;
+        let doc = doc?;
         open_to_read(&doc)?;
-        let held_end = self.held_up(&doc, now).await?;
+        let held = self.held_up(&doc, now).await?;
         let kept = *doc.versions.last().ok_or(Refused::Unwritten)?;
         // Each waits on a store, so the envelope and what took its key back come while the password is weighed; neither goes out unless it holds.
         let (allowed, envelope, revoked) = join3(
@@ -446,7 +458,37 @@ impl<S: Store, R: Randomness> Share<S, R> {
         .await;
         allowed?;
         let envelope = envelope?.ok_or_else(|| lost(id, &kept))?;
-        let new_reader = self.first_read_today(id, caller, now).await?;
+        // Told as `seen` leaves it for a new reader; one back within the hour hears an end at most that hour ahead.
+        let ends = match doc.holders.is_empty() {
+            true => now + doc.idle.min(self.policy.idle),
+            false => held.end,
+        };
+        let served = Served {
+            version: kept.version,
+            envelope,
+            facts: Facts::of(&doc, ends),
+            revoked: revoked?,
+        };
+        let seen = Seen {
+            id: id.to_owned(),
+            caller,
+            now,
+            doc,
+            lost: held.lost,
+        };
+        Ok((served, seen))
+    }
+
+    /// Counts a new reader today, pushes the end back and lets go of holders that went without letting go.
+    pub async fn seen(&self, seen: Seen) -> Result<(), Refused> {
+        let Seen {
+            id,
+            caller,
+            now,
+            mut doc,
+            lost,
+        } = seen;
+        let new_reader = self.first_read_today(&id, caller, now).await?;
         if new_reader {
             doc.reads += 1;
         }
@@ -458,17 +500,10 @@ impl<S: Store, R: Randomness> Share<S, R> {
                 Err(other) => return Err(other),
             }
         }
-        // Touched just now, its own end is the one to tell; held, it is the one its holders give it.
-        let ends = match doc.holders.is_empty() {
-            true => doc.ends,
-            false => held_end,
-        };
-        Ok(Served {
-            version: kept.version,
-            envelope,
-            facts: Facts::of(&doc, ends),
-            revoked: revoked?,
-        })
+        for holder in &lost {
+            self.let_go(&id, holder).await?;
+        }
+        Ok(())
     }
 
     /// The latest version's number, for a Tisty looking for changes; asking is not activity (decision 50).
@@ -684,15 +719,11 @@ impl<S: Store, R: Randomness> Share<S, R> {
         Ok(doc)
     }
 
-    /// A document whose time ran out reads as gone even before a sweep takes it away.
+    /// A document whose time ran out reads as gone; only the sweep takes it away, so no read ever deletes.
     pub(crate) async fn live(&self, id: &str, now: i64) -> Result<Doc, Refused> {
         match self.store.doc(id).await? {
             None => Err(Refused::Missing),
-            Some(doc) if doc.ends < now => {
-                // Gone whether or not it can be let go of now; a sweep tries again and tells why.
-                let _ = self.forgotten(&doc).await;
-                Err(Refused::Gone)
-            }
+            Some(doc) if doc.ends < now => Err(Refused::Gone),
             Some(doc) => Ok(doc),
         }
     }

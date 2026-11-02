@@ -144,7 +144,9 @@ impl World {
         caller: IpAddr,
         now: i64,
     ) -> Result<Served, Refused> {
-        done(self.share.read(id, password, None, caller, now))
+        let (served, seen) = done(self.share.read(id, password, None, caller, now))?;
+        done(self.share.seen(seen))?;
+        Ok(served)
     }
 
     fn read_worked(
@@ -155,10 +157,12 @@ impl World {
         caller: IpAddr,
         now: i64,
     ) -> Result<Served, Refused> {
-        done(
+        let (served, seen) = done(
             self.share
                 .read(id, Some(password), Some(proof), caller, now),
-        )
+        )?;
+        done(self.share.seen(seen))?;
+        Ok(served)
     }
 
     fn manage(&mut self, reserved: &Reserved, what: Manage, now: i64) -> Result<(), Refused> {
@@ -817,6 +821,9 @@ fn a_document_nobody_reads_for_fifteen_days_is_gone() {
     // That read moved the end to day 29.
     assert!(world.read(&reserved.id, T0 + 28 * DAY).is_ok());
     assert_eq!(world.read(&reserved.id, T0 + 44 * DAY), Err(Refused::Gone));
+    // Reading it took nothing away; the sweep does.
+    assert_eq!(world.share.store.envelopes(), 1);
+    done(world.share.sweep(T0 + 44 * DAY)).unwrap();
     assert_eq!(
         world.read(&reserved.id, T0 + 44 * DAY),
         Err(Refused::Missing)
@@ -1642,8 +1649,8 @@ fn a_host_s_own_limiter_decides_the_reads_and_its_wait_is_the_one_told() {
 
     for _ in 0..3 {
         assert_eq!(
-            done(share.read(&reserved.id, None, None, HERE, T0)),
-            Err(Refused::Slow { until: T0 + 60 })
+            done(share.read(&reserved.id, None, None, HERE, T0)).err(),
+            Some(Refused::Slow { until: T0 + 60 })
         );
     }
     share.store.limited.set(None);
@@ -1675,8 +1682,8 @@ fn a_document_that_cannot_go_is_passed_over_and_the_rest_still_go() {
     let again = done(share.sweep(later + 60)).unwrap();
     assert_eq!((again.gone, again.stuck.len()), (0, 0));
     assert_eq!(
-        done(share.read(&ids[0], None, None, HERE, later + 60)),
-        Err(Refused::Gone)
+        done(share.read(&ids[0], None, None, HERE, later + 60)).err(),
+        Some(Refused::Gone)
     );
     *share.store.stuck.borrow_mut() = None;
     assert_eq!(done(share.sweep(later + DAY + 1)).unwrap().gone, 1);
@@ -2103,4 +2110,56 @@ fn a_document_made_under_a_longer_ceiling_comes_down_to_today_s_when_it_is_read(
     world.read(&reserved.id, T0 + DAY).unwrap();
     assert_eq!(world.doc(&reserved.id).idle, 15 * DAY);
     assert_eq!(world.doc(&reserved.id).ends, T0 + 16 * DAY);
+}
+
+#[test]
+fn a_read_answers_before_it_writes_anything_and_tells_the_end_it_will_leave() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    let later = T0 + 2 * HOUR;
+    let before = world.doc(&reserved.id);
+
+    let (served, seen) = done(world.share.read(&reserved.id, None, None, HERE, later)).unwrap();
+    let untouched = world.doc(&reserved.id);
+    assert_eq!(
+        (untouched.reads, untouched.revision),
+        (before.reads, before.revision)
+    );
+    assert_eq!(served.facts.ends, later + world.share.policy.idle);
+
+    done(world.share.seen(seen)).unwrap();
+    let noted = world.doc(&reserved.id);
+    assert_eq!(noted.reads, before.reads + 1);
+    assert_eq!(noted.ends, served.facts.ends);
+}
+
+#[test]
+fn a_holder_gone_without_letting_go_is_let_go_of_once_the_read_is_answered() {
+    let mut world = World::new();
+    let root = world.shared(T0);
+    let cited = world.shared(T0);
+    world.manage(&root, hold(&cited, true), T0).unwrap();
+    // The holder went with its store failing midway, still named by what it held.
+    done(world.share.store.forget(&root.id)).unwrap();
+
+    let (_, seen) = done(world.share.read(&cited.id, None, None, HERE, T0 + DAY)).unwrap();
+    assert_eq!(world.doc(&cited.id).holders, vec![root.id.clone()]);
+    done(world.share.seen(seen)).unwrap();
+    assert!(world.doc(&cited.id).holders.is_empty());
+}
+
+#[test]
+fn a_document_past_its_end_is_gone_to_everyone_and_taken_only_by_the_sweep() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    let past = T0 + 16 * DAY;
+    assert_eq!(
+        done(world.share.latest(&reserved.id, None, HERE, past)),
+        Err(Refused::Gone)
+    );
+    assert_eq!(
+        world.manage(&reserved, Manage::Visit, past),
+        Err(Refused::Gone)
+    );
+    assert!(done(world.share.store.doc(&reserved.id)).unwrap().is_some());
 }

@@ -4,6 +4,12 @@ use crate::keys::{self, Randomness};
 use crate::share::{Refused, Share};
 use crate::store::{Doc, Store};
 
+/// How long a held document reads, and the holders found gone without letting go of it.
+pub(crate) struct Held {
+    pub(crate) end: i64,
+    pub(crate) lost: Vec<String>,
+}
+
 /// Shares one document may be held by, so a reader's check of who holds it stays a few reads.
 pub const HOLDERS_AT_MOST: usize = 16;
 
@@ -87,7 +93,10 @@ impl<S: Store, R: Randomness> Share<S, R> {
         match (doc.holders.is_empty(), doc.own) {
             (true, _) => doc.ends,
             (false, Some(own)) => own,
-            (false, None) => self.held_up(doc, now).await.unwrap_or(doc.ends),
+            (false, None) => self
+                .held_up(doc, now)
+                .await
+                .map_or(doc.ends, |held| held.end),
         }
     }
 
@@ -108,9 +117,12 @@ impl<S: Store, R: Randomness> Share<S, R> {
     }
 
     /// A held document reads while a holder does or its own life lasts, and the end a reader is told is the furthest of those (decision 64).
-    pub(crate) async fn held_up(&self, doc: &Doc, now: i64) -> Result<i64, Refused> {
+    pub(crate) async fn held_up(&self, doc: &Doc, now: i64) -> Result<Held, Refused> {
         if doc.holders.is_empty() {
-            return Ok(doc.ends);
+            return Ok(Held {
+                end: doc.ends,
+                lost: Vec::new(),
+            });
         }
         let mut paused = false;
         let mut lost = Vec::new();
@@ -123,19 +135,22 @@ impl<S: Store, R: Randomness> Share<S, R> {
                 None => lost.push(holder.clone()),
             }
         }
-        // A holder that went without letting go, its store failing midway, is let go of here.
-        for holder in &lost {
-            self.let_go(&doc.id, holder).await?;
-        }
+        // A holder that went without letting go, its store failing midway, is let go of once the read is answered.
         match (ends, paused) {
-            (Some(end), _) => Ok(end),
+            (Some(end), _) => Ok(Held { end, lost }),
             (None, true) => Err(Refused::Paused),
-            (None, false) => Err(Refused::Gone),
+            (None, false) => {
+                // Nothing holds it up any more, and its far end would keep it from every sweep, so it is let go of now.
+                for holder in &lost {
+                    self.let_go(&doc.id, holder).await?;
+                }
+                Err(Refused::Gone)
+            }
         }
     }
 
     /// One holder lets go: the document keeps its own end again, or goes when it had none.
-    async fn let_go(&self, id: &str, holder: &str) -> Result<(), Refused> {
+    pub(crate) async fn let_go(&self, id: &str, holder: &str) -> Result<(), Refused> {
         for _ in 0..4 {
             let Some(mut doc) = self.store.doc(id).await? else {
                 return Ok(());

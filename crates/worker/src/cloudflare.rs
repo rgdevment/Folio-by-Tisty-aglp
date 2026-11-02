@@ -1,5 +1,7 @@
 //! What only Workers has: D1 and R2 behind the server's `Store`, its randomness, and the events it calls.
 
+use std::cell::Cell;
+use std::future::Future;
 use std::net::IpAddr;
 
 use futures_util::StreamExt;
@@ -8,7 +10,7 @@ use tisty_share_proto::identity::Revocation;
 use tisty_share_server::guard::{self, Act, Allowance};
 use tisty_share_server::keys::{Randomness, Slowness};
 use tisty_share_server::moderation::Report;
-use tisty_share_server::share::{Policy, Share};
+use tisty_share_server::share::{Policy, Seen, Share};
 use tisty_share_server::store::{Doc, Fault, Kept, Saved, Store};
 use worker::js_sys::{self, Function, Reflect, Uint8Array};
 use worker::wasm_bindgen::{JsCast, JsValue};
@@ -26,6 +28,17 @@ struct Cloud {
     /// None where the binding is not there, and then D1 counts reads and polls as it counts the rest.
     reads: Option<RateLimiter>,
     polls: Option<RateLimiter>,
+    /// Milliseconds spent waiting on D1 and on R2, told back in `Server-Timing`.
+    on_d1: Cell<u64>,
+    on_r2: Cell<u64>,
+}
+
+// Two waits at once count in full each, so the sum says how long each store kept a request, not the wall clock.
+async fn timed<T>(spent: &Cell<u64>, work: impl Future<Output = T>) -> T {
+    let began = Date::now().as_millis();
+    let done = work.await;
+    spent.set(spent.get() + Date::now().as_millis().saturating_sub(began));
+    done
 }
 
 fn fault(error: impl std::fmt::Display) -> Fault {
@@ -51,8 +64,8 @@ impl Cloud {
         query: &str,
         values: &[JsValue],
     ) -> Result<Option<T>, Fault> {
-        bound(self.db.prepare(query), values)?
-            .first(None)
+        let statement = bound(self.db.prepare(query), values)?;
+        timed(&self.on_d1, statement.first(None))
             .await
             .map_err(fault)
     }
@@ -62,19 +75,15 @@ impl Cloud {
         query: &str,
         values: &[JsValue],
     ) -> Result<Vec<T>, Fault> {
-        let done = bound(self.db.prepare(query), values)?
-            .all()
-            .await
-            .map_err(fault)?;
+        let statement = bound(self.db.prepare(query), values)?;
+        let done = timed(&self.on_d1, statement.all()).await.map_err(fault)?;
         done.results().map_err(fault)
     }
 
     /// How many rows a statement wrote; D1 not saying is a fault, never a race lost.
     async fn changes(&self, query: &str, values: &[JsValue]) -> Result<usize, Fault> {
-        let done = bound(self.db.prepare(query), values)?
-            .run()
-            .await
-            .map_err(fault)?;
+        let statement = bound(self.db.prepare(query), values)?;
+        let done = timed(&self.on_d1, statement.run()).await.map_err(fault)?;
         done.meta()
             .map_err(fault)?
             .and_then(|meta| meta.changes)
@@ -127,19 +136,22 @@ impl Store for Cloud {
     }
 
     async fn envelope(&self, id: &str, kept: &Kept) -> Result<Option<Vec<u8>>, Fault> {
-        let Some(object) = self
-            .envelopes
-            .get(kept::envelope_key(id, kept))
-            .execute()
-            .await
-            .map_err(fault)?
-        else {
-            return Ok(None);
-        };
-        let Some(body) = object.body() else {
-            return Ok(None);
-        };
-        Ok(Some(body.bytes().await.map_err(fault)?))
+        timed(&self.on_r2, async {
+            let Some(object) = self
+                .envelopes
+                .get(kept::envelope_key(id, kept))
+                .execute()
+                .await
+                .map_err(fault)?
+            else {
+                return Ok(None);
+            };
+            let Some(body) = object.body() else {
+                return Ok(None);
+            };
+            Ok(Some(body.bytes().await.map_err(fault)?))
+        })
+        .await
     }
 
     async fn keep(&self, id: &str, kept: &Kept, bytes: Vec<u8>) -> Result<(), Fault> {
@@ -273,6 +285,8 @@ fn share(env: &Env) -> worker::Result<Share<Cloud, Crypto>> {
         envelopes: env.bucket("ENVELOPES")?,
         reads: env.rate_limiter("READS").ok(),
         polls: env.rate_limiter("POLLS").ok(),
+        on_d1: Cell::new(0),
+        on_r2: Cell::new(0),
     };
     let secret = kept::secret_from_hex(&env.secret("SHARE_SECRET")?.to_string())
         .ok_or_else(|| worker::Error::from("SHARE_SECRET is not 64 hexadecimal digits"))?;
@@ -311,7 +325,10 @@ async fn body_within(request: &mut Request, ceiling: u64) -> worker::Result<Opti
     Ok(Some(body))
 }
 
-async fn served(mut request: Request, env: &Env) -> worker::Result<api::Answer> {
+async fn served(
+    mut request: Request,
+    env: &Env,
+) -> worker::Result<(api::Answer, Option<Seen>, [u64; 2])> {
     let mut share = share(env)?;
     let headers = request.headers();
     // Cloudflare sets it on every request and a caller cannot, so the allowances rest on it.
@@ -326,7 +343,7 @@ async fn served(mut request: Request, env: &Env) -> worker::Result<api::Answer> 
     let work = headers.get("Tisty-Work")?;
     let ceiling = api::ceiling(&share.policy.limits);
     let Some(body) = body_within(&mut request, ceiling).await? else {
-        return Ok(api::oversized());
+        return Ok((api::oversized(), None, [0, 0]));
     };
     let asked = api::Asked {
         method: request.method().to_string(),
@@ -338,7 +355,12 @@ async fn served(mut request: Request, env: &Env) -> worker::Result<api::Answer> 
         caller,
         now: now(),
     };
-    Ok(api::answer(&mut share, asked).await)
+    let (answer, seen) = api::answer_first(&mut share, asked).await;
+    Ok((
+        answer,
+        seen,
+        [share.store.on_d1.get(), share.store.on_r2.get()],
+    ))
 }
 
 fn answered(answer: api::Answer) -> worker::Result<Response> {
@@ -366,10 +388,29 @@ fn deployed_as(env: &Env) -> Option<String> {
 }
 
 #[event(fetch)]
-async fn fetch(request: Request, env: Env, _: Context) -> worker::Result<Response> {
-    let mut answer = served(request, &env)
+async fn fetch(request: Request, env: Env, ctx: Context) -> worker::Result<Response> {
+    let began = Date::now().as_millis();
+    let (mut answer, seen, waited) = served(request, &env)
         .await
-        .unwrap_or_else(|why| api::broken(why.to_string()));
+        .unwrap_or_else(|why| (api::broken(why.to_string()), None, [0, 0]));
+    let read = seen.is_some();
+    // A read is written down once its reader has the envelope, so no write stands between them.
+    if let Some(seen) = seen {
+        let env = env.clone();
+        ctx.wait_until(async move {
+            let fault = match share(&env) {
+                Ok(share) => api::noted(&share, seen).await,
+                Err(why) => Some(why.to_string()),
+            };
+            if let Some(fault) = fault {
+                worker::console_error!("{fault}");
+            }
+        });
+    }
+    let total = Date::now().as_millis().saturating_sub(began);
+    answer
+        .headers
+        .push(("Server-Timing", api::timing(read.then_some(waited), total)));
     // Said on every answer, so a deploy can tell its own version is the one answering.
     if let Some(tag) = deployed_as(&env) {
         answer.headers.push(("Tisty-Worker", tag));
