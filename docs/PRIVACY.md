@@ -25,7 +25,7 @@ Share as a non-profit. Contact: <rgdevment@tisty.app>.
 
 | What | Why | For how long |
 |---|---|---|
-| The encrypted document, with its versions | To serve it to whoever has the link | Until 30 days without activity, or until you stop sharing it |
+| The encrypted document, with its versions | To serve it to whoever has the link | Until the time without activity you choose, 15 days at most, or until you stop sharing it |
 | The manifest in the clear: how many parts, what each weighs, their kind and the version | To hold the limits without reading the content | As long as the document |
 | The edit and manage links, kept as a digest (hash) | To check who may change or delete it | As long as the document |
 | If you sign, your public key and its certificate | So readers know it is yours | As long as the document |

@@ -32,8 +32,9 @@ The Tisty app has [terms of its own](../../TERMS.md).
 - **What you share is end-to-end encrypted.** The key travels in the link,
   after the `#`, and never reaches the server. The server keeps bytes it
   cannot read.
-- **What you share expires on its own** after 30 days without activity: no
-  reads, no visits of yours and no new versions. When it expires, the links
+- **What you share expires on its own** after the time without activity you
+  choose when sharing, from one day to 15 days at most: no reads, no visits of
+  yours and no new versions. When it expires, the links
   stop working and the server's copy is deleted. Your document stays in Tisty,
   and you can share it again.
 - **There are limits** on size and on how many pictures a document carries,

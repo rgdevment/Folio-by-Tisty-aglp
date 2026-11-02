@@ -25,7 +25,7 @@ Tisty Share sin fines de lucro. Contacto: <rgdevment@tisty.app>.
 
 | Qué | Para qué | Por cuánto tiempo |
 |---|---|---|
-| El documento cifrado, con sus versiones | Servirlo a quien tiene el link | Hasta 30 días sin actividad, o hasta que dejes de compartirlo |
+| El documento cifrado, con sus versiones | Servirlo a quien tiene el link | Hasta el plazo sin actividad que elijas, de 15 días como mucho, o hasta que dejes de compartirlo |
 | El manifiesto en claro: cuántas partes tiene, cuánto pesa cada una, de qué tipo son y su versión | Aplicar los topes sin leer el contenido | Lo mismo que el documento |
 | Los links de editar y administrar, guardados como resumen (hash) | Comprobar quién puede cambiar o borrar | Lo mismo que el documento |
 | Si firmas, tu llave pública y su certificado | Que quien lee sepa que es tuyo | Lo mismo que el documento |

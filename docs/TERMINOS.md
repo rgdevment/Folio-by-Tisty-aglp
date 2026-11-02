@@ -33,8 +33,9 @@ La app Tisty tiene sus propios [términos](../../TERMS.md).
   llave.
 - **Lo compartido va cifrado de punta a punta.** La llave va en el link, después
   del `#`, y no llega al servidor. El servidor guarda bytes que no puede leer.
-- **Lo compartido caduca solo** a los 30 días sin actividad: sin lecturas, sin
-  visitas tuyas y sin versiones nuevas. Al caducar, los links dejan de
+- **Lo compartido caduca solo** tras el plazo sin actividad que elijas al
+  compartir, de un día a 15 días como mucho: sin lecturas, sin visitas tuyas y
+  sin versiones nuevas. Al caducar, los links dejan de
   funcionar y la copia del servidor se borra. Tu documento sigue en Tisty y
   puedes volver a compartirlo.
 - **Hay topes** de tamaño y de cantidad de imágenes, que el servicio puede

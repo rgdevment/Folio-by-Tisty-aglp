@@ -809,16 +809,16 @@ fn behind_a_password_only_its_own_links_see_the_latest_version() {
 }
 
 #[test]
-fn a_document_nobody_reads_for_thirty_days_is_gone() {
+fn a_document_nobody_reads_for_fifteen_days_is_gone() {
     let mut world = World::new();
     let reserved = world.shared(T0);
 
-    assert!(world.read(&reserved.id, T0 + 29 * DAY).is_ok());
-    // That read moved the end to day 59.
-    assert!(world.read(&reserved.id, T0 + 58 * DAY).is_ok());
-    assert_eq!(world.read(&reserved.id, T0 + 89 * DAY), Err(Refused::Gone));
+    assert!(world.read(&reserved.id, T0 + 14 * DAY).is_ok());
+    // That read moved the end to day 29.
+    assert!(world.read(&reserved.id, T0 + 28 * DAY).is_ok());
+    assert_eq!(world.read(&reserved.id, T0 + 44 * DAY), Err(Refused::Gone));
     assert_eq!(
-        world.read(&reserved.id, T0 + 89 * DAY),
+        world.read(&reserved.id, T0 + 44 * DAY),
         Err(Refused::Missing)
     );
     assert_eq!(world.share.store.envelopes(), 0);
@@ -829,14 +829,14 @@ fn tisty_asking_for_the_latest_version_is_not_activity() {
     let mut world = World::new();
     let reserved = world.shared(T0);
 
-    for day in [10, 20, 29] {
+    for day in [5, 10, 14] {
         assert_eq!(
             done(world.share.latest(&reserved.id, None, HERE, T0 + day * DAY)),
             Ok(Some(1))
         );
     }
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0 + 31 * DAY)),
+        done(world.share.latest(&reserved.id, None, HERE, T0 + 16 * DAY)),
         Err(Refused::Gone)
     );
 }
@@ -846,14 +846,14 @@ fn the_owner_s_visit_and_a_new_version_count_as_activity() {
     let mut world = World::new();
     let reserved = world.shared(T0);
     world
-        .manage(&reserved, Manage::Visit, T0 + 25 * DAY)
+        .manage(&reserved, Manage::Visit, T0 + 12 * DAY)
         .unwrap();
     let next = sealed(&reserved.id, 2, Some(1), "dos");
     world
-        .put(&reserved.id, &reserved.edit, next, T0 + 50 * DAY)
+        .put(&reserved.id, &reserved.edit, next, T0 + 25 * DAY)
         .unwrap();
 
-    assert!(world.read(&reserved.id, T0 + 79 * DAY).is_ok());
+    assert!(world.read(&reserved.id, T0 + 39 * DAY).is_ok());
 }
 
 #[test]
@@ -930,12 +930,12 @@ fn a_paused_document_is_not_served_and_its_trash_time_runs_instead() {
     world
         .manage(&reserved, Manage::Restore, T0 + 20 * DAY)
         .unwrap();
-    assert!(world.read(&reserved.id, T0 + 45 * DAY).is_ok());
+    assert!(world.read(&reserved.id, T0 + 34 * DAY).is_ok());
 
     world
-        .manage(&reserved, Manage::Pause, T0 + 46 * DAY)
+        .manage(&reserved, Manage::Pause, T0 + 35 * DAY)
         .unwrap();
-    assert_eq!(world.read(&reserved.id, T0 + 77 * DAY), Err(Refused::Gone));
+    assert_eq!(world.read(&reserved.id, T0 + 66 * DAY), Err(Refused::Gone));
 }
 
 #[test]
@@ -1906,13 +1906,13 @@ fn a_cited_document_lives_as_long_as_the_share_that_holds_it_and_goes_with_it() 
     let cited = world.shared(T0);
     assert_eq!(world.manage(&root, hold(&cited, false), T0), Ok(()));
 
-    // Never read, it outlives its own thirty idle days while the root is read.
-    let later = T0 + 40 * DAY;
-    assert!(world.read(&root.id, T0 + 20 * DAY).is_ok());
+    // Never read, it outlives its own fifteen idle days while the root is read.
+    let later = T0 + 20 * DAY;
+    assert!(world.read(&root.id, T0 + 10 * DAY).is_ok());
     assert!(world.read(&cited.id, later).is_ok());
     assert_eq!(world.doc(&root.id).holds, vec![cited.id.clone()]);
 
-    let gone = later + 31 * DAY;
+    let gone = later + 16 * DAY;
     done(world.share.sweep(gone)).unwrap();
     assert_eq!(world.read(&root.id, gone), Err(Refused::Missing));
     assert_eq!(world.read(&cited.id, gone), Err(Refused::Missing));
@@ -2091,4 +2091,16 @@ fn a_held_document_paused_and_then_stopped_reads_again_through_its_holder() {
     // Its owner is told the end its holder gives it, never the sweep's far one.
     let info = done(world.share.info(&cited.id, &cited.admin, T0 + 3 * HOUR)).unwrap();
     assert_eq!(info.ends, world.doc(&root.id).ends);
+}
+
+#[test]
+fn a_document_made_under_a_longer_ceiling_comes_down_to_today_s_when_it_is_read() {
+    let mut world = World::new();
+    world.share.policy.idle = 30 * DAY;
+    let reserved = world.shared(T0);
+    world.share.policy.idle = 15 * DAY;
+
+    world.read(&reserved.id, T0 + DAY).unwrap();
+    assert_eq!(world.doc(&reserved.id).idle, 15 * DAY);
+    assert_eq!(world.doc(&reserved.id).ends, T0 + 16 * DAY);
 }

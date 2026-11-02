@@ -57,7 +57,7 @@ impl Default for Policy {
         Self {
             limits: Limits::default(),
             versions: 5,
-            idle: 30 * DAY,
+            idle: 15 * DAY,
             trash: 30 * DAY,
             reserved: 60 * 60,
             misses: 5,
@@ -410,7 +410,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             .versions
             .drain(..doc.versions.len().saturating_sub(self.policy.versions))
             .collect();
-        touched(&mut doc, now);
+        touched(&mut doc, now, self.policy.idle);
         if let Err(lost) = self.saved(&mut doc).await {
             // The race was lost, so what was kept for it is nobody's and goes.
             self.store.drop_envelope(id, &kept).await?;
@@ -451,7 +451,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             doc.reads += 1;
         }
         if new_reader || now - doc.active >= ACTIVITY_GRAIN {
-            touched(&mut doc, now);
+            touched(&mut doc, now, self.policy.idle);
             // Another reader saving the same activity first loses nothing, so a race is no refusal.
             match self.saved(&mut doc).await {
                 Ok(()) | Err(Refused::Behind { .. }) => {}
@@ -560,7 +560,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
                 return self.hold(&mut doc, &id, &admin, lives, now).await;
             }
             Manage::Release(id) => return self.release(&mut doc, &id).await,
-            Manage::Visit => touched(&mut doc, now),
+            Manage::Visit => touched(&mut doc, now, self.policy.idle),
             Manage::Password(None) => doc.gate = None,
             Manage::Password(Some(password)) => {
                 let mut salt = [0u8; 16];
@@ -574,7 +574,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             }
             Manage::Idle(seconds) => {
                 doc.idle = seconds.min(self.policy.idle).max(1);
-                touched(&mut doc, now);
+                touched(&mut doc, now, self.policy.idle);
             }
             // Paused, the idle clock stops and the trash's starts (decision 51).
             Manage::Pause => {
@@ -583,7 +583,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             }
             Manage::Restore => {
                 doc.paused = None;
-                touched(&mut doc, now);
+                touched(&mut doc, now, self.policy.idle);
             }
         }
         self.saved(&mut doc).await
@@ -747,8 +747,10 @@ fn open_to_read(doc: &Doc) -> Result<(), Refused> {
 }
 
 /// Activity pushes the end back; a paused or blocked document keeps the end it was given.
-fn touched(doc: &mut Doc, now: i64) {
+fn touched(doc: &mut Doc, now: i64, most: i64) {
     doc.active = now;
+    // One made under a longer ceiling than today's comes down to it the next time it is used.
+    doc.idle = doc.idle.min(most);
     if doc.paused.is_none() && doc.blocked.is_none() {
         ending_at(doc, now + doc.idle);
     }
