@@ -287,6 +287,7 @@ fn refusal(refused: &Refused, now: i64) -> Answer {
     let (status, word) = match refused {
         Refused::Missing => (404, "missing"),
         Refused::Gone => (410, "gone"),
+        Refused::CitedGone => (404, "cited_gone"),
         Refused::Unwritten => (404, "unwritten"),
         Refused::Paused => (423, "paused"),
         Refused::Blocked => (451, "blocked"),

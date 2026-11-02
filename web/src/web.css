@@ -353,4 +353,11 @@ html.tight .paper {
     padding-left: 16px;
     padding-right: 16px;
   }
+  /* Back, the panels and the download share a phone's bar, so they sit closer. */
+  .bar-in {
+    gap: 8px;
+  }
+  .bar-in .button {
+    padding: 0 12px;
+  }
 }

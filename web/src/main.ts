@@ -4,7 +4,8 @@ import "./web.css";
 import { type Head, heads as headsOf, sided } from "tisty-editor/read";
 import init, { open, type Page } from "../wasm/tisty_share_wasm.js";
 import wasm from "../wasm/tisty_share_wasm_bg.wasm?url";
-import { panelsOf } from "./beside";
+import { panelsOf, signedApart } from "./beside";
+import { type Cited, citedOf, citedOpening, walking } from "./cited";
 import {
   drawn,
   laidOut,
@@ -16,13 +17,14 @@ import {
   viewOf,
 } from "./drawn";
 import { type Facts, fetched, limitsOf, REASONS, type Reason, reported } from "./fetched";
-import { type About, accessOf, bylined, endsOf, tagged, whenOf } from "./frame";
+import { type About, accessOf, bylined, endsOf, otherHand, tagged, whenOf } from "./frame";
 import { type Link, linkOf, readLinkOf } from "./link";
 import { gated, refused, sheetWordsFor, spanish, wordsFor } from "./words";
 
 // What the link opened: the body, its front matter's title (which wins over the first line, as in Tisty) and the text.
 type Found = Opened & { readonly title: string; readonly text: string; readonly about: About };
 type Read = Found & { readonly facts: Facts; readonly link: Link };
+type Sealed = { readonly sealed: Uint8Array; readonly facts: Facts; readonly revoked?: string };
 
 const night = matchMedia("(prefers-color-scheme: dark)");
 const inSpanish = spanish(navigator.language);
@@ -78,6 +80,7 @@ const taken = (page: Page): Found => {
     return {
       html: page.html,
       pictures,
+      cited: citedOf(page.cited),
       text: page.text,
       about,
       title: plain(about.title ?? ""),
@@ -105,6 +108,19 @@ const read = (
   }
 };
 
+// Only an envelope over Tisty's own limits needs the server's, so a reading mostly asks the Worker once.
+const unsealed = async (link: Link, answer: Sealed): Promise<Read | string> => {
+  let found = read(answer.sealed, link.key, answer.revoked);
+  if (found === "over") {
+    const limits = await limitsOf();
+    found =
+      "refused" in limits
+        ? limits.refused
+        : read(answer.sealed, link.key, answer.revoked, limits.limits);
+  }
+  return typeof found === "string" ? found : { ...found, facts: answer.facts, link };
+};
+
 const opened = async (password?: string): Promise<Read | string> => {
   const link = linkOf(location.pathname, location.hash);
   if (!link) return "nolink";
@@ -117,16 +133,7 @@ const opened = async (password?: string): Promise<Read | string> => {
   const [answer, loaded] = await Promise.all([fetched(link.id, fetch, password, checked), loading]);
   if ("refused" in answer) return answer.refused;
   if (!loaded) return "offline";
-  let found = read(answer.sealed, link.key, answer.revoked);
-  // Only an envelope over Tisty's own limits needs the server's, so a reading mostly asks the Worker once.
-  if (found === "over") {
-    const limits = await limitsOf();
-    found =
-      "refused" in limits
-        ? limits.refused
-        : read(answer.sealed, link.key, answer.revoked, limits.limits);
-  }
-  return typeof found === "string" ? found : { ...found, facts: answer.facts, link };
+  return unsealed(link, answer);
 };
 
 // What can be done with it and for how long sit under the panels, as the mock-up lays them out.
@@ -177,7 +184,8 @@ const checked = (challenge: string) => {
   return solving(challenge);
 };
 
-const reportable = (id: string) => {
+// The report names the document shown, which a cited one changes; each starts with the form put away.
+const reportable = (idOf: () => string) => {
   const form = part<HTMLFormElement>(".report");
   const reason = part<HTMLSelectElement>("#reason");
   const detail = part<HTMLTextAreaElement>("#detail");
@@ -188,6 +196,7 @@ const reportable = (id: string) => {
   reason.add(pick);
   for (const one of REASONS) reason.add(new Option(say(`report_${one}`), one));
   const opener = part<HTMLButtonElement>(".report-open");
+  const send = part<HTMLButtonElement>(".report-send");
   const shown = (open: boolean) => {
     form.hidden = !open;
     opener.setAttribute("aria-expanded", String(open));
@@ -204,45 +213,52 @@ const reportable = (id: string) => {
       form.reportValidity();
       return;
     }
-    const send = part<HTMLButtonElement>(".report-send");
     send.disabled = true;
     said.textContent = say("reporting");
-    const word = await reported(id, reason.value as Reason, detail.value.trim(), solving);
+    const word = await reported(idOf(), reason.value as Reason, detail.value.trim(), solving);
     said.textContent = say(word);
     send.disabled = word === "thanked" || word === "reported";
   });
+  return () => {
+    form.reset();
+    form.hidden = true;
+    opener.setAttribute("aria-expanded", "false");
+    said.textContent = "";
+    send.disabled = false;
+  };
 };
 
-const shown = async (password?: string) => {
-  tell("opening");
-  const found = await opened(password);
-  if (typeof found === "string") {
-    if (gated(found)) return asked(found);
-    return refused(found, (to) => location.replace(to), tell);
-  }
-  const when = whenOf(found.facts, found.about.version ?? 1, Date.now() / 1000, language, say);
-  const tags = found.about.tags ?? [];
-  let view = viewOf(found.text);
+const back = part<HTMLButtonElement>(".back");
+
+// What the link opened and what it cites, each drawn in the same place in turn with its own panels.
+const reader = async (root: Read) => {
+  let found: Read | null = root;
+  let view = viewOf(root.text);
   let raw = false;
   let heads: Head[] = [];
-  let title = found.title;
+  let title = root.title;
   let lay = () => {};
   const rawText = part(".raw");
-  rawText.textContent = found.text;
   const laid = () => laidOut(view, sheetSays.say);
   const across = () => fitted(laid().across);
   addEventListener("resize", () => across());
-  const paneled = () =>
+  const paneled = () => {
+    if (!found) return;
+    const now = found;
+    const side = part(".side");
+    const read = readLinkOf(location.origin, now.link);
     sided(
-      part(".side"),
+      side,
       sheetSays.say,
       panelsOf(
-        { title, text: found.text, about: found.about, view, raw, heads },
+        { title, text: now.text, about: now.about, view, raw, heads },
         { onView, onRaw, onShut: () => besideShown(false) },
         { sheet: sheetSays.say, page: say, language },
-        { opened: location.href, read: readLinkOf(location.origin, found.link) },
+        { opened: now === root ? location.href : read, read },
       ),
     );
+    if (otherHand(root.about, now.about)) signedApart(side, say("otherWriter"));
+  };
   const onView = (next: View) => {
     view = next;
     across();
@@ -256,11 +272,24 @@ const shown = async (password?: string) => {
     if (!on) lay();
     paneled();
   };
+  const unreported = reportable(() => (found ?? root).link.id);
+  const ys: number[] = [];
+  const walk = walking<Cited | null>(null, history, (one, at) => {
+    show(one, at).catch(() => tell("failed"));
+  });
+  const opening = (one: Cited) => {
+    ys[walk.at()] = scrollY;
+    walk.went(one);
+  };
   // Tags and dates sit under the body's title; a body without one has them above it instead.
   const draw = async () => {
+    const now = found;
+    if (!now) return;
     seen();
     across();
-    const shown = await drawn(frame, found, night.matches, sheetSays, laid);
+    const when = whenOf(now.facts, now.about.version ?? 1, Date.now() / 1000, language, say);
+    const tags = now.about.tags ?? [];
+    const shown = await drawn(frame, now, night.matches, sheetSays, laid, opening);
     lay = shown.lay;
     const { page } = shown;
     const inside = bylined(page, tags, when);
@@ -277,21 +306,83 @@ const shown = async (password?: string) => {
     title ||= titleOf(page);
     paneled();
   };
-  // One drawing at a time, so two quick changes of theme never draw into the same sheet.
+  const put = async (next: Read) => {
+    found = next;
+    view = viewOf(next.text);
+    raw = false;
+    heads = [];
+    title = next.title;
+    lay = () => {};
+    rawText.textContent = next.text;
+    rawText.hidden = true;
+    frame.hidden = false;
+    besideShown(false);
+    await draw();
+    frame.title = title || say("document");
+    document.title = title ? `${title} · Tisty` : "Tisty";
+    besideOpen.hidden = false;
+    framed(next);
+    unreported();
+  };
+  // One drawing at a time, so two quick changes of theme or of document never draw into the same sheet.
   let drawing = Promise.resolve();
-  await draw();
-  frame.title = title || say("document");
-  if (title) document.title = `${title} · Tisty`;
-  besideOpen.hidden = false;
-  framed(found);
-  reportable(linkOf(location.pathname, location.hash)?.id ?? "");
-  night.addEventListener("change", () => {
-    themed();
-    drawing = drawing.then(draw).then(
+  const queued = (job: () => Promise<void>) => {
+    drawing = drawing.then(job).then(
       () => undefined,
       () => tell("failed"),
     );
+    return drawing;
+  };
+  const openCited = citedOpening<Read>((one, answer) =>
+    unsealed({ id: one.id, key: one.key }, answer),
+  );
+  // Only the last step asked for is shown, however the ones before it arrive.
+  let turn = 0;
+  const show = async (one: Cited | null, at: number) => {
+    turn += 1;
+    const mine = turn;
+    back.hidden = at === 0;
+    if (one) tell("opening");
+    const next = one ? await openCited(one) : root;
+    if (mine !== turn) return;
+    if (typeof next === "string") {
+      found = null;
+      besideShown(false);
+      besideOpen.hidden = true;
+      tell(next);
+      scrollTo({ top: 0 });
+      return;
+    }
+    await queued(async () => {
+      if (mine !== turn) return;
+      await put(next);
+      scrollTo({ top: ys[at] ?? 0 });
+    });
+  };
+  // The page puts each step back where the reader left it, once its document is drawn again.
+  history.scrollRestoration = "manual";
+  // A reload opens the shared document, so this entry becomes its own rather than a step memory no longer holds.
+  history.replaceState({ at: 0 }, "");
+  back.addEventListener("click", () => walk.back());
+  addEventListener("popstate", ({ state }) => {
+    ys[walk.at()] = scrollY;
+    walk.popped(state);
   });
+  await show(null, 0);
+  night.addEventListener("change", () => {
+    themed();
+    void queued(draw);
+  });
+};
+
+const shown = async (password?: string) => {
+  tell("opening");
+  const found = await opened(password);
+  if (typeof found === "string") {
+    if (gated(found)) return asked(found);
+    return refused(found, (to) => location.replace(to), tell);
+  }
+  await reader(found);
 };
 
 document.documentElement.lang = language;

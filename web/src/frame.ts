@@ -56,6 +56,13 @@ export const sealOf = (about: About, language: string): Seal => {
   };
 };
 
+const writerOf = (about: About): string | undefined =>
+  about.wrote && "fingerprint" in about.wrote ? about.wrote.fingerprint : undefined;
+
+// A cited document is the writer's word only when the same key signed it as signed the one the link opened.
+export const otherHand = (opened: About, shown: About): boolean =>
+  writerOf(shown) !== writerOf(opened);
+
 const chips = (made: Document, tags: readonly string[]) =>
   tags.map((tag) => {
     const one = made.createElement("span");

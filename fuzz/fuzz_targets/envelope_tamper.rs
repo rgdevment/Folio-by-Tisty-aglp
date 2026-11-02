@@ -3,7 +3,7 @@
 use arbitrary::Arbitrary;
 use jiff::Timestamp;
 use libfuzzer_sys::fuzz_target;
-use tisty_share_proto::envelope::{self, Draft, Envelope, Kind, LinkKey, Signer};
+use tisty_share_proto::envelope::{self, Cited, Draft, Envelope, Kind, LinkKey, Signer};
 use tisty_share_proto::identity::{Root, ShareKey, Verdict};
 use tisty_share_proto::limits::Limits;
 
@@ -12,6 +12,7 @@ struct Input {
     text: String,
     pictures: Vec<Vec<u8>>,
     signed: bool,
+    cites: bool,
     at: usize,
     flip: u8,
     cut: bool,
@@ -39,11 +40,24 @@ fuzz_target!(|input: Input| {
         .iter()
         .map(|one| (Kind::Png, one.as_slice()))
         .collect();
+    // A list of what the words cite sits between the signature and the pictures, so a change there is tried too.
+    let cited: Vec<Cited> = input
+        .cites
+        .then(|| Cited {
+            doc: "notas".into(),
+            id: "nts9Qe".into(),
+            key: LinkKey::from_bytes(&[4; 32]).to_text().to_string(),
+            title: "Notas".into(),
+            page: Some((1, 2)),
+        })
+        .into_iter()
+        .collect();
     let draft = Draft {
         id: "fuzzed",
         version: 2,
         from: Some(1),
         text: &input.text,
+        cited: &cited,
         pictures: &shown,
     };
     let Ok(sealed) = envelope::seal(
@@ -62,6 +76,7 @@ fuzz_target!(|input: Input| {
     )
     .unwrap();
     assert_eq!(opened.text.as_str(), input.text);
+    assert_eq!(opened.cited, cited);
     assert_eq!(opened.pictures.len(), pictures.len());
 
     let at = input.at % bytes.len();

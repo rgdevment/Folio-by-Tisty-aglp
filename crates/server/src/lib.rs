@@ -2,6 +2,7 @@
 
 pub mod guard;
 mod guessing;
+pub mod holding;
 pub mod keys;
 pub mod memory;
 pub mod moderation;

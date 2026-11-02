@@ -37,6 +37,7 @@ fn sealed(id: &str, version: u64, from: Option<u64>) -> Vec<u8> {
         version,
         from,
         text: "hola",
+        cited: &[],
         pictures: &[],
     };
     let (machine, certificate) = vouched();

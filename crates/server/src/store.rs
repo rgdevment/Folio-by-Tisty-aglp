@@ -36,6 +36,15 @@ pub struct Doc {
     pub written: Option<i64>,
     /// Bumped on every save, so two writers never both win.
     pub revision: u64,
+    /// The shares that hold it, which it lives as long as (decision 64).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holders: Vec<String>,
+    /// The documents it holds, which let go of it when it goes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holds: Vec<String>,
+    /// While held, the end its own life would have, or none when it lives only through its holders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own: Option<i64>,
 }
 
 impl Doc {

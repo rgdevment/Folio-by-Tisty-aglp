@@ -8,6 +8,7 @@ use tisty_share_proto::work::{Challenge, Proof};
 use zeroize::Zeroizing;
 
 use crate::guard::{self, Act, Allowance, Work};
+use crate::holding::ending_at;
 use crate::keys::{self, Randomness, Slowness};
 use crate::store::{Doc, Fault, Kept, Saved, Sender, Store};
 
@@ -78,6 +79,9 @@ impl Default for Policy {
 pub enum Refused {
     #[error("there is no such document")]
     Missing,
+    /// The document a share was asked to hold is no longer there; the share itself is (decision 90).
+    #[error("the document to hold is no longer shared")]
+    CitedGone,
     /// It existed and is gone: expired, deleted or emptied from the trash.
     #[error("this document is no longer shared")]
     Gone,
@@ -155,11 +159,11 @@ pub struct Facts {
 }
 
 impl Facts {
-    fn of(doc: &Doc) -> Self {
+    fn of(doc: &Doc, ends: i64) -> Self {
         Self {
             shared: doc.created,
             written: doc.written,
-            ends: doc.ends,
+            ends,
             gated: doc.gate.is_some(),
         }
     }
@@ -178,6 +182,14 @@ pub enum Manage {
     Pause,
     Restore,
     Delete,
+    /// Holds a document this one cites, proven by its management link; `lives` when it was shared on its own too (decision 64).
+    Hold {
+        id: String,
+        admin: String,
+        lives: bool,
+    },
+    /// Lets go of a document this one no longer cites.
+    Release(String),
 }
 
 /// What a sweep did: how many documents went, and those it could not take, for the host to tell.
@@ -317,6 +329,9 @@ impl<S: Store, R: Randomness> Share<S, R> {
                 reads: 0,
                 written: None,
                 revision: 0,
+                holders: Vec::new(),
+                holds: Vec::new(),
+                own: None,
             };
             if self.store.save(&doc, None).await? == Saved::Done {
                 return Ok(Reserved { id, edit, admin });
@@ -419,6 +434,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         self.admit(caller, Act::Read, now).await?;
         let mut doc = self.live(id, now).await?;
         open_to_read(&doc)?;
+        let held_end = self.held_up(&doc, now).await?;
         let kept = *doc.versions.last().ok_or(Refused::Unwritten)?;
         self.let_in(&doc, password, proof, caller, now).await?;
         let envelope = self
@@ -438,10 +454,15 @@ impl<S: Store, R: Randomness> Share<S, R> {
                 Err(other) => return Err(other),
             }
         }
+        // Touched just now, its own end is the one to tell; held, it is the one its holders give it.
+        let ends = match doc.holders.is_empty() {
+            true => doc.ends,
+            false => held_end,
+        };
         Ok(Served {
             version: kept.version,
             envelope,
-            facts: Facts::of(&doc),
+            facts: Facts::of(&doc, ends),
             revoked: self.revoked(kept.by.as_ref()).await?,
         })
     }
@@ -494,17 +515,18 @@ impl<S: Store, R: Randomness> Share<S, R> {
         Ok(Served {
             version,
             envelope,
-            facts: Facts::of(&doc),
+            facts: Facts::of(&doc, self.told_end(&doc, now).await),
             revoked: self.revoked(kept.by.as_ref()).await?,
         })
     }
 
     pub async fn info(&self, id: &str, admin: &str, now: i64) -> Result<Info, Refused> {
         let doc = self.owned(id, admin, now).await?;
+        let ends = self.told_end(&doc, now).await;
         Ok(Info {
             latest: doc.latest(),
             reads: doc.reads,
-            ends: doc.ends,
+            ends,
             paused: doc.paused.is_some(),
             blocked: doc.blocked.is_some(),
             gated: doc.gate.is_some(),
@@ -524,7 +546,16 @@ impl<S: Store, R: Randomness> Share<S, R> {
             return Err(Refused::Blocked);
         }
         match what {
-            Manage::Delete => return Ok(self.store.forget(id).await?),
+            Manage::Delete => {
+                if self.given_up(&mut doc).await? {
+                    return Ok(());
+                }
+                return self.forgotten(&doc).await;
+            }
+            Manage::Hold { id, admin, lives } => {
+                return self.hold(&mut doc, &id, &admin, lives, now).await;
+            }
+            Manage::Release(id) => return self.release(&mut doc, &id).await,
             Manage::Visit => touched(&mut doc, now),
             Manage::Password(None) => doc.gate = None,
             Manage::Password(Some(password)) => {
@@ -544,7 +575,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             // Paused, the idle clock stops and the trash's starts (decision 51).
             Manage::Pause => {
                 doc.paused = Some(now);
-                doc.ends = now + self.policy.trash;
+                ending_at(&mut doc, now + self.policy.trash);
             }
             Manage::Restore => {
                 doc.paused = None;
@@ -568,16 +599,20 @@ impl<S: Store, R: Randomness> Share<S, R> {
             .await?;
         let mut tried = 0;
         for id in ending {
-            if tried == self.policy.sweep {
+            if tried >= self.policy.sweep {
                 break;
             }
             let stuck = format!("stuck:{id}");
             if self.store.held(&stuck, now).await?.is_some() {
                 continue;
             }
+            // What it held is let go of in the same run, so each one counts against the run's room too.
             tried += 1;
-            match self.store.forget(&id).await {
-                Ok(()) => swept.gone += 1,
+            match self.forgotten_by_id(&id).await {
+                Ok(held) => {
+                    tried += held;
+                    swept.gone += 1;
+                }
                 Err(fault) => {
                     // Not waiting a day only means it is tried again sooner, so that failing stops nothing.
                     let _ = self.store.hold(&stuck, now + DAY).await;
@@ -586,6 +621,21 @@ impl<S: Store, R: Randomness> Share<S, R> {
             }
         }
         Ok(swept)
+    }
+
+    /// A sweep's way to let one go, saying how many it held and telling only of the store when it fails.
+    async fn forgotten_by_id(&self, id: &str) -> Result<usize, Fault> {
+        let gone = match self.store.doc(id).await? {
+            Some(doc) => self
+                .forgotten(&doc)
+                .await
+                .map(|()| doc.holds.len() + doc.holders.len()),
+            None => Ok(0),
+        };
+        gone.map_err(|refused| match refused {
+            Refused::Store(fault) => fault,
+            other => Fault(other.to_string()),
+        })
     }
 
     pub(crate) async fn admit(&self, caller: IpAddr, act: Act, now: i64) -> Result<(), Refused> {
@@ -636,7 +686,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             None => Err(Refused::Missing),
             Some(doc) if doc.ends < now => {
                 // Gone whether or not it can be let go of now; a sweep tries again and tells why.
-                let _ = self.store.forget(id).await;
+                let _ = self.forgotten(&doc).await;
                 Err(Refused::Gone)
             }
             Some(doc) => Ok(doc),
@@ -696,7 +746,7 @@ fn open_to_read(doc: &Doc) -> Result<(), Refused> {
 fn touched(doc: &mut Doc, now: i64) {
     doc.active = now;
     if doc.paused.is_none() && doc.blocked.is_none() {
-        doc.ends = now + doc.idle;
+        ending_at(doc, now + doc.idle);
     }
 }
 

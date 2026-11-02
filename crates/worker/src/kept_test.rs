@@ -61,6 +61,9 @@ fn doc(id: &str) -> Doc {
         reads: 4,
         written: None,
         revision: 0,
+        holders: Vec::new(),
+        holds: Vec::new(),
+        own: None,
     }
 }
 

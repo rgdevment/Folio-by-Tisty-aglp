@@ -92,3 +92,15 @@ export const panelsOf = (now: Now, asked: Asked, words: Words, links: Links): Pa
     },
   ];
 };
+
+// The sheet's signature row has no line for it, so it is added once the row is drawn, open unless the reader shut it.
+export const signedApart = (host: HTMLElement, said: string) => {
+  const row = host.querySelector<HTMLDetailsElement>('details[data-row="seal"]');
+  const body = row?.querySelector(".side-row-body");
+  if (!row || !body) return;
+  const line = host.ownerDocument.createElement("p");
+  line.className = "side-said";
+  line.textContent = said;
+  body.append(line);
+  if (row.dataset.chosen === undefined) row.open = true;
+};

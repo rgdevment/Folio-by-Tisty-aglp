@@ -38,6 +38,7 @@ fn draft<'a>(text: &'a str, pictures: &'a [(Kind, &'a [u8])]) -> Draft<'a> {
         version: 3,
         from: Some(2),
         text,
+        cited: &[],
         pictures,
     }
 }
@@ -715,12 +716,13 @@ fn words_signed_for_another_link_are_not_the_writer_sharing_them_here() {
         id: "otro",
         ..draft("Hola", &[])
     };
-    let carried = wrote(&mario.signer(), &elsewhere).unwrap();
+    let carried = wrote(&mario.signer(), &elsewhere, None).unwrap();
     let thief = machine(5);
     let sealed = sealed_with(
         &key(9),
         &draft("Hola", &[]),
         Some(&carried),
+        None,
         Some(&thief.signer()),
         &Limits::default(),
     )
@@ -736,12 +738,13 @@ fn words_another_key_wrote_are_not_vouched_for_by_the_key_that_sent_them() {
     // A thief with a key its owner took back signs the words with it and sends them with a fresh one of their own:
     // the server only tells of revocations for the sender, so the stolen writer must never read as holding.
     let stolen = machine(1);
-    let words = wrote(&stolen.signer(), &draft("Hola", &[])).unwrap();
+    let words = wrote(&stolen.signer(), &draft("Hola", &[]), None).unwrap();
     let thief = machine(5);
     let sealed = sealed_with(
         &key(9),
         &draft("Hola", &[]),
         Some(&words),
+        None,
         Some(&thief.signer()),
         &Limits::default(),
     )
@@ -759,7 +762,7 @@ fn a_name_changed_after_signing_does_not_hold() {
         name: Some("Mario"),
         ..mario.signer()
     };
-    let honest = wrote(&signer, &draft("Hola", &[])).unwrap();
+    let honest = wrote(&signer, &draft("Hola", &[]), None).unwrap();
     let mut wrote_: Wrote = serde_json::from_slice(&honest).unwrap();
     wrote_.name = Some("Ana".into());
     let changed = serde_json::to_vec(&wrote_).unwrap();
@@ -767,6 +770,7 @@ fn a_name_changed_after_signing_does_not_hold() {
         &key(9),
         &draft("Hola", &[]),
         Some(&changed),
+        None,
         Some(&mario.signer()),
         &Limits::default(),
     )
@@ -829,5 +833,116 @@ fn a_name_of_any_alphabet_up_to_eighty_characters_is_signed() {
             sealed(&key(9), &draft("Hola", &[]), Some(&signer)).is_ok(),
             "{name}"
         );
+    }
+}
+
+fn cited(doc: &str, id: &str, page: Option<(u32, u32)>) -> Cited {
+    Cited {
+        doc: doc.into(),
+        id: id.into(),
+        key: key(4).to_text().to_string(),
+        title: format!("Sobre {doc}"),
+        page,
+    }
+}
+
+#[test]
+fn what_the_words_cite_travels_sealed_between_the_signature_and_the_pictures() {
+    let picture = png(1, 300);
+    let pictures = [(Kind::Png, picture.as_slice())];
+    let list = [
+        cited("guia-2", "pag2Xa", Some((2, 3))),
+        cited("notas", "nts9Qe", None),
+    ];
+    let mario = machine(1);
+    let draft = Draft {
+        cited: &list,
+        ..draft("![Página 2](tisty:doc/guia-2)", &pictures)
+    };
+    let sealed = sealed(&key(9), &draft, Some(&mario.signer())).unwrap();
+    let arrived = read(&sealed.to_bytes()).unwrap();
+    let kinds: Vec<Kind> = arrived
+        .manifest()
+        .parts
+        .iter()
+        .map(|one| one.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![Kind::Text, Kind::Signature, Kind::Cited, Kind::Png]
+    );
+    // A Tisty from before the list reads it as newer, never as damaged.
+    assert_eq!(arrived.manifest().v, CITING);
+    // The server sees that something is cited, never what or under which key.
+    assert!(!String::from_utf8_lossy(&sealed.to_bytes()).contains("pag2Xa"));
+
+    let opened = open(&key(9), &arrived, &[]).unwrap();
+    assert_eq!(opened.cited, list);
+    assert_eq!(opened.pictures.len(), 1);
+    assert!(holds_for(opened.wrote, &mario));
+}
+
+#[test]
+fn an_envelope_that_cites_nothing_is_what_it_always_was() {
+    let sealed = sealed(&key(9), &draft("hola", &[]), None).unwrap();
+    let arrived = read(&sealed.to_bytes()).unwrap();
+    assert_eq!(arrived.manifest().parts.len(), 1);
+    assert_eq!(arrived.manifest().v, SAID);
+    assert!(open(&key(9), &arrived, &[]).unwrap().cited.is_empty());
+}
+
+#[test]
+fn the_writer_signs_what_the_words_cite_so_nobody_swaps_where_they_lead() {
+    let mario = machine(1);
+    let honest = [cited("notas", "nts9Qe", None)];
+    let swapped = [cited("notas", "trampa", None)];
+    let signed_for = Draft {
+        cited: &honest,
+        ..draft("Hola", &[])
+    };
+    let words = wrote(
+        &mario.signer(),
+        &signed_for,
+        cited_bytes(&honest).unwrap().as_deref(),
+    )
+    .unwrap();
+    let sent = Draft {
+        cited: &swapped,
+        ..draft("Hola", &[])
+    };
+    let sealed = sealed_with(
+        &key(9),
+        &sent,
+        Some(&words),
+        cited_bytes(&swapped).unwrap().as_deref(),
+        Some(&mario.signer()),
+        &Limits::default(),
+    )
+    .unwrap();
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+
+    assert_eq!(opened.wrote, Some(Verdict::Refused));
+}
+
+#[test]
+fn a_cited_document_that_could_not_be_opened_or_named_is_never_sealed() {
+    let mut bad_key = cited("notas", "nts9Qe", None);
+    bad_key.key = "corta".into();
+    let too_many: Vec<Cited> = (0..=CITED_AT_MOST)
+        .map(|n| cited(&format!("d{n}"), &format!("id{n}"), None))
+        .collect();
+    for list in [
+        vec![bad_key],
+        vec![cited("notas", "no/vale", None)],
+        vec![cited("", "nts9Qe", None)],
+        vec![cited("notas", "nts9Qe", Some((4, 3)))],
+        vec![cited("notas", "nts9Qe", Some((0, 3)))],
+        too_many,
+    ] {
+        let draft = Draft {
+            cited: &list,
+            ..draft("Hola", &[])
+        };
+        assert_eq!(sealed(&key(9), &draft, None).err(), Some(Refused::Damaged));
     }
 }

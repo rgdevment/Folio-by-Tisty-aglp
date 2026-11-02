@@ -25,6 +25,12 @@ impl Page {
         serde_json::to_string(&self.0.about).unwrap_or_default()
     }
 
+    /// What the words cite, each with the id and key that open it, as JSON.
+    #[wasm_bindgen(getter)]
+    pub fn cited(&self) -> String {
+        serde_json::to_string(&self.0.cited).unwrap_or_default()
+    }
+
     #[wasm_bindgen(getter)]
     pub fn pictures(&self) -> usize {
         self.0.pictures.len()

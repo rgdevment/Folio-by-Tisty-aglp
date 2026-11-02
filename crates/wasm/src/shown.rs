@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tisty_share_proto::envelope::{Envelope, Kind, LinkKey, Refused, Written, open};
+use tisty_share_proto::envelope::{Cited, Envelope, Kind, LinkKey, Refused, Written, open};
 use tisty_share_proto::identity::{Revocation, Verdict};
 use tisty_share_proto::limits::Limits;
 use zeroize::Zeroizing;
@@ -10,6 +10,8 @@ pub struct Shown {
     pub text: Zeroizing<String>,
     pub html: String,
     pub about: About,
+    /// The documents the words lead to, each opened from its own link (decision 64).
+    pub cited: Vec<Cited>,
     pub pictures: Vec<(Kind, Zeroizing<Vec<u8>>)>,
 }
 
@@ -119,6 +121,7 @@ pub fn shown(
         text: opened.text,
         html,
         about,
+        cited: opened.cited,
         pictures: opened.pictures,
     })
 }

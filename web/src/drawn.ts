@@ -10,9 +10,14 @@ import {
   shell,
   TITLED,
 } from "tisty-editor/read";
+import { type Cited, cardOf, citing } from "./cited";
 
 export type Picture = { readonly bytes: Uint8Array<ArrayBuffer>; readonly media: string };
-export type Opened = { readonly html: string; readonly pictures: readonly Picture[] };
+export type Opened = {
+  readonly html: string;
+  readonly pictures: readonly Picture[];
+  readonly cited: readonly Cited[];
+};
 
 // The text names each picture by its place in the envelope, as Tisty seals it.
 export const PICTURE = "tisty:picture/";
@@ -137,6 +142,7 @@ export const drawn = async (
   dark: boolean,
   said: { readonly say: Say; readonly language: string },
   laid: () => Laid,
+  onCited: (one: Cited) => void,
 ): Promise<Drawn> => {
   const page = await loaded(frame, shell(unasked(opened.html), dark));
   page.documentElement.classList.add("tall");
@@ -151,6 +157,7 @@ export const drawn = async (
       made = pictured(page, opened.pictures);
     },
     sites: {},
+    cards: { card: cardOf(opened.cited) },
   });
   // Another paper only lays the same body again: nothing is drawn twice and the reader keeps their place.
   let sheets = { stop: () => {} };
@@ -168,6 +175,7 @@ export const drawn = async (
   frame.addEventListener("load", freed, { once: true });
   linkedOut(page);
   linkedWithin(frame, page);
+  citing(page, opened.cited, onCited);
   grows(frame, page);
   await read.drawn;
   return { page, lay };

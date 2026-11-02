@@ -23,6 +23,7 @@ fn sealed(text: &str, pictures: &[(Kind, &[u8])], by: Option<&Signer>) -> Vec<u8
         version: 4,
         from: Some(3),
         text,
+        cited: &[],
         pictures,
     };
     seal(&key(1), &draft, by, &Limits::default())
@@ -149,6 +150,7 @@ fn a_server_that_takes_more_opens_what_only_it_took() {
         version: 1,
         from: None,
         text: &long,
+        cited: &[],
         pictures: &[],
     };
     let envelope = seal(&key(1), &draft, None, &roomy).unwrap().into_bytes();
@@ -222,4 +224,30 @@ fn says_a_key_taken_back_and_believes_only_what_its_root_signed() {
         garbled.unwrap().about.wrote,
         Some(Signed::Holds { .. })
     ));
+}
+
+#[test]
+fn hands_the_reader_what_the_words_cite_with_the_keys_that_open_them() {
+    let cited = [tisty_share_proto::envelope::Cited {
+        doc: "guia-2".into(),
+        id: "pag2Xa".into(),
+        key: key(2).to_text().to_string(),
+        title: "Instalar en Windows".into(),
+        page: Some((2, 3)),
+    }];
+    let draft = Draft {
+        id: "k7Qm2xPa",
+        version: 1,
+        from: None,
+        text: "![Instalar en Windows](tisty:doc/guia-2)",
+        cited: &cited,
+        pictures: &[],
+    };
+    let sealed = seal(&key(1), &draft, None, &Limits::default())
+        .unwrap()
+        .into_bytes();
+    let page = read(sealed).unwrap();
+    assert_eq!(page.cited, cited);
+    // The card stays the sheet's to draw: the words still call it by its name in the store.
+    assert!(page.html.contains("data-doc=\"guia-2\""));
 }

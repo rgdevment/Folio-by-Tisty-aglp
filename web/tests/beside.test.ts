@@ -1,6 +1,6 @@
-import type { Panel } from "tisty-editor/read";
+import { type Panel, sided } from "tisty-editor/read";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type Asked, falling, GET_TISTY, type Now, panelsOf } from "../src/beside";
+import { type Asked, falling, GET_TISTY, type Now, panelsOf, signedApart } from "../src/beside";
 import type { View } from "../src/drawn";
 import { wordsFor } from "../src/words";
 
@@ -116,5 +116,38 @@ describe("opening in Tisty", () => {
     falling("¿No se abrió? Descarga Tisty")(link);
     vi.advanceTimersByTime(1500);
     expect(link.textContent).toBe("Abrir en Tisty");
+  });
+});
+
+describe("a cited document signed by another key", () => {
+  const drawnFor = (about: Now["about"]) => {
+    const host = document.createElement("div");
+    sided(host, (word) => word, panelsOf(now({ about }), asking().asked, words, LINKS));
+    return host;
+  };
+  const signed = { wrote: { is: "holds", fingerprint: "99999 88888" } } as const;
+
+  it("says so in its signature, open so it is read", () => {
+    const host = drawnFor(signed);
+    signedApart(host, say("otherWriter"));
+    const row = host.querySelector<HTMLDetailsElement>('details[data-row="seal"]');
+    expect(row?.open).toBe(true);
+    expect(row?.querySelector(".side-row-body")?.lastElementChild?.textContent).toBe(
+      say("otherWriter"),
+    );
+  });
+
+  it("stays shut when the reader shut it", () => {
+    const host = drawnFor(signed);
+    const row = host.querySelector<HTMLDetailsElement>('details[data-row="seal"]');
+    if (row) row.dataset.chosen = "";
+    signedApart(host, say("otherWriter"));
+    expect(row?.open).toBe(false);
+  });
+
+  it("says nothing where there is no signature to speak of", () => {
+    const host = drawnFor({});
+    signedApart(host, say("otherWriter"));
+    expect(host.textContent).not.toContain(say("otherWriter"));
   });
 });

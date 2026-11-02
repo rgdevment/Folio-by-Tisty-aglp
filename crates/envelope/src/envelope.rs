@@ -22,6 +22,8 @@ const MAGIC: &[u8; 4] = b"\xffTSE";
 /// Whatever changes the shape of the manifest or the signature is a new version, so an older reader says newer, not damaged.
 const VERSION: u8 = 1;
 const SAID: u32 = 1;
+/// A manifest that lists what its words cite, so an older Tisty says it is newer rather than damaged (decision 64).
+const CITING: u32 = 2;
 const PART: &[u8] = b"tisty-share.part.v1\0";
 const SEALED: &[u8] = b"tisty-share.sealed.v1\0";
 const WRITTEN: &[u8] = b"tisty-share.written.v1\0";
@@ -32,6 +34,11 @@ pub const SENT: &str = "tisty-share.envelope.v1";
 pub const WROTE: &str = "tisty-share.text.v1";
 /// A person's name or alias, as long as Tisty lets one be.
 pub const NAME_AT_MOST: usize = 80;
+/// Documents one envelope may lead to, so a reader never walks an endless list (decision 64).
+pub const CITED_AT_MOST: usize = 64;
+/// What their list may weigh sealed: an id, a key, a title and a name each, many times over.
+const CITED_BYTES_AT_MOST: u64 = 64 * 1024;
+const TITLE_AT_MOST: usize = 200;
 
 /// The key in the link's `#`: the server never sees it, and nothing about it comes from a password.
 pub struct LinkKey(Zeroizing<[u8; 32]>);
@@ -73,6 +80,8 @@ pub enum Kind {
     Text,
     /// The inner signature, sealed like the words it answers for.
     Signature,
+    /// The documents the words lead to, each in its own envelope (decision 64).
+    Cited,
     Png,
     Jpeg,
     Webp,
@@ -81,13 +90,13 @@ pub enum Kind {
 
 impl Kind {
     pub fn is_picture(self) -> bool {
-        !matches!(self, Kind::Text | Kind::Signature)
+        !matches!(self, Kind::Text | Kind::Signature | Kind::Cited)
     }
 
     pub fn media(self) -> &'static str {
         match self {
             Kind::Text => "text/markdown",
-            Kind::Signature => "application/json",
+            Kind::Signature | Kind::Cited => "application/json",
             Kind::Png => "image/png",
             Kind::Jpeg => "image/jpeg",
             Kind::Webp => "image/webp",
@@ -172,16 +181,11 @@ impl Manifest {
     /// Every rule a server can hold without the key, so the server and every Tisty refuse the same things.
     pub fn holds(&self, limits: &Limits) -> Result<(), Refused> {
         match self.v {
-            SAID => {}
-            newer if newer > SAID => return Err(Refused::Newer),
+            SAID | CITING => {}
+            newer if newer > CITING => return Err(Refused::Newer),
             _ => return Err(Refused::Damaged),
         }
-        let named = !self.id.is_empty()
-            && self.id.len() <= ID_AT_MOST
-            && self
-                .id
-                .bytes()
-                .all(|one| one.is_ascii_alphanumeric() || one == b'-' || one == b'_');
+        let named = named_id(&self.id);
         let ordered = self.version >= 1 && self.from.is_none_or(|from| from < self.version);
         let keyed = self.head().is_some() && self.commitment().is_some();
         if !named || !ordered || !keyed {
@@ -198,9 +202,19 @@ impl Manifest {
         if text.plain() > limits.text {
             return Err(Refused::TextTooBig);
         }
-        let pictures = match rest.split_first() {
-            Some((signature, pictures)) if signature.kind == Kind::Signature => {
+        let rest = match rest.split_first() {
+            Some((signature, rest)) if signature.kind == Kind::Signature => {
                 if signature.size < TAG as u64 || signature.plain() > SIGNATURE_AT_MOST as u64 {
+                    return Err(Refused::Damaged);
+                }
+                rest
+            }
+            _ => rest,
+        };
+        let pictures = match rest.split_first() {
+            Some((cited, pictures)) if cited.kind == Kind::Cited => {
+                let fits = cited.size >= TAG as u64 && cited.plain() <= CITED_BYTES_AT_MOST;
+                if !fits || self.v != CITING {
                     return Err(Refused::Damaged);
                 }
                 pictures
@@ -245,6 +259,20 @@ impl Manifest {
             .get(1)
             .is_some_and(|one| one.kind == Kind::Signature)
     }
+
+    /// Where the list of cited documents sits, if the envelope carries one.
+    fn cited_at(&self) -> Option<usize> {
+        let at = if self.signed() { 2 } else { 1 };
+        self.parts
+            .get(at)
+            .is_some_and(|one| one.kind == Kind::Cited)
+            .then_some(at)
+    }
+
+    fn first_picture(&self) -> usize {
+        self.cited_at()
+            .map_or(if self.signed() { 2 } else { 1 }, |at| at + 1)
+    }
 }
 
 /// A document sealed for one version: the manifest in the clear, each part sealed on its own.
@@ -261,13 +289,61 @@ pub struct Envelope {
     sent: Option<Signed>,
 }
 
-/// What a person shares: the words and their pictures, already recompressed by Tisty.
+/// What a person shares: the words, the documents they lead to and their pictures, already recompressed by Tisty.
 pub struct Draft<'a> {
     pub id: &'a str,
     pub version: u64,
     pub from: Option<u64>,
     pub text: &'a str,
+    pub cited: &'a [Cited],
     pub pictures: &'a [(Kind, &'a [u8])],
+}
+
+/// A document the words lead to, shared in its own envelope and held by the share that cites it (decision 64).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cited {
+    /// The name the words call it by, in their `tisty:doc/` cards.
+    pub doc: String,
+    pub id: String,
+    /// The key that opens its envelope, which travels only sealed inside this one.
+    pub key: String,
+    pub title: String,
+    /// Its place among the pages of the document it belongs to, when it is one, from 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<(u32, u32)>,
+}
+
+impl Cited {
+    fn holds(&self) -> bool {
+        let short = |said: &str, most: usize| !said.is_empty() && said.chars().count() <= most;
+        short(&self.doc, TITLE_AT_MOST)
+            && short(&self.title, TITLE_AT_MOST)
+            && named_id(&self.id)
+            && LinkKey::from_text(&self.key).is_some()
+            && self.page.is_none_or(|(at, of)| at >= 1 && at <= of)
+    }
+}
+
+fn named_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= ID_AT_MOST
+        && id
+            .bytes()
+            .all(|one| one.is_ascii_alphanumeric() || one == b'-' || one == b'_')
+}
+
+/// The list as it is sealed: none at all when nothing is cited, so such an envelope is what it always was.
+#[cfg(feature = "mint")]
+fn cited_bytes(cited: &[Cited]) -> Result<Option<Vec<u8>>, Refused> {
+    if cited.is_empty() {
+        return Ok(None);
+    }
+    if cited.len() > CITED_AT_MOST || !cited.iter().all(Cited::holds) {
+        return Err(Refused::Damaged);
+    }
+    serde_json::to_vec(cited)
+        .map(Some)
+        .map_err(|_| Refused::Damaged)
 }
 
 /// The machine's key and the certificate its person gave it, when it signs and the name it signs with, if any.
@@ -298,6 +374,7 @@ pub struct Written {
 pub struct Opened {
     pub manifest: Manifest,
     pub text: Zeroizing<String>,
+    pub cited: Vec<Cited>,
     pub pictures: Vec<(Kind, Zeroizing<Vec<u8>>)>,
     /// Who wrote these words and pictures, when the envelope carries their signature; one signed for another id is refused.
     pub wrote: Option<Verdict>,
@@ -314,8 +391,11 @@ pub fn seal(
     limits: &Limits,
 ) -> Result<Envelope, Refused> {
     check_draft(draft)?;
-    let inner = by.map(|signer| wrote(signer, draft)).transpose()?;
-    sealed_with(key, draft, inner.as_deref(), by, limits)
+    let cited = cited_bytes(draft.cited)?;
+    let inner = by
+        .map(|signer| wrote(signer, draft, cited.as_deref()))
+        .transpose()?;
+    sealed_with(key, draft, inner.as_deref(), cited.as_deref(), by, limits)
 }
 
 /// Seals the words with an inner signature already made, which only `seal` and the tests that forge one make.
@@ -324,12 +404,16 @@ fn sealed_with(
     key: &LinkKey,
     draft: &Draft,
     inner: Option<&[u8]>,
+    cited: Option<&[u8]>,
     by: Option<&Signer>,
     limits: &Limits,
 ) -> Result<Envelope, Refused> {
     let mut plain: Vec<(Kind, &[u8])> = vec![(Kind::Text, draft.text.as_bytes())];
     if let Some(inner) = inner {
         plain.push((Kind::Signature, inner));
+    }
+    if let Some(cited) = cited {
+        plain.push((Kind::Cited, cited));
     }
     plain.extend(draft.pictures.iter().copied());
 
@@ -340,7 +424,7 @@ fn sealed_with(
             .map_err(|_| Refused::NoRandomness)?
     };
     let manifest = Manifest {
-        v: SAID,
+        v: if cited.is_some() { CITING } else { SAID },
         id: draft.id.to_owned(),
         version: draft.version,
         from: draft.from,
@@ -419,12 +503,12 @@ fn check_draft(draft: &Draft) -> Result<(), Refused> {
 
 /// The inner signature over the words, the id they are shared as, when and as whom, ready to seal.
 #[cfg(feature = "mint")]
-fn wrote(signer: &Signer, draft: &Draft) -> Result<Vec<u8>, Refused> {
+fn wrote(signer: &Signer, draft: &Draft, cited: Option<&[u8]>) -> Result<Vec<u8>, Refused> {
     if signer.name.is_some_and(|name| !named_well(name)) {
         return Err(Refused::NameTooLong);
     }
     let said = vouched_words(
-        &content(draft.text, draft.pictures),
+        &content(draft.text, cited, draft.pictures),
         draft.id,
         signer.at,
         signer.name,
@@ -468,7 +552,18 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
         plain.push(bytes);
     }
     let text = Zeroizing::new(String::from_utf8(plain[0].to_vec()).map_err(|_| Refused::Damaged)?);
-    let first_picture = if manifest.signed() { 2 } else { 1 };
+    let cited_bytes = manifest.cited_at().map(|at| plain[at].as_slice());
+    let cited: Vec<Cited> = match cited_bytes {
+        Some(bytes) => serde_json::from_slice(bytes).map_err(|_| Refused::Damaged)?,
+        None => Vec::new(),
+    };
+    // An empty list is never sealed, so one that reads empty or past what is allowed was made by hand.
+    if cited_bytes.is_some()
+        && (cited.is_empty() || cited.len() > CITED_AT_MOST || !cited.iter().all(Cited::holds))
+    {
+        return Err(Refused::Damaged);
+    }
+    let first_picture = manifest.first_picture();
     let pictures = manifest.parts[first_picture..]
         .iter()
         .zip(&plain[first_picture..])
@@ -487,7 +582,7 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
             .map(|(kind, bytes)| (*kind, bytes.as_slice()))
             .collect();
         let said = vouched_words(
-            &content(&text, &shown),
+            &content(&text, cited_bytes, &shown),
             &inner.id,
             inner.at,
             inner.name.as_deref(),
@@ -511,6 +606,7 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
     Ok(Opened {
         manifest: manifest.clone(),
         text,
+        cited,
         pictures,
         wrote,
         written,
@@ -722,12 +818,19 @@ fn vouched_words(content: &[u8], id: &str, at: jiff::Timestamp, name: Option<&st
     said
 }
 
-/// The words and every picture, each with its kind and length, as the inner signature reads them.
-fn content(text: &str, pictures: &[(Kind, &[u8])]) -> Vec<u8> {
+/// The words, what they cite and every picture, each with its kind and length, as the inner signature reads them.
+fn content(text: &str, cited: Option<&[u8]>, pictures: &[(Kind, &[u8])]) -> Vec<u8> {
     let mut over = Sha256::new();
     over.update(WRITTEN);
     over.update((text.len() as u64).to_be_bytes());
     over.update(text.as_bytes());
+    // Only an envelope that cites says so, so what was signed before the list existed still holds.
+    if let Some(cited) = cited {
+        over.update(Kind::Cited.media().as_bytes());
+        over.update(b"cited");
+        over.update((cited.len() as u64).to_be_bytes());
+        over.update(cited);
+    }
     for (kind, bytes) in pictures {
         over.update(kind.media().as_bytes());
         over.update((bytes.len() as u64).to_be_bytes());

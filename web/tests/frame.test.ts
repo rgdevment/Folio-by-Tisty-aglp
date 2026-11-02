@@ -3,6 +3,7 @@ import {
   accessOf,
   bylined,
   endsOf,
+  otherHand,
   type Signed,
   sealOf,
   tagged,
@@ -67,6 +68,18 @@ describe("the seal", () => {
       verdict: "refused",
       fingerprint: undefined,
     });
+  });
+});
+
+describe("a cited document's signature", () => {
+  it("is the same hand when the key that signed the link's document signed it too", () => {
+    expect(otherHand({ wrote: mario }, { wrote: { ...mario, name: "Mario" } })).toBe(false);
+  });
+
+  it("is another hand when another key signed it, or the link's document was not signed by one", () => {
+    expect(otherHand({ wrote: mario }, { wrote: ana })).toBe(true);
+    expect(otherHand({ wrote: mario }, { wrote: { ...ana, is: "revoked" } })).toBe(true);
+    expect(otherHand({}, { wrote: ana })).toBe(true);
   });
 });
 
