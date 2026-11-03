@@ -1,4 +1,4 @@
-import { type Seal, TITLED } from "tisty-editor/read";
+import { type Field, type Seal, TITLED } from "tisty-editor/read";
 import type { Facts } from "./fetched";
 import { ago, day } from "./when";
 import { filled } from "./words";
@@ -13,9 +13,15 @@ export type Signed =
     }
   | { readonly is: "refused" | "unreadable" };
 
+// How the writer's Tisty read the words, signed with them, so nothing here reads their Markdown.
 export type About = {
   readonly title?: string | null;
   readonly tags?: readonly string[];
+  readonly lang?: string | null;
+  readonly paper?: string | null;
+  readonly sheets?: boolean;
+  readonly landscape?: boolean;
+  readonly fields?: readonly Field[];
   readonly version?: number;
   readonly wrote?: Signed | null;
   readonly sent?: Signed | null;

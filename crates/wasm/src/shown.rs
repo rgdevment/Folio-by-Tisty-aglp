@@ -1,4 +1,5 @@
 use serde::Serialize;
+use tisty_share_proto::config::Field;
 use tisty_share_proto::envelope::{Cited, Envelope, Kind, LinkKey, Refused, Written, open};
 use tisty_share_proto::identity::{Revocation, Verdict};
 use tisty_share_proto::limits::Limits;
@@ -20,6 +21,11 @@ pub struct Shown {
 pub struct About {
     pub title: Option<String>,
     pub tags: Vec<String>,
+    pub lang: Option<String>,
+    pub paper: Option<String>,
+    pub sheets: bool,
+    pub landscape: bool,
+    pub fields: Vec<Field>,
     pub version: u64,
     /// Who wrote these words and pictures, when the envelope carries their signature.
     pub wrote: Option<Signed>,
@@ -111,15 +117,17 @@ pub fn shown(
     };
     let envelope = Envelope::read(envelope, &limits).map_err(Unread::Envelope)?;
     let opened = open(&key, &envelope, &taken_back(revoked)).map_err(Unread::Envelope)?;
-    // Nobody shared before Tisty sent the page with the words, so a version without it is not one Tisty sealed.
-    let html = opened
-        .html
-        .as_deref()
-        .map(|drawn| drawn.to_string())
-        .ok_or(Unread::Envelope(Refused::Damaged))?;
+    let html = opened.html.to_string();
+    // As the writer's Tisty read the words, signed with them, so the reader never reads their Markdown.
+    let config = opened.config;
     let about = About {
-        title: tisty_markdown::front::title(&opened.text),
-        tags: tisty_markdown::front::tags(&opened.text),
+        title: config.title,
+        tags: config.tags,
+        lang: config.lang,
+        paper: config.paper,
+        sheets: config.sheets,
+        landscape: config.landscape,
+        fields: config.fields,
         version: opened.manifest.version,
         wrote: opened.wrote.map(|one| signed(one, opened.written.into())),
         sent: opened.sent.map(|one| signed(one, Said::default())),

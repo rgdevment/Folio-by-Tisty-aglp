@@ -16,8 +16,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-# Only the front matter is read, which needs nothing of the engine.
-tisty-markdown.workspace = true
 tisty-share-proto.workspace = true
 zeroize.workspace = true
 

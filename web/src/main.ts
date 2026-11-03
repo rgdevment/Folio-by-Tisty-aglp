@@ -92,6 +92,7 @@ const taken = (page: Page): Found => {
       html: page.html,
       pictures,
       cited: citedOf(page.cited),
+      lang: about.lang,
       text: page.text,
       about,
       title: plain(about.title ?? ""),
@@ -266,7 +267,7 @@ const back = part<HTMLButtonElement>(".back");
 // What the link opened and what it cites, each drawn in the same place in turn with its own panels.
 const reader = async (root: Read) => {
   let found: Read | null = root;
-  let view = viewOf(root.text);
+  let view = viewOf(root.about);
   let raw = false;
   let heads: Head[] = [];
   let title = root.title;
@@ -340,7 +341,7 @@ const reader = async (root: Read) => {
   };
   const put = async (next: Read) => {
     found = next;
-    view = viewOf(next.text);
+    view = viewOf(next.about);
     raw = false;
     heads = [];
     title = next.title;

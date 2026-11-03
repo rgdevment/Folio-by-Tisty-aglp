@@ -1,6 +1,6 @@
 import {
   acrossOf,
-  laidIn,
+  PAPERS,
   type Paper,
   readAs,
   type Say,
@@ -12,12 +12,15 @@ import {
 } from "tisty-editor/read";
 import { type Cited, cardOf, citing } from "./cited";
 import { cleaned } from "./clean";
+import type { About } from "./frame";
 
 export type Picture = { readonly bytes: Uint8Array<ArrayBuffer>; readonly media: string };
 export type Opened = {
   readonly html: string;
   readonly pictures: readonly Picture[];
   readonly cited: readonly Cited[];
+  /** The language the writer's Tisty says the words are in, so a screen reader and hyphens follow it. */
+  readonly lang?: string | null;
 };
 
 // The text names each picture by its place in the envelope, as Tisty seals it.
@@ -111,10 +114,14 @@ const loaded = (frame: HTMLIFrameElement, html: string) =>
 
 export type View = { readonly leaf: Paper; readonly sheets: boolean; readonly landscape: boolean };
 
-// The paper the document asks for, A4 unless it says otherwise; the reader may look at it on another.
-export const viewOf = (text: string): View => {
-  const laid = laidIn(text);
-  return { leaf: laid.paper ?? "a4", sheets: laid.sheets, landscape: laid.landscape };
+// The paper the document asks for, A4 unless it says otherwise or asks for one this page lacks; the reader may look at it on another.
+export const viewOf = (about: About): View => {
+  const sheets = about.sheets === true;
+  return {
+    leaf: PAPERS.find((one) => one === about.paper) ?? "a4",
+    sheets,
+    landscape: sheets && about.landscape === true,
+  };
 };
 
 export type Laid = { readonly across: number; readonly sheet?: Sheet };
@@ -147,6 +154,7 @@ export const drawn = async (
 ): Promise<Drawn> => {
   const page = await loaded(frame, shell(unasked(cleaned(opened.html)), dark));
   page.documentElement.classList.add("tall");
+  if (opened.lang) page.documentElement.lang = opened.lang;
   page.querySelector(".page")?.removeAttribute("inert");
   const live = () => frame.contentDocument === page;
   let made: string[] = [];

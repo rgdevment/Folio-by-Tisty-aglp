@@ -39,7 +39,8 @@ fn draft<'a>(text: &'a str, pictures: &'a [(Kind, &'a [u8])]) -> Draft<'a> {
         from: Some(2),
         text,
         cited: &[],
-        html: None,
+        html: "<p>a</p>",
+        config: Default::default(),
         pictures,
     }
 }
@@ -121,8 +122,17 @@ fn the_server_reads_every_limit_and_the_sender_without_the_key() {
     let arrived = read(&bytes).unwrap();
     let manifest = arrived.manifest();
     let kinds: Vec<Kind> = manifest.parts.iter().map(|one| one.kind).collect();
-    assert_eq!(kinds, vec![Kind::Text, Kind::Signature, Kind::Png]);
-    assert_eq!(manifest.parts[2].plain(), 300);
+    assert_eq!(
+        kinds,
+        vec![
+            Kind::Config,
+            Kind::Signature,
+            Kind::Html,
+            Kind::Png,
+            Kind::Text
+        ]
+    );
+    assert_eq!(manifest.parts[3].plain(), 300);
     assert!(holds_for(arrived.sender(&[]), &mario));
     assert!(
         !String::from_utf8_lossy(&bytes).contains("hola"),
@@ -149,9 +159,9 @@ fn another_key_never_opens_it() {
     assert_eq!(open(&key(8), &arrived, &[]).err(), Some(Refused::Locked));
 }
 
-/// Where the sealed parts lie in the bytes: past the manifest, before the outer signature.
+/// Where the sealed parts lie in the bytes: past the manifest, the index and the outer signature.
 fn sealed_span(envelope: &Envelope) -> std::ops::Range<usize> {
-    envelope.written.end..envelope.parts.last().unwrap().end
+    envelope.parts[0].start..envelope.parts.last().unwrap().end
 }
 
 fn replaced(bytes: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
@@ -179,19 +189,11 @@ fn a_changed_byte_in_any_sealed_part_is_refused() {
     let span = sealed_span(&sealed);
     assert!(span.len() > 300);
 
+    // The index hashes every sealed part, so a change is caught on reading, before any key is tried.
     for at in span.step_by(7) {
         let mut changed = bytes.clone();
         changed[at] ^= 1;
-        let arrived = read(&changed).unwrap();
-        assert_eq!(
-            open(&key(9), &arrived, &[]).err(),
-            Some(Refused::Locked),
-            "byte {at}"
-        );
-        assert!(
-            matches!(arrived.sender(&[]), Some(Verdict::Refused)),
-            "byte {at}"
-        );
+        assert_eq!(read(&changed).err(), Some(Refused::Damaged), "byte {at}");
     }
 }
 
@@ -301,25 +303,34 @@ fn a_file_passed_off_as_a_picture_never_leaves() {
 #[test]
 fn a_manifest_over_the_limits_is_refused_by_the_server_before_anything_is_kept() {
     let manifest = Manifest {
-        v: SAID,
+        v: FORMAT,
         id: "k7Qm2xPa".into(),
         version: 1,
         from: None,
         head: URL_SAFE_NO_PAD.encode([0u8; HEAD]),
         commit: URL_SAFE_NO_PAD.encode([0u8; 32]),
-        parts: std::iter::once(Part {
-            kind: Kind::Text,
-            size: 20,
-        })
-        .chain((0..=PICTURES_AT_MOST).map(|_| Part {
-            kind: Kind::Png,
-            size: 30,
-        }))
-        .collect(),
+        parts: [Kind::Config, Kind::Html]
+            .map(|kind| Part {
+                kind,
+                size: 20,
+                len: 4,
+            })
+            .into_iter()
+            .chain((0..=PICTURES_AT_MOST).map(|_| Part {
+                kind: Kind::Png,
+                size: 30,
+                len: 14,
+            }))
+            .chain([Part {
+                kind: Kind::Text,
+                size: 20,
+                len: 4,
+            }])
+            .collect(),
     };
     let written = serde_json::to_vec(&manifest).unwrap();
     let mut bytes = MAGIC.to_vec();
-    bytes.push(VERSION);
+    bytes.push(LAID);
     bytes.extend_from_slice(&(written.len() as u32).to_be_bytes());
     bytes.extend_from_slice(&written);
 
@@ -572,7 +583,7 @@ fn sizes_near_the_largest_number_never_overflow_a_server_with_no_limits() {
         ..Limits::default()
     };
     let manifest = Manifest {
-        v: SAID,
+        v: FORMAT,
         id: "k7Qm2xPa".into(),
         version: 1,
         from: None,
@@ -580,16 +591,29 @@ fn sizes_near_the_largest_number_never_overflow_a_server_with_no_limits() {
         commit: URL_SAFE_NO_PAD.encode([0u8; 32]),
         parts: vec![
             Part {
+                kind: Kind::Config,
+                size: 20,
+                len: 4,
+            },
+            Part {
+                kind: Kind::Html,
+                size: 20,
+                len: 4,
+            },
+            Part {
+                kind: Kind::Png,
+                size: u64::MAX,
+                len: u64::MAX - TAG as u64,
+            },
+            Part {
+                kind: Kind::Png,
+                size: u64::MAX,
+                len: u64::MAX - TAG as u64,
+            },
+            Part {
                 kind: Kind::Text,
                 size: 20,
-            },
-            Part {
-                kind: Kind::Png,
-                size: u64::MAX,
-            },
-            Part {
-                kind: Kind::Png,
-                size: u64::MAX,
+                len: 4,
             },
         ],
     };
@@ -667,19 +691,15 @@ fn a_signature_carrying_more_than_tisty_writes_is_refused_until_the_version_says
         .unwrap()
         .to_bytes();
     // A field the signature does not have, as a later Tisty might add, with its length written to match.
-    let said = framed_len(&bytes);
-    let mut longer = bytes[..bytes.len() - 1].to_vec();
+    let arrived = read(&bytes).unwrap();
+    let trailer = arrived.index.end + 4..arrived.parts[0].start;
+    let mut longer = bytes[..trailer.end - 1].to_vec();
     longer.extend_from_slice(br#","x":1}"#);
-    let at = bytes.len() - 4 - said;
-    longer[at..at + 4].copy_from_slice(&((said + 6) as u32).to_be_bytes());
+    longer.extend_from_slice(&bytes[trailer.end..]);
+    let said = (trailer.len() + 6) as u32;
+    longer[trailer.start - 4..trailer.start].copy_from_slice(&said.to_be_bytes());
 
     assert_eq!(read(&longer).err(), Some(Refused::Damaged));
-}
-
-/// The length of the signature at the end of the bytes, read back from where it was written.
-fn framed_len(bytes: &[u8]) -> usize {
-    let arrived = read(bytes).unwrap();
-    bytes.len() - arrived.parts.last().unwrap().end - 4
 }
 
 #[test]
@@ -845,6 +865,7 @@ fn cited(doc: &str, id: &str, page: Option<(u32, u32)>) -> Cited {
         key: key(4).to_text().to_string(),
         title: format!("Sobre {doc}"),
         page,
+        lang: None,
     }
 }
 
@@ -859,7 +880,7 @@ fn what_the_words_cite_travels_sealed_between_the_signature_and_the_pictures() {
     let mario = machine(1);
     let draft = Draft {
         cited: &list,
-        html: None,
+        html: "<p>a</p>",
         ..draft("![Página 2](tisty:doc/guia-2)", &pictures)
     };
     let sealed = sealed(&key(9), &draft, Some(&mario.signer())).unwrap();
@@ -872,10 +893,16 @@ fn what_the_words_cite_travels_sealed_between_the_signature_and_the_pictures() {
         .collect();
     assert_eq!(
         kinds,
-        vec![Kind::Text, Kind::Signature, Kind::Cited, Kind::Png]
+        vec![
+            Kind::Config,
+            Kind::Signature,
+            Kind::Cited,
+            Kind::Html,
+            Kind::Png,
+            Kind::Text
+        ]
     );
-    // A Tisty from before the list reads it as newer, never as damaged.
-    assert_eq!(arrived.manifest().v, CITING);
+    assert_eq!(arrived.manifest().v, FORMAT);
     // The server sees that something is cited, never what or under which key.
     assert!(!String::from_utf8_lossy(&sealed.to_bytes()).contains("pag2Xa"));
 
@@ -886,11 +913,16 @@ fn what_the_words_cite_travels_sealed_between_the_signature_and_the_pictures() {
 }
 
 #[test]
-fn an_envelope_that_cites_nothing_is_what_it_always_was() {
+fn an_envelope_that_cites_nothing_carries_no_list() {
     let sealed = sealed(&key(9), &draft("hola", &[]), None).unwrap();
     let arrived = read(&sealed.to_bytes()).unwrap();
-    assert_eq!(arrived.manifest().parts.len(), 1);
-    assert_eq!(arrived.manifest().v, SAID);
+    let kinds: Vec<Kind> = arrived
+        .manifest()
+        .parts
+        .iter()
+        .map(|one| one.kind)
+        .collect();
+    assert_eq!(kinds, vec![Kind::Config, Kind::Html, Kind::Text]);
     assert!(open(&key(9), &arrived, &[]).unwrap().cited.is_empty());
 }
 
@@ -901,7 +933,7 @@ fn the_writer_signs_what_the_words_cite_so_nobody_swaps_where_they_lead() {
     let swapped = [cited("notas", "trampa", None)];
     let signed_for = Draft {
         cited: &honest,
-        html: None,
+        html: "<p>a</p>",
         ..draft("Hola", &[])
     };
     let words = wrote(
@@ -915,7 +947,7 @@ fn the_writer_signs_what_the_words_cite_so_nobody_swaps_where_they_lead() {
     .unwrap();
     let sent = Draft {
         cited: &swapped,
-        html: None,
+        html: "<p>a</p>",
         ..draft("Hola", &[])
     };
     let sealed = sealed_with(
@@ -952,7 +984,7 @@ fn a_cited_document_that_could_not_be_opened_or_named_is_never_sealed() {
     ] {
         let draft = Draft {
             cited: &list,
-            html: None,
+            html: "<p>a</p>",
             ..draft("Hola", &[])
         };
         assert_eq!(sealed(&key(9), &draft, None).err(), Some(Refused::Damaged));
@@ -961,7 +993,7 @@ fn a_cited_document_that_could_not_be_opened_or_named_is_never_sealed() {
 
 fn drawn<'a>(text: &'a str, html: &'a str, pictures: &'a [(Kind, &'a [u8])]) -> Draft<'a> {
     Draft {
-        html: Some(html),
+        html,
         ..draft(text, pictures)
     }
 }
@@ -984,7 +1016,7 @@ fn a_drawn_page_travels_sealed_beside_the_words_laid_out_with_an_index() {
     assert!(!String::from_utf8_lossy(&bytes).contains("Hola"));
 
     let arrived = read(&bytes).unwrap();
-    assert_eq!(arrived.manifest().v, RENDERED);
+    assert_eq!(arrived.manifest().v, FORMAT);
     let kinds: Vec<Kind> = arrived
         .manifest()
         .parts
@@ -993,12 +1025,18 @@ fn a_drawn_page_travels_sealed_beside_the_words_laid_out_with_an_index() {
         .collect();
     assert_eq!(
         kinds,
-        vec![Kind::Text, Kind::Signature, Kind::Html, Kind::Png]
+        vec![
+            Kind::Config,
+            Kind::Signature,
+            Kind::Html,
+            Kind::Png,
+            Kind::Text
+        ]
     );
     assert!(holds_for(arrived.sender(&[]), &mario));
 
     let opened = open(&key(9), &arrived, &[]).unwrap();
-    assert_eq!(opened.html.as_deref().map(|one| one.as_str()), Some(html));
+    assert_eq!(opened.html.as_str(), html);
     assert_eq!(opened.text.as_str(), "# Hola");
     assert_eq!(opened.pictures.len(), 1);
     assert!(holds_for(opened.wrote, &mario));
@@ -1019,7 +1057,7 @@ fn the_sender_is_known_from_the_bytes_before_the_parts() {
     let first_part = sealed.parts[0].start;
     let mut over = Sha256::new();
     over.update(INDEXED);
-    for range in [sealed.written.clone(), sealed.index.clone().unwrap()] {
+    for range in [sealed.written.clone(), sealed.index.clone()] {
         assert!(range.end <= first_part);
         over.update((range.len() as u64).to_be_bytes());
         over.update(&sealed.as_bytes()[range]);
@@ -1106,6 +1144,13 @@ fn a_page_or_its_pictures_changed_by_someone_who_holds_the_key_do_not_hold_for_t
         drawn("hola", "<p>hola</p>", &reordered),
         drawn("hola", "<p>hola</p>", &fewer),
         drawn("hola", "<p>hola</p>", &more),
+        Draft {
+            config: Config {
+                title: Some("Otro".into()),
+                ..Config::default()
+            },
+            ..drawn("hola", "<p>hola</p>", &both)
+        },
     ];
     for carried in &changed {
         let sealed = resealed(&written, carried, &mario);
@@ -1129,18 +1174,12 @@ fn a_writer_s_signature_never_crosses_between_a_drawn_envelope_and_a_plain_one()
 }
 
 #[test]
-fn the_format_byte_must_say_whether_the_envelope_carries_an_index() {
-    let mut plain = sealed(&key(9), &draft("hola", &[]), None)
+fn a_layout_older_than_the_only_one_is_damaged() {
+    let mut older = sealed(&key(9), &draft("hola", &[]), None)
         .unwrap()
         .to_bytes();
-    plain[4] = LAID;
-    assert_eq!(read(&plain).err(), Some(Refused::Damaged));
-
-    let mut laid = sealed(&key(9), &drawn("hola", "<p>hola</p>", &[]), None)
-        .unwrap()
-        .to_bytes();
-    laid[4] = VERSION;
-    assert_eq!(read(&laid).err(), Some(Refused::Damaged));
+    older[4] = LAID - 1;
+    assert_eq!(read(&older).err(), Some(Refused::Damaged));
 }
 
 #[test]
@@ -1149,7 +1188,7 @@ fn an_index_changed_cut_short_or_framed_wrong_is_refused() {
     let pictures = [(Kind::Png, picture.as_slice())];
     let sealed = sealed(&key(9), &drawn("hola", "<p>hola</p>", &pictures), None).unwrap();
     let bytes = sealed.to_bytes();
-    let index = sealed.index.clone().unwrap();
+    let index = sealed.index.clone();
 
     let mut flipped = bytes.clone();
     flipped[index.start] ^= 1;
@@ -1179,18 +1218,25 @@ fn a_drawn_page_comes_only_where_and_when_the_manifest_says() {
     assert_eq!(manifest.holds(&limits), Ok(()));
 
     let older = Manifest {
-        v: CITING,
+        v: FORMAT - 1,
         ..manifest.clone()
     };
     assert_eq!(older.holds(&limits), Err(Refused::Damaged));
 
-    let mut without = manifest.clone();
-    without.parts.retain(|one| one.kind != Kind::Html);
-    assert_eq!(without.holds(&limits), Err(Refused::Damaged));
+    for kind in [Kind::Config, Kind::Html, Kind::Text] {
+        let mut without = manifest.clone();
+        without.parts.retain(|one| one.kind != kind);
+        assert_eq!(without.holds(&limits), Err(Refused::Damaged));
+    }
 
     let mut before_cited = manifest.clone();
     before_cited.parts.swap(1, 2);
     assert_eq!(before_cited.holds(&limits), Err(Refused::Damaged));
+
+    // The words go last, after the pictures, so a reader by ranges leaves them for when they are asked for.
+    let mut words_first = manifest.clone();
+    words_first.parts.rotate_right(1);
+    assert_eq!(words_first.holds(&limits), Err(Refused::Damaged));
 }
 
 #[test]
@@ -1204,13 +1250,10 @@ fn a_drawn_page_opens_signed_or_not_with_or_without_citing_and_pictures() {
     for by in [None, Some(mario.signer())] {
         let sealed = sealed(&key(9), &page, by.as_ref()).unwrap();
         let arrived = read(&sealed.to_bytes()).unwrap();
-        assert_eq!(arrived.manifest().parts.last().unwrap().kind, Kind::Html);
+        assert_eq!(arrived.manifest().parts.last().unwrap().kind, Kind::Text);
         let opened = open(&key(9), &arrived, &[]).unwrap();
         assert_eq!(opened.cited, list);
-        assert_eq!(
-            opened.html.as_deref().map(|one| one.as_str()),
-            Some("<p>hola</p>")
-        );
+        assert_eq!(opened.html.as_str(), "<p>hola</p>");
         match by {
             Some(_) => assert!(holds_for(opened.wrote, &mario)),
             None => assert_eq!(opened.wrote, None),
@@ -1249,4 +1292,190 @@ fn a_server_that_says_nothing_of_drawn_pages_takes_tisty_s_own() {
     let said: Limits = serde_json::from_str(r#"{"text":100}"#).unwrap();
     assert_eq!(said.html, Limits::default().html);
     assert!(seal(&key(9), &drawn("hola", "<p>hola</p>", &[]), None, &said).is_ok());
+}
+
+#[test]
+fn the_words_and_the_page_travel_deflated_and_open_as_written() {
+    let text = "Una línea que se repite.
+"
+    .repeat(400);
+    let html = "<p>Una línea que se repite.</p>".repeat(400);
+    let sealed = sealed(&key(9), &drawn(&text, &html, &[]), None).unwrap();
+    let parts = &sealed.manifest().parts;
+    for part in parts.iter().filter(|one| one.kind != Kind::Config) {
+        assert!(
+            part.size < part.len / 4,
+            "{:?} travels in {} of {}",
+            part.kind,
+            part.size,
+            part.len
+        );
+    }
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+    assert_eq!(opened.text.as_str(), text);
+    assert_eq!(opened.html.as_str(), html);
+}
+
+#[test]
+fn a_part_inflates_to_exactly_the_length_its_manifest_says_and_no_further() {
+    let said = "palabras ".repeat(1000);
+    let deflated = deflated(said.as_bytes()).unwrap();
+    let len = said.len() as u64;
+    assert_eq!(
+        inflated(&deflated, len).unwrap().as_slice(),
+        said.as_bytes()
+    );
+    assert_eq!(inflated(&deflated, len - 1).err(), Some(Refused::Damaged));
+    assert_eq!(inflated(&deflated, len + 1).err(), Some(Refused::Damaged));
+    assert_eq!(
+        inflated(b"not deflate at all", 4).err(),
+        Some(Refused::Damaged)
+    );
+    let mut padded = deflated.to_vec();
+    padded.extend_from_slice(b"hidden");
+    assert_eq!(inflated(&padded, len).err(), Some(Refused::Damaged));
+}
+
+#[test]
+fn bytes_that_do_not_shrink_fit_the_room_deflate_is_given() {
+    let mut seed = 0x2545_F491_4F6C_DD1Du64;
+    let noise: Vec<u8> = (0..300_000)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed as u8
+        })
+        .collect();
+    let sealed = deflated(&noise).unwrap();
+    assert!(sealed.len() as u64 > noise.len() as u64);
+    assert_eq!(
+        inflated(&sealed, noise.len() as u64).unwrap().as_slice(),
+        noise.as_slice()
+    );
+}
+
+#[test]
+fn empty_words_and_page_travel_and_open_empty() {
+    let sealed = sealed(&key(9), &drawn("", "", &[]), None).unwrap();
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+    assert_eq!(opened.text.as_str(), "");
+    assert_eq!(opened.html.as_str(), "");
+}
+
+#[test]
+fn a_deflated_part_travels_never_much_past_what_it_opens_to() {
+    let mut manifest = sealed(&key(9), &draft("hola", &[]), None)
+        .unwrap()
+        .manifest()
+        .clone();
+    manifest.parts[0].size = 3 * 1024 * 1024;
+    assert_eq!(manifest.holds(&Limits::default()), Err(Refused::Damaged));
+}
+
+#[test]
+fn every_limit_holds_on_what_a_part_opens_to_not_on_what_travels() {
+    let long = "a".repeat(TEXT_AT_MOST + 1);
+    assert_eq!(
+        sealed(&key(9), &draft(&long, &[]), None).err(),
+        Some(Refused::TextTooBig)
+    );
+}
+
+#[test]
+fn a_part_left_as_it_is_says_its_very_size() {
+    let picture = png(1, 300);
+    let pictures = [(Kind::Png, picture.as_slice())];
+    let mut manifest = sealed(&key(9), &draft("hola", &pictures), None)
+        .unwrap()
+        .manifest()
+        .clone();
+    let png = manifest
+        .parts
+        .iter_mut()
+        .find(|one| one.kind == Kind::Png)
+        .unwrap();
+    png.len -= 1;
+    assert_eq!(manifest.holds(&Limits::default()), Err(Refused::Damaged));
+}
+
+#[test]
+fn how_tisty_read_the_words_travels_signed_beside_them() {
+    let mario = machine(1);
+    let config = Config {
+        title: Some("Guía".into()),
+        tags: vec!["tisty".into()],
+        lang: Some("es".into()),
+        paper: Some("letter".into()),
+        sheets: true,
+        landscape: true,
+        fields: vec![crate::config::Field {
+            key: "author".into(),
+            values: vec!["Ana".into()],
+        }],
+    };
+    let page = Draft {
+        config: config.clone(),
+        ..draft("hola", &[])
+    };
+    let sealed = sealed(&key(9), &page, Some(&mario.signer())).unwrap();
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+    assert_eq!(opened.config, config);
+    assert!(holds_for(opened.wrote, &mario));
+}
+
+#[test]
+fn a_config_tisty_would_never_write_is_not_sealed() {
+    let page = Draft {
+        config: Config {
+            landscape: true,
+            ..Config::default()
+        },
+        ..draft("hola", &[])
+    };
+    assert_eq!(sealed(&key(9), &page, None).err(), Some(Refused::Damaged));
+}
+
+#[test]
+fn the_page_holds_for_its_writer_before_the_words_arrive_and_the_words_when_they_do() {
+    let mario = machine(1);
+    let written = draft("hola", &[]);
+    let changed = draft("adiós", &[]);
+    let sealed = resealed(&written, &changed, &mario);
+    let opened = open(&key(9), &read(&sealed.to_bytes()).unwrap(), &[]).unwrap();
+    assert_eq!(opened.wrote, Some(Verdict::Refused));
+}
+
+#[test]
+fn one_of_the_anchor_s_languages_goes_without_a_card_s_name() {
+    let language = Cited {
+        doc: String::new(),
+        lang: Some("pt-BR".into()),
+        ..cited("notas", "nts9Qe", None)
+    };
+    let list = [language.clone()];
+    let page = Draft {
+        cited: &list,
+        ..draft("hola", &[])
+    };
+    let envelope = sealed(&key(9), &page, None).unwrap();
+    let opened = open(&key(9), &read(&envelope.to_bytes()).unwrap(), &[]).unwrap();
+    assert_eq!(opened.cited, list);
+
+    let nameless = Cited {
+        lang: None,
+        ..language.clone()
+    };
+    let odd = Cited {
+        lang: Some("pt_<b>".into()),
+        ..language
+    };
+    for one in [nameless, odd] {
+        let list = [one];
+        let page = Draft {
+            cited: &list,
+            ..draft("hola", &[])
+        };
+        assert_eq!(sealed(&key(9), &page, None).err(), Some(Refused::Damaged));
+    }
 }

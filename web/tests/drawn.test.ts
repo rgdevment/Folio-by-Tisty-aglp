@@ -168,13 +168,21 @@ describe("the paper a document asks for", () => {
   const say = (word: string) => word;
 
   it("is A4 and flows as one unless the document lays out its sheets", () => {
-    expect(viewOf("# Hola\n")).toEqual({ leaf: "a4", sheets: false, landscape: false });
-    expect(laidOut(viewOf("# Hola\n"), say)).toEqual({ across: 794, sheet: undefined });
-    expect(laidOut(viewOf("---\npaper: letter\n---\n# Hola\n"), say).across).toBe(816);
+    expect(viewOf({})).toEqual({ leaf: "a4", sheets: false, landscape: false });
+    expect(laidOut(viewOf({}), say)).toEqual({ across: 794, sheet: undefined });
+    expect(laidOut(viewOf({ paper: "letter" }), say).across).toBe(816);
+  });
+
+  it("takes a paper the page lacks as A4, and lies across only while laid in sheets", () => {
+    expect(viewOf({ paper: "a0", landscape: true })).toEqual({
+      leaf: "a4",
+      sheets: false,
+      landscape: false,
+    });
   });
 
   it("lays its sheets across when it says landscape, with the break named in the reader's words", () => {
-    const view = viewOf("---\nsheets: on\norientation: landscape\n---\n# Plan\n");
+    const view = viewOf({ sheets: true, landscape: true });
     const laid = laidOut(view, say);
     expect(laid.across).toBe(1123);
     expect(laid.sheet).toMatchObject({ wide: 1123, tall: 794, said: "sheetsBreak" });
@@ -191,7 +199,7 @@ describe("the sheets a frame can hold", () => {
   };
 
   it("are laid only where the frame is as wide as the paper, and read the paper asked for now", () => {
-    let view = viewOf("---\nsheets: on\n---\n# Plan\n");
+    let view = viewOf({ sheets: true });
     const sheet = fitting(frameOf(800), () => laidOut(view, say));
     expect(sheet()?.wide).toBe(794);
     view = { ...view, leaf: "letter" };

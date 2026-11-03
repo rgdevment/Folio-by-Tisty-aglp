@@ -10,7 +10,7 @@ use crate::envelope::{Kind, Refused};
 use crate::limits::Limits;
 
 /// A page is read a few hundred pixels wide; anything past this is only weight.
-const SIDE_AT_MOST: u32 = 2048;
+const SIDE_AT_MOST: u32 = 1600;
 const QUALITY: u8 = 82;
 /// Each try keeps three quarters of the side, so six reach about a sixth of where it began.
 const TRIES: usize = 6;
@@ -44,7 +44,7 @@ fn decoded(bytes: &[u8], kind: Kind) -> Result<DynamicImage, Refused> {
         Kind::Jpeg => ImageFormat::Jpeg,
         Kind::Webp => ImageFormat::WebP,
         Kind::Gif => ImageFormat::Gif,
-        Kind::Text | Kind::Signature | Kind::Cited | Kind::Html => {
+        Kind::Text | Kind::Signature | Kind::Cited | Kind::Html | Kind::Config => {
             return Err(Refused::NotAPicture);
         }
     };
@@ -88,9 +88,12 @@ fn smallest_of(
     let fits = |bytes: &[u8]| bytes.len() as u64 <= limits.picture;
     let (png, jpeg) = (limits.takes(Kind::Png), limits.takes(Kind::Jpeg));
     if png && (kind != Kind::Jpeg || !jpeg) {
-        let written = as_png(picture)?;
+        let written = as_png(picture, CompressionType::Default)?;
         if fits(&written) {
-            return Ok(Some((Kind::Png, written)));
+            // The slower compression is paid once, on the side that fits, never on each side tried before it.
+            let best = as_png(picture, CompressionType::Best)?;
+            let smaller = std::cmp::min_by_key(best, written, Vec::len);
+            return Ok(Some((Kind::Png, smaller)));
         }
         if picture.color().has_alpha() {
             return Ok(None);
@@ -103,12 +106,12 @@ fn smallest_of(
     Ok(fits(&written).then_some((Kind::Jpeg, written)))
 }
 
-fn as_png(picture: &DynamicImage) -> Result<Vec<u8>, Refused> {
+fn as_png(picture: &DynamicImage, compression: CompressionType) -> Result<Vec<u8>, Refused> {
     let mut out = Vec::new();
     picture
         .write_with_encoder(PngEncoder::new_with_quality(
             &mut out,
-            CompressionType::Default,
+            compression,
             FilterType::Adaptive,
         ))
         .map_err(|_| Refused::NotAPicture)?;

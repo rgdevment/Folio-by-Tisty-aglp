@@ -38,7 +38,8 @@ fn sealed(id: &str, version: u64, from: Option<u64>) -> Vec<u8> {
         from,
         text: "hola",
         cited: &[],
-        html: None,
+        html: "<p>a</p>",
+        config: Default::default(),
         pictures: &[],
     };
     let (machine, certificate) = vouched();

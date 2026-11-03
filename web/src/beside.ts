@@ -1,4 +1,4 @@
-import { copyFrom, fields, type Head, type Panel, type Say, weighed } from "tisty-editor/read";
+import { copyFrom, type Head, type Panel, type Say, weighed } from "tisty-editor/read";
 import type { View } from "./drawn";
 import type { Facts } from "./fetched";
 import { type About, sealOf, tistyOf } from "./frame";
@@ -53,7 +53,7 @@ const detailsOf = (now: Now, language: string) => {
   const writer = now.about.wrote && "fingerprint" in now.about.wrote ? now.about.wrote : undefined;
   return {
     body: now.text,
-    fields: fields(now.text),
+    fields: now.about.fields ?? [],
     author: writer?.name,
     made: now.facts.shared === undefined ? undefined : stamped(now.facts.shared, language),
     wrote: now.facts.written === undefined ? undefined : stamped(now.facts.written, language),
