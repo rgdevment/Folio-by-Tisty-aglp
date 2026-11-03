@@ -1,0 +1,3 @@
+[submodule "tisty"]
+	path = tisty
+	url = https://github.com/rgdevment/Tisty.git
