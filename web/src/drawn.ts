@@ -1,5 +1,8 @@
 import {
   acrossOf,
+  ending,
+  fileCard,
+  kept,
   PAPERS,
   type Paper,
   readAs,
@@ -30,6 +33,28 @@ const OUTSIDE = /^(https?:|mailto:)/i;
 
 // Control and direction marks, which Tisty keeps out of a title so none can dress one up as another.
 const MARKS = /[\p{Cc}\u202A-\u202E\u2066-\u2069]/gu;
+
+// An attachment of Tisty's that is no picture stays there; its kind is kept before cleaning drops where it lay.
+export const filed = (html: string): string =>
+  html.replace(/<img src="([^"]*)"/g, (all, at: string) => {
+    const kind = ending(at);
+    return kept(at) && /^[a-z0-9]{1,8}$/.test(kind) ? `<img data-file="${kind}"` : all;
+  });
+
+// Drawn as Tisty draws a file, saying it did not travel.
+export const fileCards = (page: Document, stays: string) => {
+  for (const img of page.querySelectorAll<HTMLImageElement>("img[data-file]")) {
+    const kind = img.dataset.file ?? "";
+    const { card } = fileCard(
+      page,
+      img,
+      kind,
+      img.alt || kind.toUpperCase(),
+      `${kind.toUpperCase()} · ${stays}`,
+    );
+    card.title = stays;
+  }
+};
 
 // Set aside before the frame reads the html, so the browser never asks for a picture by its name.
 export const unasked = (html: string): string =>
@@ -148,11 +173,11 @@ export const drawn = async (
   frame: HTMLIFrameElement,
   opened: Opened,
   dark: boolean,
-  said: { readonly say: Say; readonly language: string },
+  said: { readonly say: Say; readonly language: string; readonly stays: string },
   laid: () => Laid,
   onCited: (one: Cited) => void,
 ): Promise<Drawn> => {
-  const page = await loaded(frame, shell(unasked(cleaned(opened.html)), dark));
+  const page = await loaded(frame, shell(unasked(cleaned(filed(opened.html))), dark));
   page.documentElement.classList.add("tall");
   if (opened.lang) page.documentElement.lang = opened.lang;
   page.querySelector(".page")?.removeAttribute("inert");
@@ -164,6 +189,7 @@ export const drawn = async (
     live,
     brought: () => {
       made = pictured(page, opened.pictures);
+      fileCards(page, said.stays);
     },
     sites: {},
     cards: { card: cardOf(opened.cited) },

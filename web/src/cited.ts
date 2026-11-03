@@ -97,7 +97,7 @@ export const citedOpening = <T>(
     return typeof found === "string" ? citedWord(found) : found;
   });
 
-type Steps = Pick<History, "pushState" | "back" | "go">;
+type Steps = Pick<History, "pushState" | "go">;
 
 const atOf = (state: unknown): number => {
   const at = (state as { at?: unknown } | null)?.at;
@@ -118,7 +118,8 @@ export const walking = <T>(root: T, steps: Steps, show: (one: T, at: number) => 
       steps.pushState({ at }, "");
       show(next, at);
     },
-    back: () => steps.back(),
+    // Up to the step a page hangs from, through the browser's own history so its back and forward still walk it.
+    up: (to: number) => steps.go(to - at),
     // A step from before a reload is gone from memory, so the reader goes straight to the shared document's own entry.
     popped: (state: unknown) => {
       const asked = atOf(state);

@@ -19,6 +19,7 @@ import {
 import { type Facts, fetched, limitsOf, REASONS, type Reason, reported } from "./fetched";
 import { type About, accessOf, bylined, endsOf, otherHand, tagged, whenOf } from "./frame";
 import { type Link, linkOf, readLinkOf } from "./link";
+import { onward, type Placed, placedIn, type Ribboned, ribbon } from "./ribbon";
 import { gated, refused, sheetWordsFor, spanish, wordsFor } from "./words";
 
 // What the link opened: the body, its front matter's title (which wins over the first line, as in Tisty) and the text.
@@ -262,7 +263,15 @@ const reportable = (idOf: () => string) => {
   };
 };
 
-const back = part<HTMLButtonElement>(".back");
+const bar = part(".ribbon");
+const under = part<HTMLButtonElement>(".onward");
+const ribboned: Ribboned = {
+  whereThisSits: say("whereThisSits"),
+  leafBack: say("leafBack"),
+  leafOn: say("leafOn"),
+  leafNext: say("leafNext"),
+  leafOfMany: (at, of) => sheetSays.say("leafOfMany", `${at}`, `${of}`),
+};
 
 // What the link opened and what it cites, each drawn in the same place in turn with its own panels.
 const reader = async (root: Read) => {
@@ -311,9 +320,32 @@ const reader = async (root: Read) => {
   const walk = walking<Cited | null>(null, history, (one, at) => {
     show(one, at).catch(() => tell("failed"));
   });
-  const opening = (one: Cited) => {
+  // Each step remembers the one it hangs from: a page's sisters hang from the same document as the page.
+  const ups: number[] = [0];
+  const reads: Read[] = [];
+  // The name each step was shown under, its drawn heading when it says no title.
+  const named: string[] = [];
+  const stepped = (one: Cited, up: number) => {
     ys[walk.at()] = scrollY;
+    ups.length = walk.at() + 1;
+    ups.push(up);
     walk.went(one);
+  };
+  const opening = (one: Cited) => stepped(one, walk.at());
+  const sideways = (one: Cited) => stepped(one, ups[walk.at()] ?? 0);
+  const placed = (one: Cited | null, at: number): Placed | null => {
+    const from = reads[ups[at] ?? 0];
+    if (!one || at === 0 || !from) return null;
+    return placedIn(one, named[ups[at] ?? 0] || say("document"), from.cited);
+  };
+  // A document that could not be opened still has its way back to the one above.
+  const placeBar = (one: Cited | null, at: number, opened: boolean) => {
+    const where = placed(one, at);
+    ribbon(bar, where, ribboned, {
+      up: () => walk.up(ups[at] ?? 0),
+      to: sideways,
+    });
+    onward(under, opened ? where?.on : undefined, ribboned, sideways);
   };
   // Tags and dates sit under the body's title; a body without one has them above it instead.
   const draw = async () => {
@@ -322,7 +354,14 @@ const reader = async (root: Read) => {
     across();
     const when = whenOf(now.facts, now.about.version ?? 1, Date.now() / 1000, language, say);
     const tags = now.about.tags ?? [];
-    const shown = await drawn(frame, now, night.matches, sheetSays, laid, opening);
+    const shown = await drawn(
+      frame,
+      now,
+      night.matches,
+      { ...sheetSays, stays: say("fileStays") },
+      laid,
+      opening,
+    );
     lay = shown.lay;
     const { page } = shown;
     const inside = bylined(page, tags, when);
@@ -376,11 +415,11 @@ const reader = async (root: Read) => {
   const show = async (one: Cited | null, at: number) => {
     turn += 1;
     const mine = turn;
-    back.hidden = at === 0;
     if (one) tell("opening");
     const next = one ? await openCited(one) : root;
     if (mine !== turn) return;
     if (typeof next === "string") {
+      placeBar(one, at, false);
       found = null;
       besideShown(false);
       besideOpen.hidden = true;
@@ -388,9 +427,12 @@ const reader = async (root: Read) => {
       scrollTo({ top: 0 });
       return;
     }
+    reads[at] = next;
     await queued(async () => {
       if (mine !== turn) return;
       await put(next);
+      named[at] = title;
+      placeBar(one, at, true);
       scrollTo({ top: ys[at] ?? 0 });
     });
   };
@@ -398,7 +440,6 @@ const reader = async (root: Read) => {
   history.scrollRestoration = "manual";
   // A reload opens the shared document, so this entry becomes its own rather than a step memory no longer holds.
   history.replaceState({ at: 0 }, "");
-  back.addEventListener("click", () => walk.back());
   addEventListener("popstate", ({ state }) => {
     ys[walk.at()] = scrollY;
     walk.popped(state);

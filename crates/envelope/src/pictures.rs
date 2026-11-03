@@ -23,10 +23,26 @@ pub fn recompressed(bytes: &[u8], limits: &Limits) -> Result<(Kind, Vec<u8>), Re
     if !limits.takes(Kind::Png) && !limits.takes(Kind::Jpeg) {
         return Err(Refused::KindRefused);
     }
-    let mut picture = fitted(decoded(bytes, kind)?, SIDE_AT_MOST);
+    let (decoded, turned) = decoded(bytes, kind)?;
+    // A photo that needs no turning nor shrinking travels as it was written, since writing it again often makes it heavier.
+    let mut kept = (kind == Kind::Jpeg
+        && !turned
+        && limits.takes(Kind::Jpeg)
+        && decoded.width() <= SIDE_AT_MOST
+        && decoded.height() <= SIDE_AT_MOST)
+        .then(|| stripped(bytes, (decoded.width(), decoded.height())))
+        .flatten()
+        .filter(|one| one.len() as u64 <= limits.picture);
+    let mut picture = fitted(decoded, SIDE_AT_MOST);
     for _ in 0..TRIES {
-        if let Some(smallest) = smallest_of(&picture, kind, limits)? {
-            return Ok(smallest);
+        let made = smallest_of(&picture, kind, limits)?;
+        let chosen = match (kept.take(), made) {
+            (Some(kept), Some(made)) if kept.len() <= made.1.len() => Some((Kind::Jpeg, kept)),
+            (Some(kept), None) => Some((Kind::Jpeg, kept)),
+            (_, made) => made,
+        };
+        if let Some(chosen) = chosen {
+            return Ok(chosen);
         }
         let (wide, tall) = (picture.width(), picture.height());
         picture = picture.resize(
@@ -38,7 +54,8 @@ pub fn recompressed(bytes: &[u8], limits: &Limits) -> Result<(Kind, Vec<u8>), Re
     Err(Refused::PictureTooBig)
 }
 
-fn decoded(bytes: &[u8], kind: Kind) -> Result<DynamicImage, Refused> {
+/// The picture as it stands, and whether its tag turned it.
+fn decoded(bytes: &[u8], kind: Kind) -> Result<(DynamicImage, bool), Refused> {
     let format = match kind {
         Kind::Png => ImageFormat::Png,
         Kind::Jpeg => ImageFormat::Jpeg,
@@ -57,7 +74,69 @@ fn decoded(bytes: &[u8], kind: Kind) -> Result<DynamicImage, Refused> {
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
     let mut picture = DynamicImage::from_decoder(decoder).map_err(|_| Refused::NotAPicture)?;
     picture.apply_orientation(orientation);
-    Ok(plain(picture))
+    Ok((plain(picture), orientation != Orientation::NoTransforms))
+}
+
+/// The JPEG as written, less every segment that says something besides its pixels and anything past its end;
+/// none when it is coded in a way a browser does not draw.
+fn stripped(bytes: &[u8], size: (u32, u32)) -> Option<Vec<u8>> {
+    let mut out = bytes.get(..2).filter(|soi| *soi == [0xFF, 0xD8])?.to_vec();
+    let mut at = 2;
+    let mut drawable = false;
+    loop {
+        if *bytes.get(at)? != 0xFF {
+            return None;
+        }
+        let mut named = at + 1;
+        while *bytes.get(named)? == 0xFF {
+            named += 1;
+        }
+        let marker = bytes[named];
+        let start = named + 1;
+        match marker {
+            0xD9 => {
+                out.extend_from_slice(&[0xFF, 0xD9]);
+                break;
+            }
+            0x01 | 0xD0..=0xD7 => {
+                out.extend_from_slice(&[0xFF, marker]);
+                at = start;
+                continue;
+            }
+            _ => {}
+        }
+        let len = usize::from(u16::from_be_bytes([
+            *bytes.get(start)?,
+            *bytes.get(start + 1)?,
+        ]));
+        let end = start.checked_add(len).filter(|_| len >= 2)?;
+        let segment = bytes.get(start..end)?;
+        match marker {
+            // Baseline, extended and progressive Huffman are what every browser draws.
+            0xC0..=0xC2 => drawable = true,
+            0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF => return None,
+            _ => {}
+        }
+        // A colour profile and Adobe's APP14 say how to read the pixels; the other APPn and comments say where, when, by whom, or hold a thumbnail.
+        let profile = marker == 0xE2 && segment.get(2..14) == Some(b"ICC_PROFILE\0");
+        if profile || !matches!(marker, 0xE0..=0xED | 0xEF | 0xFE) {
+            out.extend_from_slice(&[0xFF, marker]);
+            out.extend_from_slice(segment);
+        }
+        at = end;
+        if marker == 0xDA {
+            let scan = at;
+            // The scan runs until a marker that is neither a stuffed byte, a restart nor a fill byte.
+            while !(bytes.get(at)? == &0xFF
+                && !matches!(*bytes.get(at + 1)?, 0x00 | 0xD0..=0xD7 | 0xFF))
+            {
+                at += 1;
+            }
+            out.extend_from_slice(&bytes[scan..at]);
+        }
+    }
+    let read = ImageReader::with_format(Cursor::new(&out), ImageFormat::Jpeg).into_dimensions();
+    (drawable && read.ok()? == size).then_some(out)
 }
 
 /// Eight bits a channel is all a page shows; an alpha channel nothing shows through is dropped, so the picture may fit as a JPEG.

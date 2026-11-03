@@ -165,7 +165,7 @@ describe("a refusal for a cited document", () => {
   });
 });
 
-const steps = () => ({ pushState: vi.fn(), back: vi.fn(), go: vi.fn() });
+const steps = () => ({ pushState: vi.fn(), go: vi.fn() });
 
 describe("the way through cited documents", () => {
   it("starts at the shared document, with nowhere to go back to", () => {
@@ -191,13 +191,14 @@ describe("the way through cited documents", () => {
     expect(walk.deep()).toBe(true);
   });
 
-  it("goes back one step with the browser's back, whether pressed there or on the page", () => {
+  it("goes up to the step it hangs from through the browser's history, however many steps away", () => {
     const history = steps();
     const show = vi.fn();
     const walk = walking<Cited | null>(null, history, show);
     walk.went(GUIDE);
-    walk.back();
-    expect(history.back).toHaveBeenCalledOnce();
+    walk.went(PAGE);
+    walk.up(0);
+    expect(history.go).toHaveBeenCalledWith(-2);
     walk.popped({ at: 0 });
     expect(show).toHaveBeenLastCalledWith(null, 0);
     expect(walk.deep()).toBe(false);

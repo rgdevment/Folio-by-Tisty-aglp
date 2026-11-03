@@ -61,8 +61,12 @@ const SPANISH = {
   report_fraud: "Estafa",
   report_threat: "Amenazas o incitación a un delito",
   report_doxxing: "Datos personales de alguien expuestos",
-  back: "Volver",
   citedGone: "Ese documento ya no se comparte.",
+  whereThisSits: "Dónde está esta página",
+  leafBack: "Página anterior",
+  leafOn: "Página siguiente",
+  leafNext: "Siguiente",
+  fileStays: "Se queda en Tisty",
   otherWriter: "Lo firmó una llave distinta de la del documento que abriste con el link.",
 } as const;
 
@@ -126,8 +130,12 @@ const ENGLISH: Record<Word, string> = {
   report_fraud: "Fraud",
   report_threat: "Threats or incitement to a crime",
   report_doxxing: "Someone's personal details exposed",
-  back: "Back",
   citedGone: "That document is no longer shared.",
+  whereThisSits: "Where this page sits",
+  leafBack: "Previous page",
+  leafOn: "Next page",
+  leafNext: "Next",
+  fileStays: "Stays in Tisty",
   otherWriter: "A different key signed it than the one that signed the document this link opened.",
 };
 

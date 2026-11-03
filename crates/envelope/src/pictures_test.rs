@@ -230,3 +230,98 @@ fn what_showed_through_lands_on_white_when_only_jpeg_is_taken() {
         "the see-through half is white, not black"
     );
 }
+
+/// A photo as a phone writes it: compressed harder than Tisty would, with where it was taken and a comment beside it.
+fn from_a_phone() -> Vec<u8> {
+    let mut photo = Vec::new();
+    noise(300, 200)
+        .write_with_encoder(JpegEncoder::new_with_quality(&mut photo, 40))
+        .unwrap();
+    let exif = b"Exif\0\0GPS -33.45 -70.66 taken by Ana";
+    let mut said = vec![0xFF, 0xD8, 0xFF, 0xE1];
+    said.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
+    said.extend_from_slice(exif);
+    let comment = b"a secret comment";
+    said.extend_from_slice(&[0xFF, 0xFE]);
+    said.extend_from_slice(&((comment.len() + 2) as u16).to_be_bytes());
+    said.extend_from_slice(comment);
+    said.extend_from_slice(&photo[2..]);
+    said.extend_from_slice(b"PK\x03\x04 a zip file riding along");
+    said
+}
+
+#[test]
+fn a_photo_compressed_harder_than_ours_travels_as_written_without_what_it_says_besides() {
+    let phone = from_a_phone();
+    let (kind, bytes) = ours(&phone).unwrap();
+
+    assert_eq!(kind, Kind::Jpeg);
+    for hidden in [&b"GPS"[..], b"secret", b"PK\x03\x04"] {
+        assert!(!bytes.windows(hidden.len()).any(|one| one == hidden));
+    }
+    let again = as_jpeg(&read(&phone)).unwrap();
+    assert!(
+        bytes.len() < again.len(),
+        "{} against {}",
+        bytes.len(),
+        again.len()
+    );
+    assert_eq!(
+        read(&bytes).to_rgb8(),
+        read(&phone).to_rgb8(),
+        "not a pixel changed"
+    );
+}
+
+#[test]
+fn a_photo_its_tag_turns_is_written_again_standing() {
+    let photo = written(&noise(40, 20), ImageFormat::Jpeg);
+    // An EXIF block that says the camera was turned a quarter: orientation 6.
+    let tiff: [u8; 26] = [
+        b'M', b'M', 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0,
+    ];
+    let mut exif = b"Exif\0\0".to_vec();
+    exif.extend_from_slice(&tiff);
+    let mut turned = vec![0xFF, 0xD8, 0xFF, 0xE1];
+    turned.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
+    turned.extend_from_slice(&exif);
+    turned.extend_from_slice(&photo[2..]);
+
+    let (kind, bytes) = ours(&turned).unwrap();
+    assert_eq!(kind, Kind::Jpeg);
+    assert_eq!((read(&bytes).width(), read(&bytes).height()), (20, 40));
+}
+
+/// A segment of the given marker carrying `said`, as a JPEG frames one.
+fn segment(marker: u8, said: &[u8]) -> Vec<u8> {
+    let mut out = vec![0xFF, marker];
+    out.extend_from_slice(&((said.len() + 2) as u16).to_be_bytes());
+    out.extend_from_slice(said);
+    out
+}
+
+#[test]
+fn a_photo_kept_as_written_keeps_its_colour_profile() {
+    let photo = written(&noise(60, 40), ImageFormat::Jpeg);
+    let mut profiled = photo[..2].to_vec();
+    profiled.extend(segment(0xE2, b"ICC_PROFILE\0\x01\x01 display p3"));
+    profiled.extend(segment(0xE2, b"MPF\0 another picture"));
+    profiled.extend_from_slice(&photo[2..]);
+
+    let kept = stripped(&profiled, (60, 40)).unwrap();
+    assert!(kept.windows(11).any(|one| one == b"ICC_PROFILE"));
+    assert!(!kept.windows(3).any(|one| one == b"MPF"));
+}
+
+#[test]
+fn a_photo_coded_in_a_way_browsers_do_not_draw_is_written_again() {
+    let mut photo = written(&noise(60, 40), ImageFormat::Jpeg);
+    let frame = photo
+        .windows(2)
+        .position(|one| one == [0xFF, 0xC0])
+        .unwrap();
+    assert!(stripped(&photo, (60, 40)).is_some());
+    // The same frame said to be arithmetic coded, which no browser draws.
+    photo[frame + 1] = 0xC9;
+    assert_eq!(stripped(&photo, (60, 40)), None);
+}

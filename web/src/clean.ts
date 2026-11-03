@@ -152,6 +152,7 @@ const ATTRIBUTES = [
   "data-currency",
   "data-doc",
   "data-done",
+  "data-file",
   "data-hue",
   "data-ico",
   "data-key",
