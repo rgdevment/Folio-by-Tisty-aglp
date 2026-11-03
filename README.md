@@ -1,14 +1,14 @@
-# Tisty Share
+# Folio by Tisty
 
 [Español](README.es.md)
 
-Tisty Share turns a Tisty document into a link anyone can read: anonymous,
+Folio by Tisty turns a Tisty document into a link anyone can read: anonymous,
 end-to-end encrypted, and gone on its own after a while. It is a **service**,
-separate from the Tisty app, with its own server, rules and promises. It runs at
-[tisty.cl](https://tisty.cl).
+separate from the Tisty app, with its own server, rules and promises. Its links
+live at tisty.cl, and its site is [www.tisty.app](https://www.tisty.app).
 
 > **It does not promise what the app promises.** The Tisty app has no server
-> and collects nothing. Tisty Share does run a server: it keeps encrypted copies
+> and collects nothing. Folio does run a server: it keeps encrypted copies
 > until they expire, counts reads and keeps a few anonymous records. What it
 > keeps, why and for how long is in its [privacy policy](docs/PRIVACY.md).
 
@@ -59,7 +59,7 @@ editor that draws a document, comes from the app's repository, pinned as the
 | `web` (`folio-web`) | The page that reads a link |
 | `tisty` | The Tisty app's repository: its identity keys (`tisty-share-proto`) and the editor that draws the page (`tisty-editor`) |
 
-It is released with tags `share-v*`, which `.github/workflows/share.yml` deploys
+It is released with tags `v*`, which `.github/workflows/deploy.yml` deploys
 and checks live.
 
 ## Licence

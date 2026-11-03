@@ -1,8 +1,8 @@
-# Tisty Share security policy
+# Folio by Tisty security policy
 
 [Español](SEGURIDAD.md)
 
-This covers the Tisty Share service: [tisty.cl](https://tisty.cl), its API under
+This covers the Folio service: its links at tisty.cl, its API under
 `/api/v1/`, the page that reads a link, and the envelope format both the app and
 the server speak. The Tisty app has a [security policy of its own](https://github.com/rgdevment/Tisty/blob/main/SECURITY.md).
 
@@ -10,7 +10,7 @@ the server speak. The Tisty app has a [security policy of its own](https://githu
 
 **Do not open a public issue.** Use either private channel:
 
-- **Email** <rgdevment@tisty.app>, subject `[SECURITY][Share] short description`.
+- **Email** <rgdevment@tisty.app>, subject `[SECURITY][Folio] short description`.
 - **GitHub Security Advisory**: the *Security* tab, *Report a vulnerability*.
 
 Useful in a report: what an attacker could do and to whom, and the steps to
@@ -60,5 +60,5 @@ be met with legal threats.
 
 ## Supported versions
 
-Only what runs at tisty.cl today, the latest `share-v*` tag. Envelopes are read
+Only what runs at tisty.cl today, the latest `v*` tag. Envelopes are read
 in their current format only.

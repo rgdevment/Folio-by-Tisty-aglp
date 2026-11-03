@@ -1,7 +1,7 @@
 {
   "name": "folio",
   "private": true,
-  "homepage": "https://tisty.cl/",
+  "homepage": "https://www.tisty.app/",
   "license": "AGPL-3.0-only",
   "workspaces": [
     "web",

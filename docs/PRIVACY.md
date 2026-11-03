@@ -1,16 +1,16 @@
-# Tisty Share privacy policy
+# Folio by Tisty privacy policy
 
-**Draft of October 29, 2026.** Tisty Share is not open yet.
+**Draft of October 29, 2026.** Folio is not open yet.
 
 ## The short version
 
-Tisty Share keeps the least it needs to work, and nearly all of it is encrypted
+Folio keeps the least it needs to work, and nearly all of it is encrypted
 with a key it never receives. No accounts, no cookies, no analytics, no ads,
 and nothing from third parties on the page. What it keeps expires on its own.
 This policy says exactly what it keeps, why, and for how long.
 
-Who answers for this data: Mario, a natural person in Chile, who runs Tisty
-Share as a non-profit. Contact: <rgdevment@tisty.app>.
+Who answers for this data: Mario, a natural person in Chile, who runs Folio
+as a non-profit. Contact: <rgdevment@tisty.app>.
 
 ## What it cannot see
 
@@ -46,7 +46,7 @@ the day ends.
 
 ## Cloudflare
 
-Tisty Share runs on Cloudflare (Workers, D1 and R2). Cloudflare receives your
+Folio runs on Cloudflare (Workers, D1 and R2). Cloudflare receives your
 IP and your requests when you connect, as any web server does, and handles them
 under its own [privacy policy](https://www.cloudflare.com/privacypolicy/). It
 never receives the key after the `#`, so it cannot read what you share either.
@@ -76,7 +76,7 @@ most direct ways are:
 
 ## Children
 
-Tisty Share is not meant for children under 14.
+Folio is not meant for children under 14.
 
 ## Changes
 

@@ -1,8 +1,8 @@
 # Contributing to Folio by Tisty
 
-Folio by Tisty is the service behind Tisty's shared links, at
-[tisty.cl](https://tisty.cl): the server, the Worker it runs on and the page that
-reads a link. The Tisty app lives in [its own
+Folio by Tisty is the service behind Tisty's shared links at tisty.cl,
+whose site is [www.tisty.app](https://www.tisty.app): the server, the Worker it
+runs on and the page that reads a link. The Tisty app lives in [its own
 repository](https://github.com/rgdevment/Tisty), with its own guide.
 
 Bug reports, feature discussions and pull requests are all welcome. Everyone
@@ -122,7 +122,7 @@ up with `wrangler secret put` and never into the tree.
 A commit is one line in English, `type(scope): change`, where the type is one
 of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`,
 `chore` or `revert`, and the scope, when it helps, names the part it touches:
-`fix(share):`, `feat(web):`, `docs:`. Nothing goes under it — no body, no
+`fix(server):`, `feat(web):`, `docs:`. Nothing goes under it — no body, no
 trailers, no co-authors or sign-offs. The *why* belongs in the pull request; the
 *what* is already in the patch. Keep it to 112 characters at most: CI refuses a
 longer one, and a commit with lines under it.
