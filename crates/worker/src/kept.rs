@@ -2,7 +2,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tisty_share_server::store::Kept;
 
 /// D1 hands each row back as an object named by its columns, so these fields are the columns the queries name.
@@ -19,6 +19,20 @@ pub struct Id {
 #[derive(Debug, Deserialize)]
 pub struct Value {
     pub value: u64,
+}
+
+/// The documents counted whole, as the sweep says them in the logs: numbers, never an id.
+#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Census {
+    pub docs: u64,
+    pub unwritten: u64,
+    pub gated: u64,
+    pub paused: u64,
+    pub blocked: u64,
+    pub held: u64,
+    pub ending_in_a_day: u64,
+    pub ending_in_a_week: u64,
+    pub reads: u64,
 }
 
 #[derive(Debug, Deserialize)]

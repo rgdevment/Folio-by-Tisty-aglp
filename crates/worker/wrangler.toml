@@ -48,8 +48,12 @@ simple = { limit = 60, period = 60 }
 [triggers]
 crons = ["*/15 * * * *"]
 
+# One line per read served, with the link's id, country and data center; the request itself is never logged (decision 98).
 [observability]
 enabled = true
+
+[observability.logs]
+invocation_logs = false
 
 # Lets the Worker say which tagged version answers, which the share workflow checks after a deploy.
 [version_metadata]

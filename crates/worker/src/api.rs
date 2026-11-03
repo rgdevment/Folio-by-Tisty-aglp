@@ -399,6 +399,13 @@ fn plain(status: u16, kind: &str, body: Vec<u8>) -> Answer {
     }
 }
 
+/// The line a read served leaves in the logs: the link's id, never its key, and where it was read from, never who.
+pub fn read_line(path: &str, country: Option<&str>, colo: &str) -> Option<String> {
+    let id = path.strip_prefix(ROOT)?.strip_prefix("docs/")?;
+    (!id.is_empty() && !id.contains('/'))
+        .then(|| json!({ "read": id, "country": country, "colo": colo }).to_string())
+}
+
 /// Where a request waited, in tens of milliseconds; only a read served says on what, so no refusal tells its branch.
 pub fn timing(waited: Option<[u64; 2]>, total: u64) -> String {
     let tens = |ms: u64| ms.div_ceil(10) * 10;

@@ -14,6 +14,18 @@ pub const FORGET: &str = "DELETE FROM docs WHERE id = ?1";
 
 pub const ENDING: &str = "SELECT id FROM docs WHERE ends < ?1 ORDER BY ends, id LIMIT ?2";
 
+/// How many documents there are and how they stand, counted whole and never one by one (decision 98).
+pub const CENSUS: &str = "SELECT count(*) AS docs, \
+    coalesce(sum(json_array_length(body, '$.versions') = 0), 0) AS unwritten, \
+    coalesce(sum(json_extract(body, '$.gate') IS NOT NULL), 0) AS gated, \
+    coalesce(sum(json_extract(body, '$.paused') IS NOT NULL), 0) AS paused, \
+    coalesce(sum(json_extract(body, '$.blocked') IS NOT NULL), 0) AS blocked, \
+    coalesce(sum(json_array_length(body, '$.holders') > 0), 0) AS held, \
+    coalesce(sum(ends < ?1 + 86400), 0) AS ending_in_a_day, \
+    coalesce(sum(ends < ?1 + 604800), 0) AS ending_in_a_week, \
+    coalesce(sum(json_extract(body, '$.reads')), 0) AS reads \
+    FROM docs";
+
 /// One statement, so requests arriving together each see their own count.
 pub const COUNT: &str = "INSERT INTO counters (key, value, until) VALUES (?1, ?2, ?3) \
      ON CONFLICT (key) DO UPDATE SET \

@@ -503,3 +503,25 @@ fn only_a_read_served_says_where_it_waited_and_every_time_is_in_tens_of_millisec
     assert_eq!(timing(None, 151), "total;dur=160");
     assert_eq!(timing(None, 0), "total;dur=0");
 }
+
+#[test]
+fn a_read_leaves_its_link_s_id_and_where_it_was_read_never_more() {
+    let line = read_line("/api/v1/docs/k7Qm2xPa", Some("CL"), "SCL").unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap(),
+        json!({ "read": "k7Qm2xPa", "country": "CL", "colo": "SCL" })
+    );
+    let unknown = read_line("/api/v1/docs/k7Qm2xPa", None, "SCL").unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&unknown).unwrap()["country"],
+        Value::Null
+    );
+    for other in [
+        "/api/v1/docs/k7Qm2xPa/latest",
+        "/api/v1/limits",
+        "/api/v1/docs/",
+        "/k7Qm2xPa",
+    ] {
+        assert_eq!(read_line(other, Some("CL"), "SCL"), None, "{other}");
+    }
+}

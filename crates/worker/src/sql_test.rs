@@ -163,3 +163,41 @@ fn a_revocation_is_kept_once_per_root_and_key_and_read_back_by_both() {
     assert_eq!(said("k1", "r2").as_deref(), Some("other"));
     assert_eq!(said("k2", "r2"), None);
 }
+
+#[test]
+fn the_census_counts_documents_whole_by_how_they_stand() {
+    let db = started();
+    let census = |now: i64| -> Vec<i64> {
+        db.query_row(CENSUS, params![now], |row| {
+            (0..9)
+                .map(|at| row.get(at))
+                .collect::<Result<Vec<i64>, _>>()
+        })
+        .unwrap()
+    };
+    assert_eq!(
+        census(0),
+        vec![0; 9],
+        "an empty service counts zeros, not nulls"
+    );
+    let doc = |id: &str, ends: i64, body: &str| {
+        db.execute(INSERT_DOC, params![id, 0, ends, body]).unwrap();
+    };
+    doc(
+        "a",
+        100,
+        r#"{"versions":[],"gate":null,"paused":null,"blocked":null,"reads":0}"#,
+    );
+    doc(
+        "b",
+        50_000,
+        r#"{"versions":[1],"gate":{"salt":1},"paused":7,"blocked":null,"reads":3,"holders":["x"]}"#,
+    );
+    doc(
+        "c",
+        900_000,
+        r#"{"versions":[1],"gate":null,"paused":null,"blocked":9,"reads":2}"#,
+    );
+    // docs, unwritten, gated, paused, blocked, held, ending in a day, in a week, reads
+    assert_eq!(census(0), vec![3, 1, 1, 1, 1, 1, 2, 2, 5]);
+}

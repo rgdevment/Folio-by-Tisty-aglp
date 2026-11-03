@@ -70,6 +70,13 @@ impl Cloud {
             .map_err(fault)
     }
 
+    async fn census(&self, now: i64) -> Result<kept::Census, Fault> {
+        Ok(self
+            .first(sql::CENSUS, &[number(now)])
+            .await?
+            .unwrap_or_default())
+    }
+
     async fn all<T: DeserializeOwned>(
         &self,
         query: &str,
@@ -390,10 +397,19 @@ fn deployed_as(env: &Env) -> Option<String> {
 #[event(fetch)]
 async fn fetch(request: Request, env: Env, ctx: Context) -> worker::Result<Response> {
     let began = Date::now().as_millis();
+    let path = request.path();
+    let place = request.cf().map(|cf| (cf.country(), cf.colo()));
     let (mut answer, seen, waited) = served(request, &env)
         .await
         .unwrap_or_else(|why| (api::broken(why.to_string()), None, [0, 0]));
     let read = seen.is_some();
+    if let Some(line) = read
+        .then_some(place)
+        .flatten()
+        .and_then(|(country, colo)| api::read_line(&path, country.as_deref(), &colo))
+    {
+        worker::console_log!("{line}");
+    }
     // A read is written down once its reader has the envelope, so no write stands between them.
     if let Some(seen) = seen {
         let env = env.clone();
@@ -440,5 +456,10 @@ async fn scheduled(_: ScheduledEvent, env: Env, _: ScheduleContext) {
     }
     if let Some(fault) = &swept.unlapsed {
         worker::console_error!("the sweep could not let old counters go: {fault}");
+    }
+    // Numbers only, every quarter of an hour, so how the service stands is seen without looking at any document.
+    match share.store.census(now()).await {
+        Ok(census) => worker::console_log!("{}", serde_json::json!({ "census": census })),
+        Err(why) => worker::console_error!("the census failed: {why}"),
     }
 }
