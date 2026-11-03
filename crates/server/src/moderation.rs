@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 
+use folio_envelope::work::Proof;
 use serde::{Deserialize, Serialize};
-use tisty_share_proto::work::Proof;
 
 use crate::guard::{self, Act};
 use crate::keys::Randomness;

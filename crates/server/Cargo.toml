@@ -1,5 +1,5 @@
 [package]
-name = "tisty-share-server"
+name = "folio-server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,6 +15,7 @@ testing = ["dep:jiff"]
 
 [dependencies]
 base64.workspace = true
+folio-envelope.workspace = true
 futures-util = { version = "0.3", default-features = false }
 hmac.workspace = true
 scrypt.workspace = true
@@ -27,6 +28,6 @@ zeroize.workspace = true
 
 [dev-dependencies]
 # Envelopes are sealed in the tests as a Tisty would seal them.
-tisty-share-proto = { workspace = true, features = ["mint"] }
+folio-envelope = { workspace = true, features = ["mint"] }
 jiff.workspace = true
 serde_json.workspace = true

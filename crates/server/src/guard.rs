@@ -2,9 +2,9 @@ use std::net::IpAddr;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use folio_envelope::work::{self, Challenge, Proof};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
-use tisty_share_proto::work::{self, Challenge, Proof};
 
 use crate::share::{Policy, Refused};
 use crate::store::{Fault, Store};

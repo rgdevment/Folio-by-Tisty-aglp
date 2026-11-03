@@ -1,8 +1,8 @@
+use folio_envelope::config::Config;
+use folio_envelope::envelope::{Draft, Envelope, Kind, LinkKey, Refused, Signer, seal};
+use folio_envelope::limits::Limits;
 use jiff::Timestamp;
-use tisty_share_proto::config::Config;
-use tisty_share_proto::envelope::{Draft, Envelope, Kind, LinkKey, Refused, Signer, seal};
 use tisty_share_proto::identity::{Root, ShareKey};
-use tisty_share_proto::limits::Limits;
 
 use super::{About, Begun, Said, Shown, Signed, Unread, begun, shown};
 
@@ -245,7 +245,7 @@ fn says_a_key_taken_back_and_believes_only_what_its_root_signed() {
 
 #[test]
 fn hands_the_reader_what_the_words_cite_with_the_keys_that_open_them() {
-    let cited = [tisty_share_proto::envelope::Cited {
+    let cited = [folio_envelope::envelope::Cited {
         doc: "guia-2".into(),
         id: "pag2Xa".into(),
         key: key(2).to_text().to_string(),

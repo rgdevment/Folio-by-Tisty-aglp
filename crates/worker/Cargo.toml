@@ -1,5 +1,5 @@
 [package]
-name = "tisty-share-worker"
+name = "folio-worker"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,10 +15,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 base64.workspace = true
+folio-envelope.workspace = true
+folio-server.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tisty-share-proto.workspace = true
-tisty-share-server.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = { version = "0.3", default-features = false }
@@ -29,5 +30,5 @@ worker = { version = "=0.8.7", features = ["d1"] }
 rusqlite.workspace = true
 toml.workspace = true
 # Envelopes are sealed in the tests as a Tisty would seal them.
-tisty-share-proto = { workspace = true, features = ["mint"] }
-tisty-share-server = { workspace = true, features = ["testing"] }
+folio-envelope = { workspace = true, features = ["mint"] }
+folio-server = { workspace = true, features = ["testing"] }

@@ -1,11 +1,11 @@
 use std::net::IpAddr;
 
+use folio_envelope::envelope::{Envelope, Refused as Unread};
+use folio_envelope::limits::Limits;
+use folio_envelope::work::{Challenge, Proof};
 use futures_util::future::{join, join4};
 use serde::{Deserialize, Serialize};
-use tisty_share_proto::envelope::{Envelope, Refused as Unread};
 use tisty_share_proto::identity::{Revocation, Verdict};
-use tisty_share_proto::limits::Limits;
-use tisty_share_proto::work::{Challenge, Proof};
 use zeroize::Zeroizing;
 
 use crate::guard::{self, Act, Allowance, Work};

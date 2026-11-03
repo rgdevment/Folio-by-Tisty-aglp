@@ -1,4 +1,4 @@
-use tisty_share_proto::work::{Challenge, solve};
+use folio_envelope::work::{Challenge, solve};
 
 /// The proof a server's challenge asks for, as the JSON it takes in `Tisty-Work`; nothing for a challenge that does not read.
 pub fn solved(challenge: &str) -> Option<String> {

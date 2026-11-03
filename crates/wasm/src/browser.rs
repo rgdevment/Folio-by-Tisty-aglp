@@ -1,4 +1,4 @@
-use tisty_share_proto::envelope::{self, Kind};
+use folio_envelope::envelope::{self, Kind};
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
 

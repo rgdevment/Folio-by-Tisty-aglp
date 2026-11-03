@@ -1,4 +1,4 @@
-use tisty_share_proto::work::{Challenge, Proof, meets};
+use folio_envelope::work::{Challenge, Proof, meets};
 
 use super::solved;
 

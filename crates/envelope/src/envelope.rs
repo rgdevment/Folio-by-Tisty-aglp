@@ -6,11 +6,11 @@ use chacha20poly1305::XChaCha20Poly1305;
 use chacha20poly1305::aead::{AeadInOut, KeyInit};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tisty_share_proto::cloud::{HEAD, TAG, nonced};
+use tisty_share_proto::identity::{Certificate, Revocation, ShareKey, Signed, Verdict, check};
 use zeroize::Zeroizing;
 
-use crate::cloud::{HEAD, TAG, nonced};
 use crate::config::{CONFIG_AT_MOST, Config};
-use crate::identity::{Certificate, Revocation, ShareKey, Signed, Verdict, check};
 use crate::limits::Limits;
 
 /// A signature, its certificate and their names fit well inside this.
@@ -76,7 +76,7 @@ impl LinkKey {
 
     /// The seal alone does not tie bytes to one key; this does, so no envelope reads one way to a reader and another to a moderator.
     fn commitment(&self, head: &[u8; HEAD]) -> [u8; 32] {
-        *crate::seed::mac(&self.0, &[COMMIT, head])
+        *crate::mac(&self.0, &[COMMIT, head])
     }
 }
 
@@ -896,7 +896,7 @@ impl Envelope {
 
     /// The key that says it sent these bytes and the root that says it vouched for it, unchecked,
     /// so a server can look for what that root took back.
-    pub fn sender_vouched(&self) -> Option<crate::identity::Vouched> {
+    pub fn sender_vouched(&self) -> Option<tisty_share_proto::identity::Vouched> {
         self.sent.as_ref()?.certificate.unchecked()
     }
 

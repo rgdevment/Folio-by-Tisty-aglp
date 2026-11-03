@@ -1,11 +1,11 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
+use folio_envelope::envelope::{self, Cited, Draft, Envelope, Kind, LinkKey, Signer};
+use folio_envelope::limits::Limits;
 use jiff::Timestamp;
 use libfuzzer_sys::fuzz_target;
-use tisty_share_proto::envelope::{self, Cited, Draft, Envelope, Kind, LinkKey, Signer};
 use tisty_share_proto::identity::{Root, ShareKey, Verdict};
-use tisty_share_proto::limits::Limits;
 
 #[derive(Arbitrary, Debug)]
 struct Input {

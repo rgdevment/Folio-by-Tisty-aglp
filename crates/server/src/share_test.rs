@@ -1,10 +1,10 @@
 use std::cell::{Cell, RefCell};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use folio_envelope::envelope::{self, Draft, Kind, LinkKey, Signer};
+use folio_envelope::work;
 use jiff::Timestamp;
-use tisty_share_proto::envelope::{self, Draft, Kind, LinkKey, Signer};
 use tisty_share_proto::identity::Revocation;
-use tisty_share_proto::work;
 
 use super::*;
 use crate::memory::Memory;

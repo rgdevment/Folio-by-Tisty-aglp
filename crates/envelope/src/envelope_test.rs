@@ -1,7 +1,7 @@
 use jiff::Timestamp;
+use tisty_share_proto::identity::Root;
 
 use super::*;
-use crate::identity::Root;
 
 // Decision 5, what every server takes unless it says otherwise.
 const TEXT_AT_MOST: usize = 512 * 1024;

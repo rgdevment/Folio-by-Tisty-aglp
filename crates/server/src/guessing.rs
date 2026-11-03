@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use tisty_share_proto::work::Proof;
+use folio_envelope::work::Proof;
 
 use crate::guard;
 use crate::keys::{self, Randomness};

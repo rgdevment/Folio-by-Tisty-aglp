@@ -1,5 +1,5 @@
 [package]
-name = "tisty-share-wasm"
+name = "folio-wasm"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,7 @@ workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+folio-envelope.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tisty-share-proto.workspace = true
@@ -27,4 +28,4 @@ wasm-bindgen = "=0.2.129"
 jiff.workspace = true
 tisty-markdown = { workspace = true, features = ["default"] }
 # Envelopes are sealed in the tests as a Tisty would seal them.
-tisty-share-proto = { workspace = true, features = ["mint"] }
+folio-envelope = { workspace = true, features = ["mint"] }

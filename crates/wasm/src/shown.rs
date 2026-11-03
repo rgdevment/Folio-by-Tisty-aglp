@@ -1,10 +1,10 @@
-use serde::Serialize;
-use tisty_share_proto::config::{Config, Field};
-use tisty_share_proto::envelope::{
+use folio_envelope::config::{Config, Field};
+use folio_envelope::envelope::{
     Cited, Envelope, Kind, LinkKey, Refused, Rest, Sheet, Written, open, open_rest, open_sheet,
 };
+use folio_envelope::limits::Limits;
+use serde::Serialize;
 use tisty_share_proto::identity::{Revocation, Verdict};
-use tisty_share_proto::limits::Limits;
 use zeroize::Zeroizing;
 
 /// A version as its reader meets it: the page drawn as Tisty draws it, its pictures, and what is known of it.

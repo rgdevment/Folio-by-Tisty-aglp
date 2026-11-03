@@ -1,8 +1,8 @@
 #![no_main]
 
+use folio_envelope::envelope::{self, Envelope, LinkKey};
+use folio_envelope::limits::Limits;
 use libfuzzer_sys::fuzz_target;
-use tisty_share_proto::envelope::{self, Envelope, LinkKey};
-use tisty_share_proto::limits::Limits;
 
 // Whatever a stranger uploads reaches this before anything is stored, so it may refuse but never fall over.
 fuzz_target!(|bytes: &[u8]| {
