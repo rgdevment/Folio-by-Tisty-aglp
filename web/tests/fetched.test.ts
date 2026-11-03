@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { early, fetched, limitsOf, reported } from "../src/fetched";
+import { early, fetched, limitsOf, reported, restOf } from "../src/fetched";
 
 const answering = (answer: () => Response) => (async () => answer()) as typeof fetch;
 
@@ -76,6 +76,34 @@ describe("what the server answers for a link", () => {
     delete held.tistyEarly;
   });
 
+  it("is asked as its sheet first, and comes with the ticket for its rest when it was cut there", async () => {
+    const sheets: (string | null)[] = [];
+    const ask = (async (_: RequestInfo | URL, init?: RequestInit) => {
+      sheets.push(new Headers(init?.headers).get("Tisty-Sheet"));
+      return new Response(new Uint8Array([1]), { headers: { "Tisty-Rest": "1.2.firma" } });
+    }) as typeof fetch;
+    const said = await fetched("k7Qm2xPa", ask);
+    await fetched("k7Qm2xPa", ask, "perro azul");
+    expect("rest" in said && said.rest).toBe("1.2.firma");
+    expect(sheets).toEqual(["1", "1"]);
+  });
+
+  it("takes the early answer for the first read and never for one with a password", async () => {
+    const asked: string[] = [];
+    const ask = (async (url: RequestInfo | URL) => {
+      asked.push(String(url));
+      return new Response("later");
+    }) as typeof fetch;
+    const held = globalThis as { tistyEarly?: unknown };
+    held.tistyEarly = { id: "k7Qm2xPa", answer: Promise.resolve(new Response("early")) };
+    const taking = early("k7Qm2xPa", ask);
+    const passworded = { headers: { "Tisty-Sheet": "1", "Tisty-Password": "eA" } };
+    expect(await (await taking("/api/v1/docs/k7Qm2xPa", passworded)).text()).toBe("later");
+    const sheet = { headers: { "Tisty-Sheet": "1" } };
+    expect(await (await taking("/api/v1/docs/k7Qm2xPa", sheet)).text()).toBe("early");
+    expect(asked).toEqual(["/api/v1/docs/k7Qm2xPa"]);
+  });
+
   it("is the word of its refusal", async () => {
     const missing = () => new Response('{"refused":"missing"}', { status: 404 });
     expect(await fetched("k7Qm2xPa", answering(missing))).toEqual({ refused: "missing" });
@@ -100,6 +128,27 @@ describe("what the server answers for a link", () => {
       throw new TypeError("Failed to fetch");
     }) as typeof fetch;
     expect(await fetched("k7Qm2xPa", nowhere)).toEqual({ refused: "offline" });
+  });
+});
+
+describe("the rest of a sheet", () => {
+  it("is the bytes that follow it, asked with its ticket alone", async () => {
+    const asked: [string, string | null, string | null][] = [];
+    const said = await restOf("k7Qm2xPa", "1.2.firma", (async (
+      url: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const headers = new Headers(init?.headers);
+      asked.push([String(url), headers.get("Tisty-Rest"), headers.get("Tisty-Password")]);
+      return new Response(new Uint8Array([4, 5]));
+    }) as typeof fetch);
+    expect(said).toEqual(new Uint8Array([4, 5]));
+    expect(asked).toEqual([["/api/v1/docs/k7Qm2xPa/rest", "1.2.firma", null]]);
+  });
+
+  it("is refused by its word, as the document would be", async () => {
+    const forbidden = () => new Response('{"refused":"forbidden"}', { status: 403 });
+    expect(await restOf("k7Qm2xPa", "x", answering(forbidden))).toEqual({ refused: "forbidden" });
   });
 });
 

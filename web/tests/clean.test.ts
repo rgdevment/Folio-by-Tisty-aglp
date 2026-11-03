@@ -28,6 +28,11 @@ describe("a drawn page, cleaned", () => {
     expect(cleaned(DRAWN)).toBe(reread(DRAWN));
   });
 
+  it("keeps a picture's size, so its room is kept before its bytes arrive", () => {
+    const picture = '<img src="tisty:picture/0" alt="La consola" width="640" height="480">';
+    expect(cleaned(picture)).toBe(reread(picture));
+  });
+
   it("runs nothing the writer slipped in", () => {
     const page = cleaned(
       '<p>a</p><script>alert(1)</script><img src="tisty:picture/0" onerror="alert(1)"><a href="javascript:alert(1)">x</a><svg><script>alert(1)</script></svg>',

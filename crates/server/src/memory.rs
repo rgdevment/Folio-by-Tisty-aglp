@@ -61,6 +61,24 @@ impl Store for Memory {
             .cloned())
     }
 
+    async fn envelope_range(
+        &self,
+        id: &str,
+        kept: &Kept,
+        from: u64,
+        until: Option<u64>,
+    ) -> Result<Option<Vec<u8>>, Fault> {
+        let envelopes = self.envelopes.borrow();
+        let Some(bytes) = envelopes.get(&(id.to_owned(), *kept)) else {
+            return Ok(None);
+        };
+        let end = until.unwrap_or(bytes.len() as u64);
+        let range = usize::try_from(from).ok().zip(usize::try_from(end).ok());
+        Ok(range
+            .and_then(|(from, end)| bytes.get(from..end))
+            .map(<[u8]>::to_vec))
+    }
+
     async fn keep(&self, id: &str, kept: &Kept, bytes: Vec<u8>) -> Result<(), Fault> {
         self.envelopes
             .borrow_mut()

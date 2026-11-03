@@ -2,7 +2,7 @@ import "tisty-editor/tokens.css";
 import "tisty-editor/side.css";
 import "./web.css";
 import { type Head, heads as headsOf, sided } from "tisty-editor/read";
-import init, { open, type Page } from "../wasm/tisty_share_wasm.js";
+import init, { open, open_sheet, type Page, type Sheet } from "../wasm/tisty_share_wasm.js";
 import wasm from "../wasm/tisty_share_wasm_bg.wasm?url";
 import { panelsOf, signedApart } from "./beside";
 import { type Cited, citedOf, citedOpening, walking } from "./cited";
@@ -16,16 +16,37 @@ import {
   type View,
   viewOf,
 } from "./drawn";
-import { early, type Facts, fetched, limitsOf, REASONS, type Reason, reported } from "./fetched";
+import {
+  early,
+  type Facts,
+  fetched,
+  limitsOf,
+  REASONS,
+  type Reason,
+  reported,
+  restOf,
+} from "./fetched";
 import { type About, accessOf, bylined, endsOf, otherHand, tagged, whenOf } from "./frame";
 import { type Link, linkOf, readLinkOf } from "./link";
+import { type Arrived, picturesOf, resting, STALE } from "./rested";
 import { onward, type Placed, placedIn, type Ribboned, ribbon } from "./ribbon";
 import { gated, refused, sheetWordsFor, spanish, wordsFor } from "./words";
 
 // What the link opened: the body, its front matter's title (which wins over the first line, as in Tisty) and the text.
-type Found = Opened & { readonly title: string; readonly text: string; readonly about: About };
+type Found = Opened & {
+  readonly title: string;
+  readonly text?: string;
+  readonly about: About;
+  readonly rest?: () => Promise<Arrived | string>;
+};
 type Read = Found & { readonly facts: Facts; readonly link: Link };
-type Sealed = { readonly sealed: Uint8Array; readonly facts: Facts; readonly revoked?: string };
+type Sealed = {
+  readonly sealed: Uint8Array;
+  readonly facts: Facts;
+  readonly revoked?: string;
+  readonly rest?: string;
+};
+type Ticket = { readonly id: string; readonly ticket: string };
 
 const night = matchMedia("(prefers-color-scheme: dark)");
 const inSpanish = spanish(navigator.language);
@@ -80,42 +101,63 @@ const drawnNow = () => {
 const wordOf = (refused: unknown): string =>
   refused instanceof Error ? refused.message : "failed";
 
+const drawnOf = (held: Page | Sheet, about: About) => ({
+  html: held.html,
+  cited: citedOf(held.cited),
+  lang: about.lang,
+  about,
+  title: plain(about.title ?? ""),
+});
+
+// Every document is signed by whoever wrote it; one that is not never reaches the page (decision 71).
+const unsigned = (about: About): string | undefined => {
+  const wrote = about.wrote;
+  if (!wrote) return "unsigned";
+  // A signature that does not hold claims someone it is not, which is worse than none.
+  return wrote.is === "refused" || wrote.is === "unreadable" ? "forged" : undefined;
+};
+
 // The page holds the words and pictures in the clear, so it is let go on every way out.
 const taken = (page: Page): Found => {
   try {
     const about = JSON.parse(page.about) as About;
-    const pictures: Picture[] = Array.from({ length: page.pictures }, (_, at) => ({
-      // wasm-bindgen hands each picture over in a buffer of its own, never a shared one.
-      bytes: (page.picture(at) ?? new Uint8Array()) as Uint8Array<ArrayBuffer>,
-      media: page.media(at) ?? "",
-    }));
-    return {
-      html: page.html,
-      pictures,
-      cited: citedOf(page.cited),
-      lang: about.lang,
-      text: page.text,
-      about,
-      title: plain(about.title ?? ""),
-    };
+    const pictures = picturesOf(
+      page.pictures,
+      (at) => page.picture(at),
+      (at) => page.media(at),
+    );
+    return { ...drawnOf(page, about), pictures, text: page.text };
   } finally {
     page.free();
   }
 };
 
-// Every document is signed by whoever wrote it; one that is not never reaches the page (decision 71).
+const sheetTaken = (sheet: Sheet, { id, ticket }: Ticket): Found | string => {
+  let handed = false;
+  try {
+    const about = JSON.parse(sheet.about) as About;
+    const refusal = unsigned(about);
+    if (refusal) return refusal;
+    const media = Array.from({ length: sheet.pictures }, (_, at) => sheet.media(at) ?? "");
+    const rest = resting(sheet, media, () => restOf(id, ticket));
+    handed = true;
+    return { ...drawnOf(sheet, about), pictures: [], rest };
+  } finally {
+    if (!handed) sheet.free();
+  }
+};
+
 const read = (
   sealed: Uint8Array,
   key: string,
+  ticket?: Ticket,
   revoked?: string,
   limits?: string,
 ): Found | string => {
   try {
+    if (ticket) return sheetTaken(open_sheet(sealed, key, revoked, limits), ticket);
     const found = taken(open(sealed, key, revoked, limits));
-    const wrote = found.about.wrote;
-    if (!wrote) return "unsigned";
-    // A signature that does not hold claims someone it is not, which is worse than none.
-    return wrote.is === "refused" || wrote.is === "unreadable" ? "forged" : found;
+    return unsigned(found.about) ?? found;
   } catch (error_) {
     return wordOf(error_);
   }
@@ -123,13 +165,14 @@ const read = (
 
 // Only an envelope over Tisty's own limits needs the server's, so a reading mostly asks the Worker once.
 const unsealed = async (link: Link, answer: Sealed): Promise<Read | string> => {
-  let found = read(answer.sealed, link.key, answer.revoked);
+  const ticket = answer.rest === undefined ? undefined : { id: link.id, ticket: answer.rest };
+  let found = read(answer.sealed, link.key, ticket, answer.revoked);
   if (found === "over") {
     const limits = await limitsOf();
     found =
       "refused" in limits
         ? limits.refused
-        : read(answer.sealed, link.key, answer.revoked, limits.limits);
+        : read(answer.sealed, link.key, ticket, answer.revoked, limits.limits);
   }
   return typeof found === "string" ? found : { ...found, facts: answer.facts, link };
 };
@@ -277,13 +320,15 @@ const ribboned: Ribboned = {
 };
 
 // What the link opened and what it cites, each drawn in the same place in turn with its own panels.
-const reader = async (root: Read) => {
+const reader = async (first: Read) => {
+  let root = first;
   let found: Read | null = root;
   let view = viewOf(root.about);
   let raw = false;
   let heads: Head[] = [];
   let title = root.title;
   let lay = () => {};
+  let picture: (pictures: readonly Picture[]) => void = () => {};
   const rawText = part(".raw");
   const laid = () => laidOut(view, sheetSays.say);
   const across = () => fitted(laid().across);
@@ -366,6 +411,7 @@ const reader = async (root: Read) => {
       opening,
     );
     lay = shown.lay;
+    picture = shown.picture;
     const { page } = shown;
     const inside = bylined(page, tags, when);
     tagged(part(".tags"), inside ? [] : tags);
@@ -388,7 +434,8 @@ const reader = async (root: Read) => {
     heads = [];
     title = next.title;
     lay = () => {};
-    rawText.textContent = next.text;
+    picture = () => {};
+    rawText.textContent = next.text ?? "";
     rawText.hidden = true;
     frame.hidden = false;
     besideShown(false);
@@ -409,6 +456,21 @@ const reader = async (root: Read) => {
       () => tell("failed"),
     );
     return drawing;
+  };
+  const arrive = async (shown: Read, stale: () => void) => {
+    const arrived = await shown.rest?.();
+    if (arrived === undefined) return;
+    if (typeof arrived === "string") {
+      if (STALE.has(arrived) && found === shown) stale();
+      return;
+    }
+    await queued(async () => {
+      if (found !== shown) return;
+      found = { ...shown, ...arrived };
+      picture(arrived.pictures);
+      rawText.textContent = arrived.text;
+      paneled();
+    });
   };
   const openCited = citedOpening<Read>((one, answer) =>
     unsealed({ id: one.id, key: one.key }, answer),
@@ -438,6 +500,25 @@ const reader = async (root: Read) => {
       placeBar(one, at, true);
       scrollTo({ top: ys[at] ?? 0 });
     });
+    if (found === next)
+      void arrive(next, () => {
+        renewed(one, at).catch(() => tell("failed"));
+      });
+  };
+  const renewing = new Set<string>();
+  const renewed = async (one: Cited | null, at: number) => {
+    const id = one?.id ?? root.link.id;
+    if (renewing.has(id)) return;
+    renewing.add(id);
+    if (one) {
+      openCited.forget(one.id);
+      return show(one, at);
+    }
+    const answer = await fetched(root.link.id);
+    const fresh = "refused" in answer ? answer.refused : await unsealed(root.link, answer);
+    if (typeof fresh === "string" || found?.link.id !== id) return;
+    root = fresh;
+    return show(null, 0);
   };
   // The page puts each step back where the reader left it, once its document is drawn again.
   history.scrollRestoration = "manual";

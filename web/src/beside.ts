@@ -1,4 +1,4 @@
-import { copyFrom, type Head, type Panel, type Say, weighed } from "tisty-editor/read";
+import { type Act, copyFrom, type Head, type Panel, type Say, weighed } from "tisty-editor/read";
 import type { View } from "./drawn";
 import type { Facts } from "./fetched";
 import { type About, sealOf, tistyOf } from "./frame";
@@ -6,7 +6,7 @@ import { stamped } from "./when";
 
 export type Now = {
   readonly title: string;
-  readonly text: string;
+  readonly text?: string;
   readonly about: About;
   readonly facts: Facts;
   readonly view: View;
@@ -57,14 +57,24 @@ const detailsOf = (now: Now, language: string) => {
     author: writer?.name,
     made: now.facts.shared === undefined ? undefined : stamped(now.facts.shared, language),
     wrote: now.facts.written === undefined ? undefined : stamped(now.facts.written, language),
-    weighs: weighed(new TextEncoder().encode(now.text).length),
+    weighs: now.text === undefined ? undefined : weighed(new TextEncoder().encode(now.text).length),
   };
 };
 
 // The panels a reader of a shared document needs, from the same catalogue the window draws from.
 export const panelsOf = (now: Now, asked: Asked, words: Words, links: Links): Panel[] => {
-  const { view } = now;
+  const { view, text } = now;
   const turned = (next: Partial<View>) => asked.onView({ ...view, ...next });
+  const markdown: Act[] =
+    text === undefined
+      ? []
+      : [
+          {
+            key: "md",
+            label: words.page("copymd"),
+            onPick: copying(text, words.page("copymd"), words.page("copiedmd")),
+          },
+        ];
   return [
     {
       kind: "title",
@@ -79,7 +89,7 @@ export const panelsOf = (now: Now, asked: Asked, words: Words, links: Links): Pa
       landscape: view.sheets
         ? { on: view.landscape, onTurn: (landscape) => turned({ landscape }) }
         : undefined,
-      raw: { on: now.raw, onTurn: asked.onRaw },
+      raw: text === undefined ? undefined : { on: now.raw, onTurn: asked.onRaw },
     },
     { kind: "index", heads: now.heads },
     { kind: "details", facts: detailsOf(now, words.language) },
@@ -94,11 +104,7 @@ export const panelsOf = (now: Now, asked: Asked, words: Words, links: Links): Pa
           href: tistyOf(links.opened),
           onPick: falling(words.page("notopened")),
         },
-        {
-          key: "md",
-          label: words.page("copymd"),
-          onPick: copying(now.text, words.page("copymd"), words.page("copiedmd")),
-        },
+        ...markdown,
         {
           key: "copy",
           label: words.page("copy"),

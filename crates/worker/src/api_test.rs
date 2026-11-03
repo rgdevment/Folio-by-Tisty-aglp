@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr};
 
 use serde_json::Value;
-use tisty_share_proto::envelope::{self, Draft, Envelope, LinkKey, Signer};
+use tisty_share_proto::envelope::{self, Draft, Envelope, Kind, LinkKey, Signer};
 use tisty_share_proto::work::{self, Challenge};
 use tisty_share_server::guard::{Allowance, Work};
 use tisty_share_server::keys::Slowness;
@@ -32,6 +32,16 @@ fn policy() -> Policy {
 }
 
 fn sealed(id: &str, version: u64, from: Option<u64>) -> Vec<u8> {
+    sealed_with(id, version, from, &[])
+}
+
+fn pictured(id: &str) -> Vec<u8> {
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.resize(300, 1);
+    sealed_with(id, 1, None, &[(Kind::Png, &png)])
+}
+
+fn sealed_with(id: &str, version: u64, from: Option<u64>, pictures: &[(Kind, &[u8])]) -> Vec<u8> {
     let draft = Draft {
         id,
         version,
@@ -40,7 +50,7 @@ fn sealed(id: &str, version: u64, from: Option<u64>) -> Vec<u8> {
         cited: &[],
         html: "<p>a</p>",
         config: Default::default(),
-        pictures: &[],
+        pictures,
     };
     let (machine, certificate) = vouched();
     let signer = Signer {
@@ -66,6 +76,8 @@ fn asked(method: &str, path: &str) -> Asked {
         token: None,
         password: None,
         work: None,
+        sheet: false,
+        rest: None,
         body: Vec::new(),
         caller: HERE,
         now: T0,
@@ -142,6 +154,10 @@ impl World {
     }
 
     fn shared(&mut self) -> Shared {
+        self.shared_as(|id| sealed(id, 1, None))
+    }
+
+    fn shared_as(&mut self, first_of: fn(&str) -> Vec<u8>) -> Shared {
         let work = self.work(json!({ "for": "reserve" }));
         let mut asked = asked("POST", "/api/v1/docs");
         asked.work = Some(work);
@@ -150,7 +166,7 @@ impl World {
         let links = said(&reserved);
         let id: String = links["id"].as_str().unwrap().into();
         let edit: String = links["edit"].as_str().unwrap().into();
-        let first = sealed(&id, 1, None);
+        let first = first_of(&id);
         let put = self.put(&id, &edit, first.clone());
         assert_eq!(said(&put), json!({ "version": 1 }));
         Shared {
@@ -524,4 +540,105 @@ fn a_read_leaves_its_link_s_id_and_where_it_was_read_never_more() {
     ] {
         assert_eq!(read_line(other, Some("CL"), "SCL"), None, "{other}");
     }
+}
+
+fn sheet_asked(id: &str) -> Asked {
+    let mut asked = asked("GET", &format!("/api/v1/docs/{id}"));
+    asked.sheet = true;
+    asked
+}
+
+fn rest_asked(id: &str, ticket: Option<&str>) -> Asked {
+    let mut asked = asked("GET", &format!("/api/v1/docs/{id}/rest"));
+    asked.rest = ticket.map(str::to_owned);
+    asked
+}
+
+#[test]
+fn the_page_reads_the_sheet_first_and_then_the_rest_for_the_ticket_it_came_with() {
+    let mut world = World::new();
+    let shared = world.shared_as(pictured);
+    let end = Envelope::read(shared.first.clone(), &Limits::default())
+        .unwrap()
+        .sheet_end()
+        .unwrap() as usize;
+
+    let sheet = world.answer(sheet_asked(&shared.id));
+    assert_eq!(sheet.status, 200);
+    assert_eq!(sheet.body, shared.first[..end]);
+    assert_eq!(header(&sheet, "Tisty-Version"), Some("1"));
+    let ticket = header(&sheet, "Tisty-Rest").unwrap().to_owned();
+
+    let rest = world.answer(rest_asked(&shared.id, Some(&ticket)));
+    assert_eq!(rest.status, 200);
+    assert_eq!(rest.body, shared.first[end..]);
+    assert_eq!(
+        header(&rest, "Content-Type"),
+        Some("application/octet-stream")
+    );
+    for (name, value) in ALWAYS {
+        assert_eq!(header(&rest, name), Some(value), "{name}");
+    }
+}
+
+#[test]
+fn tisty_and_an_envelope_without_pictures_are_served_whole_in_one_request() {
+    let mut world = World::new();
+    let pictured = world.shared_as(pictured);
+    let whole = world.answer(asked("GET", &format!("/api/v1/docs/{}", pictured.id)));
+    assert_eq!(whole.body, pictured.first);
+    assert_eq!(header(&whole, "Tisty-Rest"), None);
+
+    let plain = world.shared();
+    let whole = world.answer(sheet_asked(&plain.id));
+    assert_eq!(whole.body, plain.first);
+    assert_eq!(header(&whole, "Tisty-Rest"), None);
+}
+
+#[test]
+fn the_rest_without_its_ticket_or_of_a_paused_document_is_refused_by_a_word() {
+    let mut world = World::new();
+    let shared = world.shared_as(pictured);
+    let sheet = world.answer(sheet_asked(&shared.id));
+    let ticket = header(&sheet, "Tisty-Rest").unwrap().to_owned();
+
+    for wrong in [None, Some("1.2.3"), Some(&ticket[1..])] {
+        let refused = world.answer(rest_asked(&shared.id, wrong));
+        assert_eq!(refused.status, 403);
+        assert_eq!(said(&refused), json!({ "refused": "forbidden" }));
+    }
+    world.manage(&shared, json!({ "do": "pause" }));
+    let paused = world.answer(rest_asked(&shared.id, Some(&ticket)));
+    assert_eq!(
+        (paused.status, said(&paused)),
+        (423, json!({ "refused": "paused" }))
+    );
+}
+
+#[test]
+fn the_rest_counts_as_a_poll_and_writes_nothing_down() {
+    let mut world = World::with(Policy {
+        allowance: Allowance {
+            polls: 1,
+            ..Allowance::default()
+        },
+        ..policy()
+    });
+    let shared = world.shared_as(pictured);
+    let sheet = world.answer(sheet_asked(&shared.id));
+    let ticket = header(&sheet, "Tisty-Rest").unwrap().to_owned();
+    let before = done(world.share.store.doc(&shared.id)).unwrap();
+
+    let (rest, seen) = done(answer_first(
+        &mut world.share,
+        rest_asked(&shared.id, Some(&ticket)),
+    ));
+    assert_eq!(rest.status, 200);
+    assert!(seen.is_none());
+    assert_eq!(done(world.share.store.doc(&shared.id)).unwrap(), before);
+    let slow = world.answer(rest_asked(&shared.id, Some(&ticket)));
+    assert_eq!(
+        (slow.status, said(&slow)["refused"].clone()),
+        (429, json!("slow"))
+    );
 }

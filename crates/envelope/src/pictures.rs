@@ -54,18 +54,28 @@ pub fn recompressed(bytes: &[u8], limits: &Limits) -> Result<(Kind, Vec<u8>), Re
     Err(Refused::PictureTooBig)
 }
 
+pub fn sides(bytes: &[u8]) -> Option<(u32, u32)> {
+    let format = format_of(Kind::of_picture(bytes)?).ok()?;
+    ImageReader::with_format(Cursor::new(bytes), format)
+        .into_dimensions()
+        .ok()
+}
+
+fn format_of(kind: Kind) -> Result<ImageFormat, Refused> {
+    match kind {
+        Kind::Png => Ok(ImageFormat::Png),
+        Kind::Jpeg => Ok(ImageFormat::Jpeg),
+        Kind::Webp => Ok(ImageFormat::WebP),
+        Kind::Gif => Ok(ImageFormat::Gif),
+        Kind::Text | Kind::Signature | Kind::Cited | Kind::Html | Kind::Config => {
+            Err(Refused::NotAPicture)
+        }
+    }
+}
+
 /// The picture as it stands, and whether its tag turned it.
 fn decoded(bytes: &[u8], kind: Kind) -> Result<(DynamicImage, bool), Refused> {
-    let format = match kind {
-        Kind::Png => ImageFormat::Png,
-        Kind::Jpeg => ImageFormat::Jpeg,
-        Kind::Webp => ImageFormat::WebP,
-        Kind::Gif => ImageFormat::Gif,
-        Kind::Text | Kind::Signature | Kind::Cited | Kind::Html | Kind::Config => {
-            return Err(Refused::NotAPicture);
-        }
-    };
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format_of(kind)?);
     let mut held = image::Limits::default();
     held.max_alloc = Some(DECODED_AT_MOST);
     reader.limits(held);

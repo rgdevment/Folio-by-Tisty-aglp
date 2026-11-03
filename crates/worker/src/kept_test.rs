@@ -47,6 +47,7 @@ fn doc(id: &str) -> Doc {
             version: 1,
             digest: [3; 32],
             by: None,
+            sheet: None,
         }],
         created: 10,
         active: 10,
@@ -93,6 +94,7 @@ fn a_document_s_envelopes_share_a_prefix_no_other_document_s_starts_with() {
         version: 3,
         digest: [7; 32],
         by: None,
+        sheet: None,
     };
     let key = envelope_key("abc", &kept);
     assert!(key.starts_with(&envelopes_of("abc")));
@@ -105,6 +107,7 @@ fn a_document_s_envelopes_share_a_prefix_no_other_document_s_starts_with() {
                 version: 3,
                 digest: [8; 32],
                 by: None,
+                sheet: None,
             }
         )
     );

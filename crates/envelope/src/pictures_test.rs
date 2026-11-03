@@ -47,6 +47,18 @@ fn a_small_screenshot_stays_a_png_with_its_pixels() {
 }
 
 #[test]
+fn a_picture_says_its_sides_from_its_header_and_what_is_no_picture_says_none() {
+    let (_, bytes) = ours(&written(&noise(200, 100), ImageFormat::Jpeg)).unwrap();
+    assert_eq!(sides(&bytes), Some((200, 100)));
+    assert_eq!(
+        sides(&written(&flat(64, 32), ImageFormat::Png)),
+        Some((64, 32))
+    );
+    assert_eq!(sides(b"%PDF-1.7"), None);
+    assert_eq!(sides(b"\x89PNG\r\n\x1a\n"), None);
+}
+
+#[test]
 fn a_photo_stays_a_jpeg() {
     let (kind, bytes) = ours(&written(&noise(200, 100), ImageFormat::Jpeg)).unwrap();
 

@@ -72,7 +72,7 @@ export const citedWord = (word: string): string => {
 // Each cited document is fetched once for the page's life; one that failed is asked again next time.
 export const keeping = <T>(open: (one: Cited) => Promise<T | string>) => {
   const kept = new Map<string, Promise<T | string>>();
-  return (one: Cited): Promise<T | string> => {
+  const opened = (one: Cited): Promise<T | string> => {
     const known = kept.get(one.id);
     if (known) return known;
     const opening = open(one).then((found) => {
@@ -82,6 +82,7 @@ export const keeping = <T>(open: (one: Cited) => Promise<T | string>) => {
     kept.set(one.id, opening);
     return opening;
   };
+  return Object.assign(opened, { forget: (id: string) => kept.delete(id) });
 };
 
 type Answer = Exclude<Awaited<ReturnType<typeof fetched>>, { refused: string }>;

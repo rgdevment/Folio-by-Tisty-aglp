@@ -48,6 +48,14 @@ describe("the panels beside a shared document", () => {
     expect(of(panels, "title").onShut).toBe(asked.onShut);
   });
 
+  it("leave out what needs the text while it travels after the sheet: its Markdown, its raw view and its size", () => {
+    const panels = panelsOf(now({ text: undefined }), asking().asked, words, LINKS);
+    expect(of(panels, "acts").acts.map((one) => one.key)).toEqual(["open", "copy"]);
+    expect(of(panels, "paper").raw).toBeUndefined();
+    const { body, weighs } = of(panels, "details").facts;
+    expect([body, weighs]).toEqual([undefined, undefined]);
+  });
+
   it("names a body without a title by the page's word", () => {
     const panels = panelsOf(now({ title: "" }), asking().asked, words, LINKS);
     expect(of(panels, "title").title).toBe(say("document"));

@@ -16,6 +16,7 @@ use crate::store::{Doc, Fault, Kept, Saved, Sender, Store};
 const DAY: i64 = 24 * 60 * 60;
 /// A read writes down activity at most this often: days decide an expiry, and every write costs a store.
 const ACTIVITY_GRAIN: i64 = 60 * 60;
+const REST_LASTS: i64 = 10 * 60;
 
 /// The numbers a server runs on, all of them its own to change.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,6 +149,7 @@ pub struct Served {
     pub facts: Facts,
     /// What took back the key that sent it, so the reader is told rather than shown it as holding.
     pub revoked: Vec<Revocation>,
+    pub rest: Option<String>,
 }
 
 /// What a read leaves to be written down once its reader has the envelope: who read it today, and that it is in use.
@@ -409,6 +411,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             version: manifest.version,
             digest: envelope.digest(),
             by,
+            sheet: envelope.sheet_end(),
         };
         self.store.keep(id, &kept, envelope.into_bytes()).await?;
         // A reserved id may wait an hour for its first version, and the reader is told when it was shared, not reserved.
@@ -440,6 +443,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         id: &str,
         password: Option<&str>,
         proof: Option<&Proof>,
+        sheet_first: bool,
         caller: IpAddr,
         now: i64,
     ) -> Result<(Served, Seen), Refused> {
@@ -449,10 +453,11 @@ impl<S: Store, R: Randomness> Share<S, R> {
         open_to_read(&doc)?;
         let held = self.held_up(&doc, now).await?;
         let kept = *doc.versions.last().ok_or(Refused::Unwritten)?;
+        let sheet = kept.sheet.filter(|_| sheet_first);
         // Each waits on a store, so the envelope and what took its key back come while the password is weighed; neither goes out unless it holds.
         let (allowed, envelope, revoked) = join3(
             self.let_in(&doc, password, proof, caller, now),
-            self.store.envelope(id, &kept),
+            self.store.envelope_range(id, &kept, 0, sheet),
             self.revoked(kept.by.as_ref()),
         )
         .await;
@@ -468,6 +473,15 @@ impl<S: Store, R: Randomness> Share<S, R> {
             envelope,
             facts: Facts::of(&doc, ends),
             revoked: revoked?,
+            rest: sheet.map(|_| {
+                guard::ticket(
+                    &self.secret,
+                    id,
+                    kept.version,
+                    gated(&doc),
+                    now + REST_LASTS,
+                )
+            }),
         };
         let seen = Seen {
             id: id.to_owned(),
@@ -477,6 +491,33 @@ impl<S: Store, R: Randomness> Share<S, R> {
             lost: held.lost,
         };
         Ok((served, seen))
+    }
+
+    pub async fn rest(
+        &self,
+        id: &str,
+        ticket: &str,
+        caller: IpAddr,
+        now: i64,
+    ) -> Result<Vec<u8>, Refused> {
+        self.admit(caller, Act::Poll, now).await?;
+        let ticket = guard::ticketed(&self.secret, id, ticket, now).ok_or(Refused::Forbidden)?;
+        let doc = self.live(id, now).await?;
+        if !ticket.holds(&self.secret, gated(&doc)) {
+            return Err(Refused::Forbidden);
+        }
+        open_to_read(&doc)?;
+        self.held_up(&doc, now).await?;
+        let kept = doc
+            .versions
+            .last()
+            .filter(|kept| kept.version == ticket.version)
+            .ok_or(Refused::Missing)?;
+        let sheet = kept.sheet.ok_or(Refused::Missing)?;
+        self.store
+            .envelope_range(id, kept, sheet, None)
+            .await?
+            .ok_or_else(|| lost(id, kept))
     }
 
     /// Counts a new reader today, pushes the end back and lets go of holders that went without letting go.
@@ -556,6 +597,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             envelope,
             facts: Facts::of(&doc, self.told_end(&doc, now).await),
             revoked: self.revoked(kept.by.as_ref()).await?,
+            rest: None,
         })
     }
 
@@ -765,6 +807,10 @@ impl<S: Store, R: Randomness> Share<S, R> {
             }),
         }
     }
+}
+
+fn gated(doc: &Doc) -> &[u8] {
+    doc.gate.as_ref().map_or(&[], |gate| &gate.digest)
 }
 
 fn open_to_read(doc: &Doc) -> Result<(), Refused> {

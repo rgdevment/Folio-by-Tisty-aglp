@@ -15,8 +15,8 @@ use tisty_share_server::store::{Doc, Fault, Kept, Saved, Store};
 use worker::js_sys::{self, Function, Reflect, Uint8Array};
 use worker::wasm_bindgen::{JsCast, JsValue};
 use worker::{
-    Bucket, Context, D1Database, D1PreparedStatement, Date, Env, Headers, RateLimiter, Request,
-    Response, ScheduleContext, ScheduledEvent, event,
+    Bucket, Context, D1Database, D1PreparedStatement, Date, Env, Headers, Range, RateLimiter,
+    Request, Response, ScheduleContext, ScheduledEvent, event,
 };
 
 use crate::kept::{self, Body, Id, Until, Value};
@@ -87,6 +87,28 @@ impl Cloud {
         done.results().map_err(fault)
     }
 
+    async fn fetched(
+        &self,
+        id: &str,
+        kept: &Kept,
+        range: Option<Range>,
+    ) -> Result<Option<Vec<u8>>, Fault> {
+        timed(&self.on_r2, async {
+            let mut getting = self.envelopes.get(kept::envelope_key(id, kept));
+            if let Some(range) = range {
+                getting = getting.range(range);
+            }
+            let Some(object) = getting.execute().await.map_err(fault)? else {
+                return Ok(None);
+            };
+            let Some(body) = object.body() else {
+                return Ok(None);
+            };
+            Ok(Some(body.bytes().await.map_err(fault)?))
+        })
+        .await
+    }
+
     /// How many rows a statement wrote; D1 not saying is a fault, never a race lost.
     async fn changes(&self, query: &str, values: &[JsValue]) -> Result<usize, Fault> {
         let statement = bound(self.db.prepare(query), values)?;
@@ -143,22 +165,24 @@ impl Store for Cloud {
     }
 
     async fn envelope(&self, id: &str, kept: &Kept) -> Result<Option<Vec<u8>>, Fault> {
-        timed(&self.on_r2, async {
-            let Some(object) = self
-                .envelopes
-                .get(kept::envelope_key(id, kept))
-                .execute()
-                .await
-                .map_err(fault)?
-            else {
-                return Ok(None);
-            };
-            let Some(body) = object.body() else {
-                return Ok(None);
-            };
-            Ok(Some(body.bytes().await.map_err(fault)?))
-        })
-        .await
+        self.fetched(id, kept, None).await
+    }
+
+    async fn envelope_range(
+        &self,
+        id: &str,
+        kept: &Kept,
+        from: u64,
+        until: Option<u64>,
+    ) -> Result<Option<Vec<u8>>, Fault> {
+        let range = match until {
+            Some(until) => Range::OffsetWithLength {
+                offset: from,
+                length: until.saturating_sub(from),
+            },
+            None => Range::OffsetToEnd { offset: from },
+        };
+        self.fetched(id, kept, Some(range)).await
     }
 
     async fn keep(&self, id: &str, kept: &Kept, bytes: Vec<u8>) -> Result<(), Fault> {
@@ -348,6 +372,8 @@ async fn served(
         .and_then(|said| said.strip_prefix("Bearer ").map(str::to_owned));
     let password = headers.get("Tisty-Password")?;
     let work = headers.get("Tisty-Work")?;
+    let sheet = headers.get("Tisty-Sheet")?.as_deref() == Some("1");
+    let rest = headers.get("Tisty-Rest")?;
     let ceiling = api::ceiling(&share.policy.limits);
     let Some(body) = body_within(&mut request, ceiling).await? else {
         return Ok((api::oversized(), None, [0, 0]));
@@ -358,6 +384,8 @@ async fn served(
         token,
         password,
         work,
+        sheet,
+        rest,
         body,
         caller,
         now: now(),

@@ -136,6 +136,14 @@ describe("a cited document", () => {
     expect(asked.map(([url]) => url)).toEqual(["/api/v1/docs/Gd9xYz34", "/api/v1/docs/Pg2xYz34"]);
   });
 
+  it("is asked for again once forgotten, as when what followed its sheet went stale", async () => {
+    const { asked, open } = opening(() => sealed());
+    await open(GUIDE);
+    open.forget(GUIDE.id);
+    await open(GUIDE);
+    expect(asked).toHaveLength(2);
+  });
+
   it("the server no longer has is said in place, and asked for again the next time", async () => {
     const { asked, read, open } = opening(() => sealed(404, '{"refused":"gone"}'));
     expect(await open(GUIDE)).toBe("citedGone");

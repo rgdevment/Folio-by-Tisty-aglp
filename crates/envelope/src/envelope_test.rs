@@ -1479,3 +1479,6 @@ fn one_of_the_anchor_s_languages_goes_without_a_card_s_name() {
         assert_eq!(sealed(&key(9), &page, None).err(), Some(Refused::Damaged));
     }
 }
+
+#[path = "sheet_test.rs"]
+mod sheet;

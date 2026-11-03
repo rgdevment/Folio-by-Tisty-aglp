@@ -643,7 +643,8 @@ fn wrote(signer: &Signer, draft: &Draft, cited: Option<&[u8]>) -> Result<Vec<u8>
         .collect();
     let text = hashed(draft.text.as_bytes());
     let config = configured(&draft.config)?;
-    let covered = drawn_content(&text, cited, draft.html, &config, draft.pictures, &pictures)
+    let kinds: Vec<Kind> = draft.pictures.iter().map(|(kind, _)| *kind).collect();
+    let covered = drawn_content(&text, cited, draft.html, &config, &kinds, &pictures)
         .ok_or(Refused::Unsigned)?;
     let said = vouched_words(&covered, draft.id, signer.at, signer.name);
     let wrote = Wrote {
@@ -665,32 +666,122 @@ fn sign(signer: &Signer, about: &str, said: &[u8]) -> Result<Signed, Refused> {
         .ok_or(Refused::Unsigned)
 }
 
-pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Result<Opened, Refused> {
-    let manifest = &envelope.manifest;
-    let head = manifest.head().ok_or(Refused::Damaged)?;
-    if manifest.commitment() != Some(key.commitment(&head)) {
-        return Err(Refused::Locked);
+pub struct Sheet {
+    pub manifest: Manifest,
+    pub cited: Vec<Cited>,
+    pub html: Zeroizing<String>,
+    pub config: Config,
+    pub wrote: Option<Verdict>,
+    pub written: Option<Written>,
+    pub sent: Option<Verdict>,
+    listed: Option<Listed>,
+}
+
+struct Listed {
+    pictures: Vec<String>,
+    text: String,
+}
+
+pub struct Rest {
+    pub pictures: Vec<(Kind, Zeroizing<Vec<u8>>)>,
+    pub text: Zeroizing<String>,
+}
+
+impl Sheet {
+    fn holds(&self, rest: &Rest) -> bool {
+        self.listed.as_ref().is_none_or(|listed| {
+            pictures_hold(&rest.pictures, &listed.pictures)
+                && hashed(rest.text.as_bytes()) == listed.text
+        })
     }
-    let aad = bound(envelope.written());
-    let cipher = key.cipher();
-    let last = envelope.parts.len() - 1;
-    let mut plain = Vec::with_capacity(envelope.parts.len());
-    for at in 0..envelope.parts.len() {
-        let mut bytes = Zeroizing::new(envelope.part(at).to_vec());
-        cipher
+}
+
+struct Unsealer<'a> {
+    envelope: &'a Envelope,
+    head: [u8; HEAD],
+    aad: Vec<u8>,
+    cipher: XChaCha20Poly1305,
+}
+
+impl<'a> Unsealer<'a> {
+    fn new(key: &LinkKey, envelope: &'a Envelope) -> Result<Self, Refused> {
+        let head = envelope.manifest.head().ok_or(Refused::Damaged)?;
+        if envelope.manifest.commitment() != Some(key.commitment(&head)) {
+            return Err(Refused::Locked);
+        }
+        Ok(Self {
+            envelope,
+            head,
+            aad: bound(envelope.written()),
+            cipher: key.cipher(),
+        })
+    }
+
+    fn part(&self, at: usize) -> Result<Zeroizing<Vec<u8>>, Refused> {
+        let manifest = &self.envelope.manifest;
+        let last = at == manifest.parts.len() - 1;
+        let mut bytes = Zeroizing::new(self.envelope.part(at).to_vec());
+        self.cipher
             .decrypt_in_place(
-                &nonced(&head, at as u32, at == last).into(),
-                &aad,
+                &nonced(&self.head, at as u32, last).into(),
+                &self.aad,
                 &mut *bytes,
             )
             .map_err(|_| Refused::Locked)?;
         let part = &manifest.parts[at];
-        plain.push(match part.kind.deflated() {
-            true => inflated(&bytes, part.len)?,
-            false => bytes,
-        });
+        match part.kind.deflated() {
+            true => inflated(&bytes, part.len),
+            false => Ok(bytes),
+        }
     }
-    let text = Zeroizing::new(worded(&plain[manifest.text_at()])?);
+}
+
+pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Result<Opened, Refused> {
+    let unsealer = Unsealer::new(key, envelope)?;
+    let sheet = sheet_of(&unsealer, revoked)?;
+    let rest = rest_of(&unsealer)?;
+    let wrote = match sheet.holds(&rest) {
+        true => sheet.wrote,
+        false => sheet.wrote.map(|_| Verdict::Refused),
+    };
+    Ok(Opened {
+        manifest: sheet.manifest,
+        text: rest.text,
+        cited: sheet.cited,
+        html: sheet.html,
+        config: sheet.config,
+        pictures: rest.pictures,
+        wrote,
+        written: sheet.written,
+        sent: sheet.sent,
+    })
+}
+
+pub fn open_sheet(
+    key: &LinkKey,
+    envelope: &Envelope,
+    revoked: &[Revocation],
+) -> Result<Sheet, Refused> {
+    sheet_of(&Unsealer::new(key, envelope)?, revoked)
+}
+
+pub fn open_rest(key: &LinkKey, envelope: &Envelope, sheet: &Sheet) -> Result<Rest, Refused> {
+    if sheet.manifest != envelope.manifest {
+        return Err(Refused::Damaged);
+    }
+    let rest = rest_of(&Unsealer::new(key, envelope)?)?;
+    match sheet.holds(&rest) {
+        true => Ok(rest),
+        false => Err(Refused::Damaged),
+    }
+}
+
+fn sheet_of(unsealer: &Unsealer, revoked: &[Revocation]) -> Result<Sheet, Refused> {
+    let envelope = unsealer.envelope;
+    let manifest = &envelope.manifest;
+    let plain = (0..manifest.first_picture())
+        .map(|at| unsealer.part(at))
+        .collect::<Result<Vec<_>, _>>()?;
     let cited_bytes = manifest.cited_at().map(|at| plain[at].as_slice());
     let cited: Vec<Cited> = match cited_bytes {
         Some(bytes) => serde_json::from_slice(bytes).map_err(|_| Refused::Damaged)?,
@@ -708,63 +799,81 @@ pub fn open(key: &LinkKey, envelope: &Envelope, revoked: &[Revocation]) -> Resul
     if !config.holds() {
         return Err(Refused::Damaged);
     }
-    let shown_at = manifest.first_picture()..manifest.text_at();
-    let pictures = manifest.parts[shown_at.clone()]
-        .iter()
-        .zip(&plain[shown_at])
-        .map(|(part, bytes)| match Kind::of_picture(bytes) {
-            Some(kind) if kind == part.kind => Ok((kind, Zeroizing::new(bytes.to_vec()))),
-            _ => Err(Refused::NotAPicture),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let (wrote, written) = if manifest.signed() {
-        let inner: Wrote = serde_json::from_slice(&plain[1]).map_err(|_| Refused::Damaged)?;
-        if inner.name.as_deref().is_some_and(|name| !named_well(name)) {
-            return Err(Refused::Damaged);
+    let (wrote, written, listed) = match manifest.signed() {
+        true => {
+            let inner: Wrote = serde_json::from_slice(&plain[1]).map_err(|_| Refused::Damaged)?;
+            let (wrote, written, listed) =
+                vouched(envelope, inner, cited_bytes, &html, config_bytes, revoked)?;
+            (Some(wrote), Some(written), Some(listed))
         }
-        let shown: Vec<(Kind, &[u8])> = pictures
-            .iter()
-            .map(|(kind, bytes)| (*kind, bytes.as_slice()))
-            .collect();
-        let said = drawn_content(
-            &inner.text,
-            cited_bytes,
-            &html,
-            config_bytes,
-            &shown,
-            &inner.pictures,
-        )
-        .map(|covered| vouched_words(&covered, &inner.id, inner.at, inner.name.as_deref()));
-        // Each picture and the words must be the ones the writer hashed, which holds them apart from the page they signed.
-        let pictured =
-            pictures_hold(&shown, &inner.pictures) && hashed(text.as_bytes()) == inner.text;
-        // The server tells only the sender's revocations, so words another key wrote, or signed for another link, never hold.
-        let verdict = match (said, inner.id == manifest.id && pictured, &envelope.sent) {
-            (None, _, _) | (_, false, _) => Verdict::Refused,
-            (_, true, Some(sent)) if !same_key(&sent.certificate, &inner.signed.certificate) => {
-                Verdict::Refused
-            }
-            (Some(said), true, _) => check(&inner.signed, WROTE, &said, revoked),
-        };
-        let written = Written {
-            at: inner.at,
-            name: inner.name,
-        };
-        (Some(verdict), Some(written))
-    } else {
-        (None, None)
+        false => (None, None, None),
     };
-    Ok(Opened {
+    Ok(Sheet {
         manifest: manifest.clone(),
-        text,
         cited,
         html,
         config,
-        pictures,
         wrote,
         written,
         sent: envelope.sender(revoked),
+        listed,
     })
+}
+
+fn vouched(
+    envelope: &Envelope,
+    inner: Wrote,
+    cited: Option<&[u8]>,
+    html: &str,
+    config: &[u8],
+    revoked: &[Revocation],
+) -> Result<(Verdict, Written, Listed), Refused> {
+    if inner.name.as_deref().is_some_and(|name| !named_well(name)) {
+        return Err(Refused::Damaged);
+    }
+    let manifest = &envelope.manifest;
+    let kinds: Vec<Kind> = manifest.parts[manifest.first_picture()..manifest.text_at()]
+        .iter()
+        .map(|part| part.kind)
+        .collect();
+    let said = drawn_content(&inner.text, cited, html, config, &kinds, &inner.pictures)
+        .map(|covered| vouched_words(&covered, &inner.id, inner.at, inner.name.as_deref()));
+    // The server tells only the sender's revocations, so words another key wrote, or signed for another link, never hold.
+    let verdict = match (said, inner.id == manifest.id, &envelope.sent) {
+        (None, _, _) | (_, false, _) => Verdict::Refused,
+        (_, true, Some(sent)) if !same_key(&sent.certificate, &inner.signed.certificate) => {
+            Verdict::Refused
+        }
+        (Some(said), true, _) => check(&inner.signed, WROTE, &said, revoked),
+    };
+    let written = Written {
+        at: inner.at,
+        name: inner.name,
+    };
+    let listed = Listed {
+        pictures: inner.pictures,
+        text: inner.text,
+    };
+    Ok((verdict, written, listed))
+}
+
+fn rest_of(unsealer: &Unsealer) -> Result<Rest, Refused> {
+    let envelope = unsealer.envelope;
+    if !envelope.whole() {
+        return Err(Refused::Damaged);
+    }
+    let manifest = &envelope.manifest;
+    let pictures = (manifest.first_picture()..manifest.text_at())
+        .map(|at| {
+            let bytes = unsealer.part(at)?;
+            match Kind::of_picture(&bytes) {
+                Some(kind) if kind == manifest.parts[at].kind => Ok((kind, bytes)),
+                _ => Err(Refused::NotAPicture),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let text = Zeroizing::new(worded(&unsealer.part(manifest.text_at())?)?);
+    Ok(Rest { pictures, text })
 }
 
 // One machine's key under one root, whatever certificate it carried that day.
@@ -844,6 +953,51 @@ impl Envelope {
 
     /// Reads and holds every limit without the key, so a server can refuse before it stores anything.
     pub fn read(bytes: Vec<u8>, limits: &Limits) -> Result<Self, Refused> {
+        Self::read_up_to(bytes, limits, |manifest| manifest.parts.len())
+    }
+
+    pub fn read_sheet(bytes: Vec<u8>, limits: &Limits) -> Result<Self, Refused> {
+        Self::read_up_to(bytes, limits, Manifest::first_picture)
+    }
+
+    pub fn sheet_end(&self) -> Option<u64> {
+        let manifest = &self.manifest;
+        (manifest.first_picture() < manifest.text_at())
+            .then(|| self.parts[manifest.html_at()].end as u64)
+    }
+
+    pub fn rest(&mut self, mut more: Vec<u8>) -> Result<(), Refused> {
+        let from = self.parts.len();
+        if self.whole() {
+            return Err(Refused::Damaged);
+        }
+        let start = self.bytes.len();
+        self.bytes.append(&mut more);
+        let mut at = start;
+        let parts = parts_from(&self.manifest.parts[from..], &self.bytes, &mut at)
+            .ok()
+            .filter(|parts| at == self.bytes.len() && indexed(self, parts, from));
+        match parts {
+            Some(parts) => {
+                self.parts.extend(parts);
+                Ok(())
+            }
+            None => {
+                self.bytes.truncate(start);
+                Err(Refused::Damaged)
+            }
+        }
+    }
+
+    fn whole(&self) -> bool {
+        self.parts.len() == self.manifest.parts.len()
+    }
+
+    fn read_up_to(
+        bytes: Vec<u8>,
+        limits: &Limits,
+        present: fn(&Manifest) -> usize,
+    ) -> Result<Self, Refused> {
         if !bytes.starts_with(MAGIC) {
             return Err(Refused::Foreign);
         }
@@ -858,7 +1012,8 @@ impl Envelope {
         let manifest: Manifest =
             serde_json::from_slice(&bytes[written.clone()]).map_err(|_| Refused::Damaged)?;
         manifest.holds(limits)?;
-        Self::read_laid(bytes, at, written, manifest)
+        let present = present(&manifest);
+        Self::read_laid(bytes, at, written, manifest, present)
     }
 
     // The index and the sender's signature come before the parts, and every part must be the one the index hashes.
@@ -867,6 +1022,7 @@ impl Envelope {
         mut at: usize,
         written: Range<usize>,
         manifest: Manifest,
+        present: usize,
     ) -> Result<Self, Refused> {
         let index = framed(&bytes, &mut at, HASH * manifest.parts.len())?;
         if index.len() != HASH * manifest.parts.len() {
@@ -874,12 +1030,8 @@ impl Envelope {
         }
         let trailer = framed(&bytes, &mut at, SIGNATURE_AT_MOST)?;
         let sent = sent_in(&bytes[trailer])?;
-        let parts = parts_from(&manifest, &bytes, &mut at)?;
-        let unlike = parts
-            .iter()
-            .zip(bytes[index.clone()].chunks(HASH))
-            .any(|(part, hash)| Sha256::digest(&bytes[part.clone()]).as_slice() != hash);
-        if unlike || at != bytes.len() {
+        let parts = parts_from(&manifest.parts[..present], &bytes, &mut at)?;
+        if at != bytes.len() {
             return Err(Refused::Damaged);
         }
         let mut envelope = Self {
@@ -891,19 +1043,24 @@ impl Envelope {
             parts,
             sent,
         };
+        if !indexed(&envelope, &envelope.parts, 0) {
+            return Err(Refused::Damaged);
+        }
         envelope.digest = envelope.indexed_digest();
         Ok(envelope)
     }
 }
 
-/// Every part the manifest lists, one after the other from `at`, never past the bytes; `at` moves past them.
-fn parts_from(
-    manifest: &Manifest,
-    bytes: &[u8],
-    at: &mut usize,
-) -> Result<Vec<Range<usize>>, Refused> {
-    manifest
-        .parts
+fn indexed(envelope: &Envelope, parts: &[Range<usize>], from: usize) -> bool {
+    let index = &envelope.bytes[envelope.index.clone()];
+    parts
+        .iter()
+        .zip(index.chunks(HASH).skip(from))
+        .all(|(part, hash)| Sha256::digest(&envelope.bytes[part.clone()]).as_slice() == hash)
+}
+
+fn parts_from(parts: &[Part], bytes: &[u8], at: &mut usize) -> Result<Vec<Range<usize>>, Refused> {
+    parts
         .iter()
         .map(|part| {
             let start = *at;
@@ -1022,10 +1179,10 @@ fn drawn_content(
     cited: Option<&[u8]>,
     html: &str,
     config: &[u8],
-    pictures: &[(Kind, &[u8])],
+    kinds: &[Kind],
     hashes: &[String],
 ) -> Option<Vec<u8>> {
-    if pictures.len() != hashes.len() {
+    if kinds.len() != hashes.len() {
         return None;
     }
     let mut over = Sha256::new();
@@ -1043,7 +1200,7 @@ fn drawn_content(
         over.update(said);
     }
     over.update((hashes.len() as u64).to_be_bytes());
-    for ((kind, _), hash) in pictures.iter().zip(hashes) {
+    for (kind, hash) in kinds.iter().zip(hashes) {
         for said in [kind.media(), hash] {
             over.update((said.len() as u64).to_be_bytes());
             over.update(said.as_bytes());
@@ -1095,7 +1252,7 @@ fn worded(plain: &[u8]) -> Result<String, Refused> {
 }
 
 // Each picture hashes to what the writer listed, and there are as many as the list says.
-fn pictures_hold(pictures: &[(Kind, &[u8])], hashes: &[String]) -> bool {
+fn pictures_hold(pictures: &[(Kind, Zeroizing<Vec<u8>>)], hashes: &[String]) -> bool {
     pictures.len() == hashes.len()
         && pictures
             .iter()

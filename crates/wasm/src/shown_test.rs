@@ -1,10 +1,10 @@
 use jiff::Timestamp;
 use tisty_share_proto::config::Config;
-use tisty_share_proto::envelope::{Draft, Kind, LinkKey, Refused, Signer, seal};
+use tisty_share_proto::envelope::{Draft, Envelope, Kind, LinkKey, Refused, Signer, seal};
 use tisty_share_proto::identity::{Root, ShareKey};
 use tisty_share_proto::limits::Limits;
 
-use super::{About, Said, Shown, Signed, Unread, shown};
+use super::{About, Begun, Said, Shown, Signed, Unread, begun, shown};
 
 const TEXT: &str = "---\ntitle: Docker en WSL2\ntags: [guía, docker]\n---\n\n# Antes de empezar\n\nAbre una terminal.\n\n![La consola](tisty:picture/0)\n";
 
@@ -272,4 +272,75 @@ fn hands_the_reader_what_the_words_cite_with_the_keys_that_open_them() {
     assert_eq!(page.cited, cited);
     // The card stays the sheet's to draw: the words still call it by its name in the store.
     assert!(page.html.contains("data-doc=\"guia-2\""));
+}
+
+fn split(envelope: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let read = Envelope::read(envelope.to_vec(), &Limits::default()).unwrap();
+    let end = read.sheet_end().unwrap() as usize;
+    (envelope[..end].to_vec(), envelope[end..].to_vec())
+}
+
+fn sheet(bytes: Vec<u8>) -> Result<Begun, Unread> {
+    begun(bytes, &key(1).to_text(), None, None)
+}
+
+fn held(pictures: &[(Kind, zeroize::Zeroizing<Vec<u8>>)]) -> Vec<(Kind, Vec<u8>)> {
+    pictures
+        .iter()
+        .map(|(kind, bytes)| (*kind, bytes.to_vec()))
+        .collect()
+}
+
+#[test]
+fn a_sheet_draws_at_once_and_its_rest_brings_the_pictures_and_the_text() {
+    let root = Root::from_bytes(&[7; 32]);
+    let share = ShareKey::from_bytes(&[8; 32]);
+    let certificate = root.certify(&share.public(), Timestamp::from_second(1_000).unwrap());
+    let signer = Signer {
+        key: &share,
+        certificate: &certificate,
+        at: Timestamp::from_second(2_000).unwrap(),
+        name: Some("Ana Pérez"),
+    };
+    let picture = png(40);
+    let envelope = sealed(TEXT, &[(Kind::Png, &picture)], Some(&signer));
+    let whole = read(envelope.clone()).unwrap();
+    let (ahead, after) = split(&envelope);
+
+    let mut begun = sheet(ahead).unwrap();
+    assert_eq!(begun.html, whole.html);
+    assert_eq!(begun.about, whole.about);
+    assert_eq!(begun.cited, whole.cited);
+    assert_eq!(begun.kinds, vec![Kind::Png]);
+
+    let arrived = begun.rest(after).unwrap();
+    assert_eq!(arrived.text.as_str(), whole.text.as_str());
+    assert_eq!(held(&arrived.pictures), held(&whole.pictures));
+}
+
+#[test]
+fn a_rest_that_is_not_the_one_its_sheet_indexes_is_damaged_and_the_right_one_still_opens() {
+    let picture = png(40);
+    let envelope = sealed(TEXT, &[(Kind::Png, &picture)], None);
+    let (ahead, after) = split(&envelope);
+    let mut begun = sheet(ahead).unwrap();
+
+    let mut changed = after.clone();
+    changed[0] ^= 1;
+    let refused = begun.rest(changed).err().map(|unread| unread.word());
+    assert_eq!(refused, Some("damaged"));
+    assert!(begun.rest(after).is_ok());
+}
+
+#[test]
+fn a_sheet_cut_anywhere_but_its_page_s_end_or_under_another_key_does_not_open() {
+    let picture = png(40);
+    let envelope = sealed(TEXT, &[(Kind::Png, &picture)], None);
+    let (ahead, _) = split(&envelope);
+    let short = sheet(ahead[..ahead.len() - 1].to_vec());
+    assert_eq!(short.err(), Some(Unread::Envelope(Refused::Damaged)));
+    let whole = sheet(envelope);
+    assert_eq!(whole.err(), Some(Unread::Envelope(Refused::Damaged)));
+    let locked = begun(ahead, &key(2).to_text(), None, None);
+    assert_eq!(locked.err().map(|unread| unread.word()), Some("locked"));
 }

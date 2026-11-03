@@ -1,6 +1,8 @@
 use serde::Serialize;
-use tisty_share_proto::config::Field;
-use tisty_share_proto::envelope::{Cited, Envelope, Kind, LinkKey, Refused, Written, open};
+use tisty_share_proto::config::{Config, Field};
+use tisty_share_proto::envelope::{
+    Cited, Envelope, Kind, LinkKey, Refused, Rest, Sheet, Written, open, open_rest, open_sheet,
+};
 use tisty_share_proto::identity::{Revocation, Verdict};
 use tisty_share_proto::limits::Limits;
 use zeroize::Zeroizing;
@@ -15,6 +17,16 @@ pub struct Shown {
     /// The documents the words lead to, each opened from its own link (decision 64).
     pub cited: Vec<Cited>,
     pub pictures: Vec<(Kind, Zeroizing<Vec<u8>>)>,
+}
+
+pub struct Begun {
+    pub html: String,
+    pub about: About,
+    pub cited: Vec<Cited>,
+    pub kinds: Vec<Kind>,
+    envelope: Envelope,
+    sheet: Sheet,
+    key: LinkKey,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -111,34 +123,94 @@ pub fn shown(
     revoked: Option<&str>,
 ) -> Result<Shown, Unread> {
     let key = LinkKey::from_text(key).ok_or(Unread::Keyless)?;
-    let limits = match limits {
-        Some(said) => roomier(serde_json::from_str(said).map_err(|_| Unread::Limitless)?),
-        None => Limits::default(),
-    };
-    let envelope = Envelope::read(envelope, &limits).map_err(Unread::Envelope)?;
+    let envelope = Envelope::read(envelope, &limits_of(limits)?).map_err(Unread::Envelope)?;
     let opened = open(&key, &envelope, &taken_back(revoked)).map_err(Unread::Envelope)?;
-    let html = opened.html.to_string();
-    // As the writer's Tisty read the words, signed with them, so the reader never reads their Markdown.
-    let config = opened.config;
-    let about = About {
-        title: config.title,
-        tags: config.tags,
-        lang: config.lang,
-        paper: config.paper,
-        sheets: config.sheets,
-        landscape: config.landscape,
-        fields: config.fields,
-        version: opened.manifest.version,
-        wrote: opened.wrote.map(|one| signed(one, opened.written.into())),
-        sent: opened.sent.map(|one| signed(one, Said::default())),
+    let signatures = Signatures {
+        wrote: opened.wrote,
+        written: opened.written,
+        sent: opened.sent,
     };
     Ok(Shown {
         text: opened.text,
-        html,
-        about,
+        html: opened.html.to_string(),
+        about: About::of(opened.config, opened.manifest.version, signatures),
         cited: opened.cited,
         pictures: opened.pictures,
     })
+}
+
+pub fn begun(
+    sheet: Vec<u8>,
+    key: &str,
+    limits: Option<&str>,
+    revoked: Option<&str>,
+) -> Result<Begun, Unread> {
+    let key = LinkKey::from_text(key).ok_or(Unread::Keyless)?;
+    let envelope = Envelope::read_sheet(sheet, &limits_of(limits)?).map_err(Unread::Envelope)?;
+    let sheet = open_sheet(&key, &envelope, &taken_back(revoked)).map_err(Unread::Envelope)?;
+    let manifest = &sheet.manifest;
+    let kinds = manifest
+        .parts
+        .iter()
+        .map(|part| part.kind)
+        .filter(|kind| kind.is_picture())
+        .collect();
+    let signatures = Signatures {
+        wrote: sheet.wrote,
+        written: sheet.written.clone(),
+        sent: sheet.sent,
+    };
+    Ok(Begun {
+        html: sheet.html.to_string(),
+        about: About::of(sheet.config.clone(), manifest.version, signatures),
+        cited: sheet.cited.clone(),
+        kinds,
+        envelope,
+        sheet,
+        key,
+    })
+}
+
+impl Begun {
+    pub fn rest(&mut self, rest: Vec<u8>) -> Result<Rest, Unread> {
+        self.envelope.rest(rest).map_err(Unread::Envelope)?;
+        open_rest(&self.key, &self.envelope, &self.sheet).map_err(Unread::Envelope)
+    }
+}
+
+fn limits_of(said: Option<&str>) -> Result<Limits, Unread> {
+    match said {
+        Some(said) => Ok(roomier(
+            serde_json::from_str(said).map_err(|_| Unread::Limitless)?,
+        )),
+        None => Ok(Limits::default()),
+    }
+}
+
+struct Signatures {
+    wrote: Option<Verdict>,
+    written: Option<Written>,
+    sent: Option<Verdict>,
+}
+
+impl About {
+    // As the writer's Tisty read the words, signed with them, so the reader never reads their Markdown.
+    fn of(config: Config, version: u64, signatures: Signatures) -> Self {
+        Self {
+            title: config.title,
+            tags: config.tags,
+            lang: config.lang,
+            paper: config.paper,
+            sheets: config.sheets,
+            landscape: config.landscape,
+            fields: config.fields,
+            version,
+            wrote: signatures
+                .wrote
+                .map(|one| signed(one, signatures.written.into())),
+            sent: signatures.sent.map(|one| signed(one, Said::default())),
+        }
+    }
 }
 
 /// Only what a root signed is believed: the server can leave a revocation out, never make one up.

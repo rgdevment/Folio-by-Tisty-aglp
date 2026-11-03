@@ -51,6 +51,22 @@ fn key() -> LinkKey {
 }
 
 fn sealed(id: &str, version: u64, from: Option<u64>, text: &str) -> Vec<u8> {
+    sealed_with(id, version, from, text, &[])
+}
+
+fn pictured(id: &str, version: u64, from: Option<u64>) -> Vec<u8> {
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.resize(300, 1);
+    sealed_with(id, version, from, "con foto", &[(Kind::Png, &png)])
+}
+
+fn sealed_with(
+    id: &str,
+    version: u64,
+    from: Option<u64>,
+    text: &str,
+    pictures: &[(Kind, &[u8])],
+) -> Vec<u8> {
     let draft = Draft {
         id,
         version,
@@ -59,7 +75,7 @@ fn sealed(id: &str, version: u64, from: Option<u64>, text: &str) -> Vec<u8> {
         cited: &[],
         html: "<p>a</p>",
         config: Default::default(),
-        pictures: &[],
+        pictures,
     };
     let (machine, certificate) = vouched();
     let signer = Signer {
@@ -145,7 +161,7 @@ impl World {
         caller: IpAddr,
         now: i64,
     ) -> Result<Served, Refused> {
-        let (served, seen) = done(self.share.read(id, password, None, caller, now))?;
+        let (served, seen) = done(self.share.read(id, password, None, false, caller, now))?;
         done(self.share.seen(seen))?;
         Ok(served)
     }
@@ -158,10 +174,11 @@ impl World {
         caller: IpAddr,
         now: i64,
     ) -> Result<Served, Refused> {
-        let (served, seen) = done(
-            self.share
-                .read(id, Some(password), Some(proof), caller, now),
-        )?;
+        let (served, seen) =
+            done(
+                self.share
+                    .read(id, Some(password), Some(proof), false, caller, now),
+            )?;
         done(self.share.seen(seen))?;
         Ok(served)
     }
@@ -1502,6 +1519,15 @@ impl Store for Faulty {
     async fn envelope(&self, id: &str, kept: &Kept) -> Result<Option<Vec<u8>>, Fault> {
         self.inner.envelope(id, kept).await
     }
+    async fn envelope_range(
+        &self,
+        id: &str,
+        kept: &Kept,
+        from: u64,
+        until: Option<u64>,
+    ) -> Result<Option<Vec<u8>>, Fault> {
+        self.inner.envelope_range(id, kept, from, until).await
+    }
     async fn keep(&self, id: &str, kept: &Kept, bytes: Vec<u8>) -> Result<(), Fault> {
         self.inner.keep(id, kept, bytes).await
     }
@@ -1653,12 +1679,12 @@ fn a_host_s_own_limiter_decides_the_reads_and_its_wait_is_the_one_told() {
 
     for _ in 0..3 {
         assert_eq!(
-            done(share.read(&reserved.id, None, None, HERE, T0)).err(),
+            done(share.read(&reserved.id, None, None, false, HERE, T0)).err(),
             Some(Refused::Slow { until: T0 + 60 })
         );
     }
     share.store.limited.set(None);
-    assert!(done(share.read(&reserved.id, None, None, HERE, T0 + 60)).is_ok());
+    assert!(done(share.read(&reserved.id, None, None, false, HERE, T0 + 60)).is_ok());
 }
 
 #[test]
@@ -1686,7 +1712,7 @@ fn a_document_that_cannot_go_is_passed_over_and_the_rest_still_go() {
     let again = done(share.sweep(later + 60)).unwrap();
     assert_eq!((again.gone, again.stuck.len()), (0, 0));
     assert_eq!(
-        done(share.read(&ids[0], None, None, HERE, later + 60)).err(),
+        done(share.read(&ids[0], None, None, false, HERE, later + 60)).err(),
         Some(Refused::Gone)
     );
     *share.store.stuck.borrow_mut() = None;
@@ -1771,7 +1797,7 @@ fn two_readers_racing_to_write_their_visit_are_both_served() {
     upload_faulty(&mut share, &reserved, first).unwrap();
     share.store.lose.set(true);
 
-    assert!(done(share.read(&reserved.id, None, None, HERE, T0 + DAY)).is_ok());
+    assert!(done(share.read(&reserved.id, None, None, false, HERE, T0 + DAY)).is_ok());
 }
 
 #[test]
@@ -2123,7 +2149,12 @@ fn a_read_answers_before_it_writes_anything_and_tells_the_end_it_will_leave() {
     let later = T0 + 2 * HOUR;
     let before = world.doc(&reserved.id);
 
-    let (served, seen) = done(world.share.read(&reserved.id, None, None, HERE, later)).unwrap();
+    let (served, seen) = done(
+        world
+            .share
+            .read(&reserved.id, None, None, false, HERE, later),
+    )
+    .unwrap();
     let untouched = world.doc(&reserved.id);
     assert_eq!(
         (untouched.reads, untouched.revision),
@@ -2146,7 +2177,12 @@ fn a_holder_gone_without_letting_go_is_let_go_of_once_the_read_is_answered() {
     // The holder went with its store failing midway, still named by what it held.
     done(world.share.store.forget(&root.id)).unwrap();
 
-    let (_, seen) = done(world.share.read(&cited.id, None, None, HERE, T0 + DAY)).unwrap();
+    let (_, seen) = done(
+        world
+            .share
+            .read(&cited.id, None, None, false, HERE, T0 + DAY),
+    )
+    .unwrap();
     assert_eq!(world.doc(&cited.id).holders, vec![root.id.clone()]);
     done(world.share.seen(seen)).unwrap();
     assert!(world.doc(&cited.id).holders.is_empty());
@@ -2166,4 +2202,209 @@ fn a_document_past_its_end_is_gone_to_everyone_and_taken_only_by_the_sweep() {
         Err(Refused::Gone)
     );
     assert!(done(world.share.store.doc(&reserved.id)).unwrap().is_some());
+}
+
+impl World {
+    fn shared_pictured(&mut self, now: i64) -> (Reserved, Vec<u8>) {
+        let reserved = self.reserve(now);
+        let bytes = pictured(&reserved.id, 1, None);
+        assert_eq!(
+            self.put(&reserved.id, &reserved.edit, bytes.clone(), now),
+            Ok(1)
+        );
+        (reserved, bytes)
+    }
+
+    fn sheet(&mut self, id: &str, now: i64) -> Result<Served, Refused> {
+        let (served, seen) = done(self.share.read(id, None, None, true, HERE, now))?;
+        done(self.share.seen(seen))?;
+        Ok(served)
+    }
+
+    fn rest(&self, id: &str, ticket: &str, now: i64) -> Result<Vec<u8>, Refused> {
+        done(self.share.rest(id, ticket, HERE, now))
+    }
+}
+
+fn sheet_end(bytes: &[u8]) -> usize {
+    let read = Envelope::read(bytes.to_vec(), &Limits::default()).unwrap();
+    read.sheet_end().unwrap() as usize
+}
+
+#[test]
+fn a_reader_asking_for_the_sheet_gets_the_page_first_and_the_rest_for_its_ticket() {
+    let mut world = World::new();
+    let (reserved, bytes) = world.shared_pictured(T0);
+    let end = sheet_end(&bytes);
+
+    let served = world.sheet(&reserved.id, T0 + 10).unwrap();
+    assert_eq!(served.envelope, bytes[..end]);
+    let ticket = served.rest.expect("a ticket for the rest");
+    let counted = world.doc(&reserved.id);
+    assert_eq!(counted.reads, 1);
+
+    let rest = world.rest(&reserved.id, &ticket, T0 + 20).unwrap();
+    assert_eq!(rest, bytes[end..]);
+    assert_eq!(world.doc(&reserved.id), counted);
+}
+
+#[test]
+fn an_envelope_without_pictures_or_a_reader_who_asks_it_whole_is_served_whole() {
+    let mut world = World::new();
+    let plain = world.shared(T0);
+    let served = world.sheet(&plain.id, T0).unwrap();
+    assert_eq!(opened(&served), "uno");
+    assert_eq!(served.rest, None);
+    assert_eq!(world.doc(&plain.id).versions[0].sheet, None);
+
+    let (reserved, bytes) = world.shared_pictured(T0);
+    let served = world.read(&reserved.id, T0).unwrap();
+    assert_eq!((served.envelope, served.rest), (bytes, None));
+}
+
+#[test]
+fn a_ticket_holds_for_its_own_id_and_version_ten_minutes_and_no_longer() {
+    let mut world = World::new();
+    let (reserved, _) = world.shared_pictured(T0);
+    let (other, _) = world.shared_pictured(T0);
+    let ticket = world.sheet(&reserved.id, T0).unwrap().rest.unwrap();
+
+    assert!(world.rest(&reserved.id, &ticket, T0 + 10 * 60).is_ok());
+    assert_eq!(
+        world.rest(&reserved.id, &ticket, T0 + 10 * 60 + 1),
+        Err(Refused::Forbidden)
+    );
+    assert_eq!(world.rest(&other.id, &ticket, T0), Err(Refused::Forbidden));
+    let (version, signed) = ticket.split_once('.').unwrap();
+    let later = format!("{}.{signed}", version.parse::<u64>().unwrap() + 1);
+    for forged in [
+        later.as_str(),
+        "",
+        "1",
+        "1.2.3",
+        &ticket[..ticket.len() - 1],
+    ] {
+        assert_eq!(
+            world.rest(&reserved.id, forged, T0),
+            Err(Refused::Forbidden)
+        );
+    }
+    let elsewhere = guard::ticket(&[6; 32], &reserved.id, 1, &[], T0 + 60);
+    assert_eq!(
+        world.rest(&reserved.id, &elsewhere, T0),
+        Err(Refused::Forbidden)
+    );
+}
+
+#[test]
+fn the_rest_is_refused_once_its_document_is_paused_blocked_gone_or_its_version_dropped() {
+    let mut world = World::new();
+    let (paused, _) = world.shared_pictured(T0);
+    let ticket = world.sheet(&paused.id, T0).unwrap().rest.unwrap();
+    world.manage(&paused, Manage::Pause, T0).unwrap();
+    assert_eq!(world.rest(&paused.id, &ticket, T0), Err(Refused::Paused));
+
+    let (blocked, _) = world.shared_pictured(T0);
+    let ticket = world.sheet(&blocked.id, T0).unwrap().rest.unwrap();
+    for n in 1..=3 {
+        world.report_from(&blocked.id, there(n), T0).unwrap();
+    }
+    assert_eq!(world.rest(&blocked.id, &ticket, T0), Err(Refused::Blocked));
+
+    let (short, _) = world.shared_pictured(T0);
+    world.manage(&short, Manage::Idle(60), T0).unwrap();
+    let ticket = world.sheet(&short.id, T0).unwrap().rest.unwrap();
+    assert_eq!(world.rest(&short.id, &ticket, T0 + 120), Err(Refused::Gone));
+
+    world.share.policy.versions = 1;
+    let (replaced, _) = world.shared_pictured(T0);
+    let ticket = world.sheet(&replaced.id, T0).unwrap().rest.unwrap();
+    let next = pictured(&replaced.id, 2, Some(1));
+    world.put(&replaced.id, &replaced.edit, next, T0).unwrap();
+    assert_eq!(world.rest(&replaced.id, &ticket, T0), Err(Refused::Missing));
+}
+
+#[test]
+fn the_rest_behind_a_password_needs_only_its_ticket_and_counts_as_a_poll() {
+    let mut world = World::with(Policy {
+        allowance: guard::Allowance {
+            polls: 1,
+            ..guard::Allowance::default()
+        },
+        ..policy()
+    });
+    let (reserved, bytes) = world.shared_pictured(T0);
+    world
+        .manage(&reserved, Manage::Password(Some("clave".into())), T0)
+        .unwrap();
+    assert_eq!(
+        world.sheet(&reserved.id, T0).err(),
+        Some(Refused::PasswordAsked)
+    );
+    let (served, _) = done(
+        world
+            .share
+            .read(&reserved.id, Some("clave"), None, true, HERE, T0),
+    )
+    .unwrap();
+    let ticket = served.rest.unwrap();
+    assert_eq!(
+        world.rest(&reserved.id, &ticket, T0).unwrap(),
+        bytes[sheet_end(&bytes)..]
+    );
+    assert_eq!(
+        world.rest(&reserved.id, &ticket, T0),
+        Err(Refused::Slow { until: T0 + HOUR })
+    );
+}
+
+#[test]
+fn a_ticket_no_longer_holds_once_the_password_or_the_version_changes() {
+    let mut world = World::new();
+    let (gated, _) = world.shared_pictured(T0);
+    world
+        .manage(&gated, Manage::Password(Some("clave".into())), T0)
+        .unwrap();
+    let (served, _) = done(
+        world
+            .share
+            .read(&gated.id, Some("clave"), None, true, HERE, T0),
+    )
+    .unwrap();
+    let ticket = served.rest.unwrap();
+    world
+        .manage(&gated, Manage::Password(Some("otra".into())), T0)
+        .unwrap();
+    assert_eq!(world.rest(&gated.id, &ticket, T0), Err(Refused::Forbidden));
+
+    let (replaced, _) = world.shared_pictured(T0);
+    let ticket = world.sheet(&replaced.id, T0).unwrap().rest.unwrap();
+    world
+        .put(
+            &replaced.id,
+            &replaced.edit,
+            pictured(&replaced.id, 2, Some(1)),
+            T0,
+        )
+        .unwrap();
+    assert_eq!(world.rest(&replaced.id, &ticket, T0), Err(Refused::Missing));
+}
+
+#[test]
+fn a_version_kept_before_sheets_reads_without_one_and_is_written_without_one() {
+    let kept = Kept {
+        version: 1,
+        digest: [3; 32],
+        by: None,
+        sheet: None,
+    };
+    let written = serde_json::to_value(kept).unwrap();
+    assert!(written.get("sheet").is_none());
+    assert_eq!(serde_json::from_value::<Kept>(written).unwrap(), kept);
+    let split = Kept {
+        sheet: Some(512),
+        ..kept
+    };
+    let again = serde_json::to_string(&split).unwrap();
+    assert_eq!(serde_json::from_str::<Kept>(&again).unwrap(), split);
 }
