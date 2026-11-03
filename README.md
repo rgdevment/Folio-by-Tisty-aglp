@@ -10,7 +10,7 @@ separate from the Tisty app, with its own server, rules and promises. It runs at
 > **It does not promise what the app promises.** The Tisty app has no server
 > and collects nothing. Tisty Share does run a server: it keeps encrypted copies
 > until they expire, counts reads and keeps a few anonymous records. What it
-> keeps, why and for how long is in its [privacy policy](PRIVACY.md).
+> keeps, why and for how long is in its [privacy policy](docs/PRIVACY.md).
 
 ## How it works
 
@@ -33,9 +33,9 @@ separate from the Tisty app, with its own server, rules and promises. It runs at
 
 | | |
 |---|---|
-| [Terms of use](TERMS.md) | What is allowed, reports and removal, warranty and liability |
-| [Privacy policy](PRIVACY.md) | What the service keeps, why, for how long, and your rights |
-| [Security policy](SECURITY.md) | How to report a vulnerability, and what the design protects and does not |
+| [Terms of use](docs/TERMS.md) | What is allowed, reports and removal, warranty and liability |
+| [Privacy policy](docs/PRIVACY.md) | What the service keeps, why, for how long, and your rights |
+| [Security policy](docs/SECURITY.md) | How to report a vulnerability, and what the design protects and does not |
 
 ## Who runs it
 
@@ -45,16 +45,19 @@ is no company behind it and nobody makes money from it. Contact:
 
 ## Its code
 
-It lives in this repository, beside the app, because both speak the same
-protocol and change it together:
+It lives in this repository. What it still shares with the
+[Tisty app](https://github.com/rgdevment/Tisty), the identity keys and the
+editor that draws a document, comes from the app's repository, pinned as the
+`tisty` submodule:
 
 | Where | What |
 |---|---|
-| `crates/tisty-share-proto` | The envelope, its signatures and limits, which the app seals and the server checks. It is shared with the app, which also keeps there the 24-word phrase, its keys and the encrypted cloud's seal |
-| `crates/tisty-share-server` | The service itself, on any store: versions, links, expiry, defences |
-| `crates/tisty-share-worker` | The service on Cloudflare Workers, D1 and R2 |
-| `crates/tisty-share-wasm` | What the reading page runs to open an envelope |
-| `packages/tisty-share-web` | The page that reads a link |
+| `crates/envelope` (`folio-envelope`) | The envelope, its signatures and limits, which the app seals and the server checks |
+| `crates/server` (`folio-server`) | The service itself, on any store: versions, links, expiry, defences |
+| `crates/worker` (`folio-worker`) | The service on Cloudflare Workers, D1 and R2 |
+| `crates/wasm` (`folio-wasm`) | What the reading page runs to open an envelope |
+| `web` (`folio-web`) | The page that reads a link |
+| `tisty` | The Tisty app's repository: its identity keys (`tisty-share-proto`) and the editor that draws the page (`tisty-editor`) |
 
 It is released with tags `share-v*`, which `.github/workflows/share.yml` deploys
 and checks live.
@@ -62,4 +65,4 @@ and checks live.
 ## Licence
 
 The same as Tisty: the
-[GNU Affero General Public License, version 3](../LICENSE).
+[GNU Affero General Public License, version 3](LICENSE).

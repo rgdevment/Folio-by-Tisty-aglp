@@ -11,7 +11,7 @@ sus promesas. Funciona en [tisty.cl](https://tisty.cl).
 > recolecta nada. Tisty Share sí tiene un servidor: guarda copias cifradas
 > hasta que caducan, cuenta lecturas y lleva algunos registros anónimos. Qué
 > guarda, para qué y por cuánto tiempo está en su
-> [política de privacidad](PRIVACIDAD.md).
+> [política de privacidad](docs/PRIVACIDAD.md).
 
 ## Cómo funciona
 
@@ -34,9 +34,9 @@ sus promesas. Funciona en [tisty.cl](https://tisty.cl).
 
 | | |
 |---|---|
-| [Términos de uso](TERMINOS.md) | Qué se permite, denuncias y retiro, garantías y responsabilidad |
-| [Política de privacidad](PRIVACIDAD.md) | Qué guarda el servicio, para qué, por cuánto tiempo, y tus derechos |
-| [Política de seguridad](SEGURIDAD.md) | Cómo reportar una vulnerabilidad, y qué protege el diseño y qué no |
+| [Términos de uso](docs/TERMINOS.md) | Qué se permite, denuncias y retiro, garantías y responsabilidad |
+| [Política de privacidad](docs/PRIVACIDAD.md) | Qué guarda el servicio, para qué, por cuánto tiempo, y tus derechos |
+| [Política de seguridad](docs/SEGURIDAD.md) | Cómo reportar una vulnerabilidad, y qué protege el diseño y qué no |
 
 ## Quién lo opera
 
@@ -46,16 +46,19 @@ lucro. No hay una empresa detrás y nadie gana dinero con él. Contacto:
 
 ## Su código
 
-Vive en este repositorio, junto a la app, porque los dos hablan el mismo
-protocolo y lo cambian juntos:
+Vive en este repositorio. Lo que aún comparte con la
+[app Tisty](https://github.com/rgdevment/Tisty), las llaves de identidad y el
+editor que dibuja un documento, viene del repositorio de la app, fijado como el
+submódulo `tisty`:
 
 | Dónde | Qué |
 |---|---|
-| `crates/tisty-share-proto` | El sobre, sus firmas y sus topes, que la app sella y el servidor revisa. Lo comparte con la app, que también guarda ahí la frase de 24 palabras, sus llaves y el sello de la nube cifrada |
-| `crates/tisty-share-server` | El servicio en sí, sobre cualquier almacén: versiones, links, caducidad, defensas |
-| `crates/tisty-share-worker` | El servicio en Cloudflare Workers, D1 y R2 |
-| `crates/tisty-share-wasm` | Lo que corre la página de lectura para abrir un sobre |
-| `packages/tisty-share-web` | La página que lee un link |
+| `crates/envelope` (`folio-envelope`) | El sobre, sus firmas y sus topes, que la app sella y el servidor revisa |
+| `crates/server` (`folio-server`) | El servicio en sí, sobre cualquier almacén: versiones, links, caducidad, defensas |
+| `crates/worker` (`folio-worker`) | El servicio en Cloudflare Workers, D1 y R2 |
+| `crates/wasm` (`folio-wasm`) | Lo que corre la página de lectura para abrir un sobre |
+| `web` (`folio-web`) | La página que lee un link |
+| `tisty` | El repositorio de la app Tisty: sus llaves de identidad (`tisty-share-proto`) y el editor que dibuja la página (`tisty-editor`) |
 
 Sale con tags `share-v*`, que `.github/workflows/share.yml` despliega y revisa
 en vivo.
@@ -63,4 +66,4 @@ en vivo.
 ## Licencia
 
 La misma de Tisty: la
-[GNU Affero General Public License, versión 3](../LICENSE).
+[GNU Affero General Public License, versión 3](LICENSE).

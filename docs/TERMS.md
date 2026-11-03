@@ -21,7 +21,7 @@ it. The service's code is public, under the same licence as Tisty, the
 
 The service that stores and serves shared documents, at
 [tisty.cl](https://tisty.cl), and the page where they are read in a browser.
-The Tisty app has [terms of its own](../TERMS.md).
+The Tisty app has [terms of its own](https://github.com/rgdevment/Tisty/blob/main/TERMS.md).
 
 ## How it works
 

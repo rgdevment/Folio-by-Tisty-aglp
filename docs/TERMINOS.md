@@ -22,7 +22,7 @@ Tisty, la
 
 El servicio que guarda y sirve los documentos compartidos, en
 [tisty.cl](https://tisty.cl), y la página donde se leen en un navegador.
-La app Tisty tiene sus propios [términos](../TERMS.md).
+La app Tisty tiene sus propios [términos](https://github.com/rgdevment/Tisty/blob/main/TERMS.md).
 
 ## Cómo funciona
 

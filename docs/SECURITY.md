@@ -4,7 +4,7 @@
 
 This covers the Tisty Share service: [tisty.cl](https://tisty.cl), its API under
 `/api/v1/`, the page that reads a link, and the envelope format both the app and
-the server speak. The Tisty app has a [security policy of its own](../SECURITY.md).
+the server speak. The Tisty app has a [security policy of its own](https://github.com/rgdevment/Tisty/blob/main/SECURITY.md).
 
 ## Reporting a vulnerability
 

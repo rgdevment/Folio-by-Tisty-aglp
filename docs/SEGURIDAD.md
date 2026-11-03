@@ -4,7 +4,7 @@
 
 Cubre el servicio Tisty Share: [tisty.cl](https://tisty.cl), su API bajo
 `/api/v1/`, la página que lee un link y el formato del sobre que hablan la app y
-el servidor. La app Tisty tiene su propia [política de seguridad](../SECURITY.md).
+el servidor. La app Tisty tiene su propia [política de seguridad](https://github.com/rgdevment/Tisty/blob/main/SECURITY.md).
 
 ## Reportar una vulnerabilidad
 
