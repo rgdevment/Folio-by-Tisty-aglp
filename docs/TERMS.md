@@ -1,10 +1,10 @@
-# Tisty Share terms of use
+# Folio by Tisty terms of use
 
-**Draft of October 29, 2026.** Tisty Share is not open yet.
+**Draft of October 29, 2026.** Folio is not open yet.
 
 ## The short version
 
-Tisty Share turns a Tisty document into a link you can share. There are no
+Folio turns a Tisty document into a link you can share. There are no
 accounts: the link is the permission. What you share is encrypted, and not even
 whoever runs the service can read it. It is free, non-profit and comes with no
 warranty: it may fail, change or end. Your document always stays in your Tisty;
@@ -12,7 +12,7 @@ the link is a copy that expires.
 
 ## Who runs it
 
-Tisty Share is run by Mario, a natural person in Chile, as an open-source,
+Folio is run by Mario, a natural person in Chile, as an open-source,
 non-profit project. There is no company behind it and nobody makes money from
 it. The service's code is public, under the same licence as Tisty, the
 [GNU Affero General Public License, version 3](../LICENSE).
@@ -20,7 +20,7 @@ it. The service's code is public, under the same licence as Tisty, the
 ## What they cover
 
 The service that stores and serves shared documents, at
-[tisty.cl](https://tisty.cl), and the page where they are read in a browser.
+tisty.cl, and the page where they are read in a browser.
 The Tisty app has [terms of its own](https://github.com/rgdevment/Tisty/blob/main/TERMS.md).
 
 ## How it works
@@ -44,7 +44,7 @@ The Tisty app has [terms of its own](https://github.com/rgdevment/Tisty/blob/mai
 ## What is not allowed
 
 Even though nobody can read what is encrypted, sharing it is still your
-responsibility. You may not use Tisty Share for:
+responsibility. You may not use Folio for:
 
 - Child sexual abuse material, in any form.
 - Sexually explicit images of anyone.
@@ -84,7 +84,7 @@ for as long as it stays shared.
 
 ## No warranty
 
-Tisty Share is provided "as is", without warranty of any kind, as set out in
+Folio is provided "as is", without warranty of any kind, as set out in
 sections 15 and 16 of the AGPL. It may go down, lose what it keeps, change its
 limits or cease to exist, with notice where possible. That is why your
 document never leaves your Tisty.
@@ -92,7 +92,7 @@ document never leaves your Tisty.
 ## Liability
 
 To the extent the law allows, the operator is not liable for loss or damage
-arising from the use of Tisty Share, nor for what other people share. Where the
+arising from the use of Folio, nor for what other people share. Where the
 law does not allow these limits, they apply as far as it permits.
 
 ## Changes

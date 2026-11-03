@@ -1,12 +1,7 @@
 {
   "globs": [
     "**/*.md",
-    "!**/node_modules",
-    "!target",
-    "!tisty",
-    "!web/.stryker-tmp",
-    "!web/reports",
-    "!mutants.out"
+    "!**/node_modules"
   ],
   "config": {
     "default": true,

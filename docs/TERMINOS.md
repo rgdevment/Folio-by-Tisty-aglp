@@ -1,10 +1,10 @@
-# Términos de uso de Tisty Share
+# Términos de uso de Folio by Tisty
 
-**Borrador del 29 de octubre de 2026.** Tisty Share todavía no está abierto.
+**Borrador del 29 de octubre de 2026.** Folio todavía no está abierto.
 
 ## En corto
 
-Tisty Share convierte un documento de Tisty en un link para compartirlo.
+Folio convierte un documento de Tisty en un link para compartirlo.
 No tiene cuentas: el link es el permiso. Lo que compartes va cifrado, y ni
 siquiera quien opera el servicio puede leerlo. Es gratis, sin fines de lucro y
 sin garantías: puede fallar, cambiar o terminar. Tu documento sigue siempre en
@@ -12,7 +12,7 @@ tu Tisty; el link es una copia que caduca.
 
 ## Quién lo opera
 
-Tisty Share lo opera Mario, una persona natural en Chile, como proyecto de
+Folio lo opera Mario, una persona natural en Chile, como proyecto de
 código abierto y sin fines de lucro. No hay empresa detrás ni nadie que gane
 dinero con él. El código del servicio es público, bajo la misma licencia que
 Tisty, la
@@ -21,7 +21,7 @@ Tisty, la
 ## Qué cubren
 
 El servicio que guarda y sirve los documentos compartidos, en
-[tisty.cl](https://tisty.cl), y la página donde se leen en un navegador.
+tisty.cl, y la página donde se leen en un navegador.
 La app Tisty tiene sus propios [términos](https://github.com/rgdevment/Tisty/blob/main/TERMS.md).
 
 ## Cómo funciona
@@ -44,7 +44,7 @@ La app Tisty tiene sus propios [términos](https://github.com/rgdevment/Tisty/bl
 ## Qué no se permite
 
 Aunque nadie pueda leer lo cifrado, compartirlo sigue siendo tu
-responsabilidad. No se permite usar Tisty Share para:
+responsabilidad. No se permite usar Folio para:
 
 - Material de abuso sexual infantil, en cualquier forma.
 - Imágenes sexuales explícitas, de cualquier persona.
@@ -84,7 +84,7 @@ mientras siga compartido.
 
 ## Sin garantías
 
-Tisty Share se ofrece «tal cual», sin garantías de ningún tipo, como dicen las
+Folio se ofrece «tal cual», sin garantías de ningún tipo, como dicen las
 secciones 15 y 16 de la AGPL. Puede caerse, perder lo que guarda, cambiar sus
 topes o dejar de existir, avisando cuando sea posible. Por eso tu documento
 nunca deja de estar en tu Tisty.
@@ -92,7 +92,7 @@ nunca deja de estar en tu Tisty.
 ## Responsabilidad
 
 En la medida en que la ley lo permita, el operador no responde por pérdidas o
-daños que vengan del uso de Tisty Share, ni por lo que otras personas
+daños que vengan del uso de Folio, ni por lo que otras personas
 comparten. Donde la ley no permita estos límites, se aplican hasta donde la ley
 lo permita.
 

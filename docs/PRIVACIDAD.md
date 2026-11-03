@@ -1,16 +1,16 @@
-# Privacidad de Tisty Share
+# Privacidad de Folio by Tisty
 
-**Borrador del 29 de octubre de 2026.** Tisty Share todavía no está abierto.
+**Borrador del 29 de octubre de 2026.** Folio todavía no está abierto.
 
 ## En corto
 
-Tisty Share guarda lo mínimo para funcionar, y casi todo va cifrado con una
+Folio guarda lo mínimo para funcionar, y casi todo va cifrado con una
 llave que nunca recibe. No hay cuentas, ni cookies, ni analítica, ni anuncios,
 ni nada de terceros en la página. Lo que guarda caduca solo. Esta política
 cuenta exactamente qué guarda, por qué y por cuánto tiempo.
 
 Quién responde por estos datos: Mario, persona natural en Chile, que opera
-Tisty Share sin fines de lucro. Contacto: <rgdevment@tisty.app>.
+Folio sin fines de lucro. Contacto: <rgdevment@tisty.app>.
 
 ## Lo que no puede ver
 
@@ -46,7 +46,7 @@ descarta al terminar el día.
 
 ## Cloudflare
 
-Tisty Share corre en Cloudflare (Workers, D1 y R2). Cloudflare recibe tu IP y
+Folio corre en Cloudflare (Workers, D1 y R2). Cloudflare recibe tu IP y
 las peticiones al conectarte, como cualquier servidor web, y las trata según su
 propia [política de privacidad](https://www.cloudflare.com/privacypolicy/).
 Nunca recibe la llave del `#`, así que tampoco puede leer lo que compartes.
@@ -76,7 +76,7 @@ borrarlos u oponerte a su uso. Como no hay cuentas, lo más directo es:
 
 ## Menores de edad
 
-Tisty Share no está pensado para menores de 14 años.
+Folio no está pensado para menores de 14 años.
 
 ## Cambios
 
