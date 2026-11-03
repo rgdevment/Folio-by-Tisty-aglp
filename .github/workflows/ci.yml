@@ -115,3 +115,32 @@ jobs:
           package-manager-cache: false
       - run: npm ci --ignore-scripts
       - run: npm run lint:md
+
+  coverage:
+    name: coverage
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: ./.github/actions/toolchain
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-llvm-cov
+      - name: The crates, measured
+        run: |
+          cargo llvm-cov --workspace --all-features --lcov --output-path lcov-rust.info
+          sed -i "s|^SF:$PWD/|SF:|" lcov-rust.info
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: lcov-rust.info
+          retention-days: 7
