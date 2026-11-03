@@ -1,0 +1,37 @@
+[licenses]
+# Permissive licences only. AGPL-3.0 can depend on these; the reverse is not
+# true, so anything copyleft in the tree would be a problem worth knowing about.
+allow = [
+  "AGPL-3.0-only", # ours
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "Unlicense",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+  { crate = "reqwest" },
+  { crate = "hyper" },
+  { crate = "ureq" },
+  { crate = "attohttpc" },
+  { crate = "isahc" },
+  { crate = "curl" },
+]
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
