@@ -45,11 +45,17 @@ pub struct Doc {
     /// While held, the end its own life would have, or none when it lives only through its holders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub own: Option<i64>,
+    #[serde(default)]
+    pub owner: String,
 }
 
 impl Doc {
     pub fn latest(&self) -> Option<u64> {
         self.versions.last().map(|kept| kept.version)
+    }
+
+    pub fn pictures(&self) -> u64 {
+        self.versions.last().map_or(0, |kept| kept.pictures)
     }
 }
 
@@ -63,6 +69,8 @@ pub struct Kept {
     pub by: Option<Sender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sheet: Option<u64>,
+    #[serde(default)]
+    pub pictures: u64,
 }
 
 /// The key that sent a version and the root that vouched for it: only that root can take it back.
@@ -117,6 +125,7 @@ pub trait Store {
     async fn drop_envelope(&self, id: &str, kept: &Kept) -> Result<(), Fault>;
     /// At most `at_most` ids of documents whose `ends` has passed, those that ended first first.
     async fn ending(&self, now: i64, at_most: usize) -> Result<Vec<String>, Fault>;
+    async fn shares_of(&self, owner: &str, now: i64) -> Result<u64, Fault>;
     /// Atomically adds `by` to a counter that lapses at `until` and says what it holds now, or requests together slip past.
     async fn count(&self, key: &str, by: u64, until: i64, now: i64) -> Result<u64, Fault>;
     /// What a counter holds now, writing nothing: looking costs a store far less than counting.

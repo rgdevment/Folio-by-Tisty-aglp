@@ -30,9 +30,9 @@ impl<S: Store, R: Randomness> Share<S, R> {
         proof: Option<&Proof>,
         caller: IpAddr,
         now: i64,
-    ) -> Result<(), Refused> {
+    ) -> Result<bool, Refused> {
         let Some(gate) = doc.gate.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(password) = password else {
             return Err(Refused::PasswordAsked);
@@ -47,6 +47,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         }
         // A network that said this password today skips work and its block's count, which a guesser beside it cannot spend.
         let known = self.store.held(&place.known, now).await?.is_some();
+        let mut worked = false;
         if !known {
             for (block, most) in &place.blocks {
                 if self.store.counted(block, now).await? >= *most {
@@ -61,6 +62,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
                 let ask = Ask::Password { id: &doc.id };
                 self.worked(&ask, proof.ok_or(Refused::WorkAsked)?, needed, now)
                     .await?;
+                worked = true;
             }
         }
         // Counted before weighing, known or not, so guesses sent together stop at twice the limit however many are in flight.
@@ -75,7 +77,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             if !known {
                 self.store.mark(&place.known, day_ends, now).await?;
             }
-            return Ok(());
+            return Ok(worked);
         }
         self.store.count(&place.wrongs, 1, place.until, now).await?;
         for (block, _) in &place.blocks {

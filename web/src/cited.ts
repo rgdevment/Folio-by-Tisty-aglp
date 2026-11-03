@@ -91,9 +91,10 @@ type Answer = Exclude<Awaited<ReturnType<typeof fetched>>, { refused: string }>;
 export const citedOpening = <T>(
   read: (one: Cited, answer: Answer) => Promise<T | string>,
   ask: typeof fetch = fetch,
+  solve?: (challenge: string) => Promise<string | undefined>,
 ) =>
   keeping(async (one: Cited): Promise<T | string> => {
-    const answer = await fetched(one.id, ask);
+    const answer = await fetched(one.id, ask, undefined, solve);
     const found = "refused" in answer ? answer.refused : await read(one, answer);
     return typeof found === "string" ? citedWord(found) : found;
   });

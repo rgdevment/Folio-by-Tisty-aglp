@@ -14,8 +14,9 @@ separate from the Tisty app, with its own server, rules and promises. It runs at
 
 ## How it works
 
-- **You share from Tisty,** with its *Share* button. Nothing is shared any other
-  way, and there are no accounts: the link is the permission.
+- **You share from Tisty,** with its *Share* button, which is not switched on
+  yet. Nothing is shared any other way, and there are no accounts: the link is
+  the permission.
 - **Each document gets three links:** one to read, one to edit and one to
   manage.
 - **What you share is encrypted in your Tisty before it leaves.** The key

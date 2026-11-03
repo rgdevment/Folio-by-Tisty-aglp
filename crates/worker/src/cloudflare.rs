@@ -207,6 +207,13 @@ impl Store for Cloud {
         Ok(ids.into_iter().map(|one| one.id).collect())
     }
 
+    async fn shares_of(&self, owner: &str, now: i64) -> Result<u64, Fault> {
+        let counted: Option<Value> = self
+            .first(sql::SHARES_OF, &[owner.into(), number(now)])
+            .await?;
+        Ok(counted.map_or(0, |counted| counted.value))
+    }
+
     async fn count(&self, key: &str, by: u64, until: i64, now: i64) -> Result<u64, Fault> {
         let values = [key.into(), number(by as i64), number(until), number(now)];
         let counted: Option<Value> = self.first(sql::COUNT, &values).await?;

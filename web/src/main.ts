@@ -187,7 +187,7 @@ const opened = async (password?: string): Promise<Read | string> => {
     () => false,
   );
   const [answer, loaded] = await Promise.all([
-    fetched(link.id, early(link.id), password, checked),
+    fetched(link.id, early(link.id), password, password === undefined ? solving : checked),
     loading,
   ]);
   if ("refused" in answer) return answer.refused;
@@ -472,8 +472,10 @@ const reader = async (first: Read) => {
       paneled();
     });
   };
-  const openCited = citedOpening<Read>((one, answer) =>
-    unsealed({ id: one.id, key: one.key }, answer),
+  const openCited = citedOpening<Read>(
+    (one, answer) => unsealed({ id: one.id, key: one.key }, answer),
+    fetch,
+    solving,
   );
   // Only the last step asked for is shown, however the ones before it arrive.
   let turn = 0;
@@ -514,7 +516,7 @@ const reader = async (first: Read) => {
       openCited.forget(one.id);
       return show(one, at);
     }
-    const answer = await fetched(root.link.id);
+    const answer = await fetched(root.link.id, fetch, undefined, solving);
     const fresh = "refused" in answer ? answer.refused : await unsealed(root.link, answer);
     if (typeof fresh === "string" || found?.link.id !== id) return;
     root = fresh;

@@ -48,6 +48,7 @@ fn doc(id: &str) -> Doc {
             digest: [3; 32],
             by: None,
             sheet: None,
+            pictures: 0,
         }],
         created: 10,
         active: 10,
@@ -61,6 +62,7 @@ fn doc(id: &str) -> Doc {
         holders: Vec::new(),
         holds: Vec::new(),
         own: None,
+        owner: String::new(),
     }
 }
 
@@ -78,6 +80,8 @@ fn every_query_names_the_columns_its_row_is_read_by() {
     let ending: Vec<Id> = rows(&db, sql::ENDING, params![111, 10]);
     assert_eq!(ending[0].id, "abc");
 
+    let shares: Vec<Value> = rows(&db, sql::SHARES_OF, params!["someone", 0]);
+    assert_eq!(shares[0].value, 0);
     let counted: Vec<Value> = rows(&db, sql::COUNT, params!["rate", 2, 50, 0]);
     assert_eq!(counted[0].value, 2);
     db.execute(sql::HOLD, params!["wait", 70]).unwrap();
@@ -95,6 +99,7 @@ fn a_document_s_envelopes_share_a_prefix_no_other_document_s_starts_with() {
         digest: [7; 32],
         by: None,
         sheet: None,
+        pictures: 0,
     };
     let key = envelope_key("abc", &kept);
     assert!(key.starts_with(&envelopes_of("abc")));
@@ -108,6 +113,7 @@ fn a_document_s_envelopes_share_a_prefix_no_other_document_s_starts_with() {
                 digest: [8; 32],
                 by: None,
                 sheet: None,
+                pictures: 0,
             }
         )
     );

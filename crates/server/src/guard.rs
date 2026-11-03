@@ -106,6 +106,7 @@ pub struct Work {
     pub password: u8,
     /// Low enough for a phone to answer in about a second, so guessers can never price readers out (decision 76).
     pub password_most: u8,
+    pub reader: u8,
     pub lasts: i64,
 }
 
@@ -118,6 +119,7 @@ impl Default for Work {
             report: 18,
             password: 16,
             password_most: 22,
+            reader: 16,
             lasts: 10 * 60,
         }
     }

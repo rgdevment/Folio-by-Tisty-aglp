@@ -245,6 +245,38 @@ describe("a password to a document guessed at from everywhere", () => {
     expect(asked).toHaveLength(2);
   });
 
+  it("works a reader's challenge when a link without a password asks for work", async () => {
+    const { asked, ask } = server([
+      workAsked(),
+      new Response('{"seed":"r","bits":16}'),
+      new Response(new Uint8Array([9])),
+    ]);
+    const said = await fetched("k7Qm2xPa", ask, undefined, async (challenge) => `p ${challenge}`);
+    expect("sealed" in said && said.sealed).toEqual(new Uint8Array([9]));
+    expect(asked).toEqual([
+      { url: "/api/v1/docs/k7Qm2xPa", password: null, work: null, body: undefined },
+      {
+        url: "/api/v1/challenge",
+        password: null,
+        work: null,
+        body: '{"for":"reader","id":"k7Qm2xPa"}',
+      },
+      {
+        url: "/api/v1/docs/k7Qm2xPa",
+        password: null,
+        work: 'p {"seed":"r","bits":16}',
+        body: undefined,
+      },
+    ]);
+  });
+
+  it("tells a reader without a password why the work could not be done, never of a password", async () => {
+    const { ask } = server([workAsked(), new Response("{}")]);
+    expect(await fetched("k7Qm2xPa", ask, undefined, async () => undefined)).toEqual({
+      refused: "failed",
+    });
+  });
+
   it("is told as it came when the page has no way to work", async () => {
     const { ask } = server([workAsked()]);
     expect(await fetched("k7Qm2xPa", ask, "perro azul")).toEqual({ refused: "work_asked" });

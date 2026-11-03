@@ -119,13 +119,20 @@ export const fetched = async (
   password?: string,
   solve?: Solve,
 ) => {
-  if (password === undefined) return sealedOf(id, ask, {});
-  const headers = { "Tisty-Password": passwordOf(password) };
+  const headers: Record<string, string> =
+    password === undefined ? {} : { "Tisty-Password": passwordOf(password) };
   const first = await sealedOf(id, ask, headers);
   if (!("refused" in first) || first.refused !== "work_asked" || !solve) return first;
-  const work = await worked({ for: "password", id }, solve, ask);
+  const work = await worked(
+    { for: password === undefined ? "reader" : "password", id },
+    solve,
+    ask,
+  );
   // Only a document gone or put away ends the reading; any other trouble with the work asks for the password again.
-  if (typeof work !== "string") return ENDS.has(work.refused) ? work : { refused: worded(work) };
+  if (typeof work !== "string") {
+    if (ENDS.has(work.refused) || password === undefined) return work;
+    return { refused: worded(work) };
+  }
   return sealedOf(id, ask, { ...headers, "Tisty-Work": work });
 };
 

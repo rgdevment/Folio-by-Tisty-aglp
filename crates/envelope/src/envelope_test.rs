@@ -6,14 +6,21 @@ use crate::identity::Root;
 // Decision 5, what every server takes unless it says otherwise.
 const TEXT_AT_MOST: usize = 512 * 1024;
 const PICTURE_AT_MOST: usize = 512 * 1024;
-const PICTURES_AT_MOST: usize = 10;
+const PICTURES_AT_MOST: usize = 2;
+
+fn roomy() -> Limits {
+    Limits {
+        pictures: 10,
+        ..Limits::default()
+    }
+}
 
 fn sealed(key: &LinkKey, draft: &Draft, by: Option<&Signer>) -> Result<Envelope, Refused> {
     seal(key, draft, by, &Limits::default())
 }
 
 fn read(bytes: &[u8]) -> Result<Envelope, Refused> {
-    Envelope::read(bytes.to_vec(), &Limits::default())
+    Envelope::read(bytes.to_vec(), &roomy())
 }
 
 fn key(n: u8) -> LinkKey {
@@ -277,7 +284,7 @@ fn every_limit_is_held_when_sealing() {
     let half = png(1, 450 * 1024);
     let five: Vec<(Kind, &[u8])> = (0..5).map(|_| (Kind::Png, half.as_slice())).collect();
     assert_eq!(
-        sealed(&key(9), &draft("x", &five), None).err(),
+        seal(&key(9), &draft("x", &five), None, &roomy()).err(),
         Some(Refused::PicturesTooBig)
     );
 }
@@ -334,7 +341,10 @@ fn a_manifest_over_the_limits_is_refused_by_the_server_before_anything_is_kept()
     bytes.extend_from_slice(&(written.len() as u32).to_be_bytes());
     bytes.extend_from_slice(&written);
 
-    assert_eq!(read(&bytes).err(), Some(Refused::TooManyPictures));
+    assert_eq!(
+        Envelope::read(bytes, &Limits::default()).err(),
+        Some(Refused::TooManyPictures)
+    );
 }
 
 #[test]
@@ -444,8 +454,9 @@ fn the_limits_unless_a_server_says_otherwise_are_decision_five() {
     let ours = Limits::default();
     assert_eq!(
         (ours.text, ours.picture, ours.pictures, ours.all_pictures),
-        (512 * 1024, 512 * 1024, 10, 2 * 1024 * 1024)
+        (512 * 1024, 512 * 1024, 2, 2 * 1024 * 1024)
     );
+    assert_eq!((ours.shares, ours.cited), (2, 2));
     assert_eq!(
         ours.kinds,
         vec![Kind::Png, Kind::Jpeg, Kind::Webp, Kind::Gif]
@@ -461,6 +472,7 @@ fn a_server_with_its_own_limits_holds_them_both_ways() {
         pictures: 1,
         all_pictures: 100,
         kinds: vec![Kind::Png],
+        ..Limits::default()
     };
     let small = png(1, 50);
     let one = [(Kind::Png, small.as_slice())];
@@ -629,6 +641,7 @@ fn a_kind_only_a_later_tisty_knows_is_passed_over_in_a_server_s_limits() {
         (read.text, read.picture, read.pictures, read.all_pictures),
         (1, 2, 3, 4)
     );
+    assert_eq!((read.shares, read.cited), (2, 2));
 }
 
 #[test]
@@ -1120,7 +1133,7 @@ fn resealed(written: &Draft, carried: &Draft, by: &Machine) -> Envelope {
         Some(&words),
         None,
         Some(&by.signer()),
-        &Limits::default(),
+        &roomy(),
     )
     .unwrap()
 }

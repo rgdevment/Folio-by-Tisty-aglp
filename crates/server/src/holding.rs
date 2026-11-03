@@ -1,5 +1,3 @@
-use tisty_share_proto::envelope::CITED_AT_MOST;
-
 use crate::keys::{self, Randomness};
 use crate::share::{Refused, Share};
 use crate::store::{Doc, Store};
@@ -39,11 +37,15 @@ impl<S: Store, R: Randomness> Share<S, R> {
         if held.holders.contains(&holder.id) {
             return Ok(());
         }
-        if holder.holds.len() >= CITED_AT_MOST {
+        let named = holder.holds.iter().any(|one| one == id);
+        if !named && holder.holds.len() as u64 >= self.policy.limits.cited {
             return Err(Refused::TooLong);
         }
+        if self.carried(holder, id, held.pictures()).await? > self.policy.limits.pictures {
+            return Err(Refused::PicturesFull);
+        }
         // The holder says it holds first: a holder naming one that does not hold back costs nothing, the other way round keeps it alive.
-        if !holder.holds.iter().any(|one| one == id) {
+        if !named {
             holder.holds.push(id.to_owned());
         }
         self.saved(holder).await?;
@@ -54,7 +56,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             if held.holders.contains(&holder.id) {
                 return Ok(());
             }
-            if held.holders.is_empty() {
+            if held.holders.is_empty() && !held.versions.is_empty() {
                 held.own = lives.then_some(held.ends);
                 held.ends = HELD;
             }
@@ -174,6 +176,34 @@ impl<S: Store, R: Randomness> Share<S, R> {
             }
         }
         Err(Refused::Behind { latest: None })
+    }
+
+    pub(crate) async fn room_for_pictures(&self, doc: &Doc, pictures: u64) -> Result<(), Refused> {
+        let most = self.policy.limits.pictures;
+        if !doc.holds.is_empty() && self.carried(doc, &doc.id, pictures).await? > most {
+            return Err(Refused::PicturesFull);
+        }
+        for holder in &doc.holders {
+            let Some(holder) = self.store.doc(holder).await? else {
+                continue;
+            };
+            if self.carried(&holder, &doc.id, pictures).await? > most {
+                return Err(Refused::PicturesFull);
+            }
+        }
+        Ok(())
+    }
+
+    async fn carried(&self, holder: &Doc, id: &str, pictures: u64) -> Result<u64, Refused> {
+        let mut all = pictures;
+        if holder.id != id {
+            all = all.saturating_add(holder.pictures());
+        }
+        for held in holder.holds.iter().filter(|one| *one != id) {
+            let one = self.store.doc(held).await?;
+            all = all.saturating_add(one.map_or(0, |one| one.pictures()));
+        }
+        Ok(all)
     }
 
     /// Applies `change` to what is stored now until it saves, or not at all when it is gone or nothing changes.

@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use futures_util::future::{join, join3};
+use futures_util::future::{join, join4};
 use serde::{Deserialize, Serialize};
 use tisty_share_proto::envelope::{Envelope, Refused as Unread};
 use tisty_share_proto::identity::{Revocation, Verdict};
@@ -9,7 +9,7 @@ use tisty_share_proto::work::{Challenge, Proof};
 use zeroize::Zeroizing;
 
 use crate::guard::{self, Act, Allowance, Work};
-use crate::holding::ending_at;
+use crate::holding::{HELD, ending_at};
 use crate::keys::{self, Randomness, Slowness};
 use crate::store::{Doc, Fault, Kept, Saved, Sender, Store};
 
@@ -50,6 +50,7 @@ pub struct Policy {
     pub sweep: usize,
     /// Seconds a report and a blocked document are kept as evidence (decision 42).
     pub evidence: i64,
+    pub readers: u64,
 }
 
 impl Default for Policy {
@@ -73,6 +74,7 @@ impl Default for Policy {
             reports_to_block: 3,
             sweep: 15,
             evidence: 90 * DAY,
+            readers: 250,
         }
     }
 }
@@ -126,6 +128,10 @@ pub enum Refused {
     Reported,
     #[error("that is longer than a report takes")]
     TooLong,
+    #[error("this person already shares as many documents as they may")]
+    SharesFull,
+    #[error("a share carries no more pictures than this")]
+    PicturesFull,
     #[error("no free id could be found; try again")]
     Crowded,
     #[error("there was no randomness to mint with")]
@@ -244,6 +250,9 @@ pub enum Ask<'a> {
     Password {
         id: &'a str,
     },
+    Reader {
+        id: &'a str,
+    },
 }
 
 impl Ask<'_> {
@@ -255,6 +264,7 @@ impl Ask<'_> {
             }
             Ask::Report { id } => [b"report:".as_slice(), id.as_bytes()].concat(),
             Ask::Password { id } => [b"password:".as_slice(), id.as_bytes()].concat(),
+            Ask::Reader { id } => [b"reader:".as_slice(), id.as_bytes()].concat(),
         }
     }
 }
@@ -298,6 +308,11 @@ impl<S: Store, R: Randomness> Share<S, R> {
                     return Err(Refused::Forbidden);
                 }
                 u8::max(self.password_work(id, now).await?, work.password)
+            }
+            Ask::Reader { id } => {
+                self.admit(caller, Act::Read, now).await?;
+                open_to_read(&self.live(id, now).await?)?;
+                work.reader
             }
         };
         let mut salt = [0u8; 16];
@@ -346,6 +361,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
                 holders: Vec::new(),
                 holds: Vec::new(),
                 own: None,
+                owner: String::new(),
             };
             if self.store.save(&doc, None).await? == Saved::Done {
                 return Ok(Reserved { id, edit, admin });
@@ -373,6 +389,13 @@ impl<S: Store, R: Randomness> Share<S, R> {
         open_to_read(&doc)?;
         let size = bytes.len() as u64;
         let envelope = Envelope::read(bytes, &self.policy.limits).map_err(Refused::Envelope)?;
+        let pictures = envelope
+            .manifest()
+            .parts
+            .iter()
+            .filter(|part| part.kind.is_picture())
+            .count() as u64;
+        self.room_for_pictures(&doc, pictures).await?;
         let ask = Ask::Upload {
             id,
             digest: envelope.digest(),
@@ -396,6 +419,10 @@ impl<S: Store, R: Randomness> Share<S, R> {
         if manifest.from != latest || manifest.version != latest.map_or(1, |one| one + 1) {
             return Err(Refused::Behind { latest });
         }
+        if latest.is_none() {
+            doc.owner = by.map_or_else(String::new, |sender| guard::hex(&sender.root));
+            self.room_to_share(&doc, now, 0).await?;
+        }
         // Only what was kept is counted against the day, so a store that fails costs the caller nothing.
         guard::affords(
             &self.store,
@@ -412,6 +439,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             digest: envelope.digest(),
             by,
             sheet: envelope.sheet_end(),
+            pictures,
         };
         self.store.keep(id, &kept, envelope.into_bytes()).await?;
         // A reserved id may wait an hour for its first version, and the reader is told when it was shared, not reserved.
@@ -425,10 +453,21 @@ impl<S: Store, R: Randomness> Share<S, R> {
             .drain(..doc.versions.len().saturating_sub(self.policy.versions))
             .collect();
         touched(&mut doc, now, self.policy.idle);
+        if latest.is_none() && !doc.holders.is_empty() {
+            doc.ends = HELD;
+        }
         if let Err(lost) = self.saved(&mut doc).await {
             // The race was lost, so what was kept for it is nobody's and goes.
             self.store.drop_envelope(id, &kept).await?;
             return Err(lost);
+        }
+        let still = match latest {
+            None => self.room_to_share(&doc, now, 1).await,
+            Some(_) => Ok(()),
+        };
+        if let Err(over) = still.and(self.room_for_pictures(&doc, pictures).await) {
+            self.undone(id, &kept, &dropped, now).await?;
+            return Err(over);
         }
         guard::charge(&self.store, &self.secret, caller, 0, size, now).await?;
         for old in &dropped {
@@ -455,13 +494,17 @@ impl<S: Store, R: Randomness> Share<S, R> {
         let kept = *doc.versions.last().ok_or(Refused::Unwritten)?;
         let sheet = kept.sheet.filter(|_| sheet_first);
         // Each waits on a store, so the envelope and what took its key back come while the password is weighed; neither goes out unless it holds.
-        let (allowed, envelope, revoked) = join3(
+        let (allowed, crowded, envelope, revoked) = join4(
             self.let_in(&doc, password, proof, caller, now),
+            self.crowded(&doc, caller, now),
             self.store.envelope_range(id, &kept, 0, sheet),
             self.revoked(kept.by.as_ref()),
         )
         .await;
-        allowed?;
+        let worked = allowed?;
+        if crowded? && !worked {
+            self.reader_worked(&doc, proof, now).await?;
+        }
         let envelope = envelope?.ok_or_else(|| lost(id, &kept))?;
         // Told as `seen` leaves it for a new reader; one back within the hour hears an end at most that hour ahead.
         let ends = match doc.holders.is_empty() {
@@ -532,6 +575,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         let new_reader = self.first_read_today(&id, caller, now).await?;
         if new_reader {
             doc.reads += 1;
+            self.counted_reader(&doc.owner, caller, now).await?;
         }
         if new_reader || now - doc.active >= ACTIVITY_GRAIN {
             touched(&mut doc, now, self.policy.idle);
@@ -625,6 +669,13 @@ impl<S: Store, R: Randomness> Share<S, R> {
         // Blocked, a document is evidence: only the owner's visit still counts (decision 36).
         if doc.blocked.is_some() && what != Manage::Visit {
             return Err(Refused::Blocked);
+        }
+        let keeps = matches!(
+            what,
+            Manage::Delete | Manage::Hold { .. } | Manage::Release(_)
+        );
+        if doc.versions.is_empty() && !keeps {
+            return Err(Refused::Unwritten);
         }
         match what {
             Manage::Delete => {
@@ -753,6 +804,83 @@ impl<S: Store, R: Randomness> Share<S, R> {
         Ok(self.store.mark(&seen, (day + 1) * DAY, now).await?)
     }
 
+    fn reader_of(&self, owner: &str, caller: IpAddr, now: i64) -> String {
+        let who = guard::today_block(&self.secret, caller, now, 48)
+            .unwrap_or_else(|| guard::today(&self.secret, caller, now));
+        format!("reader:{owner}:{who}")
+    }
+
+    async fn counted_reader(&self, owner: &str, caller: IpAddr, now: i64) -> Result<(), Refused> {
+        let day = now.div_euclid(DAY);
+        let reader = self.reader_of(owner, caller, now);
+        if self.store.mark(&reader, (day + 1) * DAY, now).await? {
+            self.store
+                .count(&readers_of(owner, day), 1, (day + 1) * DAY, now)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn crowded(&self, doc: &Doc, caller: IpAddr, now: i64) -> Result<bool, Refused> {
+        let day = now.div_euclid(DAY);
+        let readers = readers_of(&doc.owner, day);
+        if self.store.counted(&readers, now).await? < self.policy.readers {
+            return Ok(false);
+        }
+        let reader = self.reader_of(&doc.owner, caller, now);
+        Ok(self.store.held(&reader, now).await?.is_none())
+    }
+
+    async fn reader_worked(
+        &self,
+        doc: &Doc,
+        proof: Option<&Proof>,
+        now: i64,
+    ) -> Result<(), Refused> {
+        let proof = proof.ok_or(Refused::WorkAsked)?;
+        let needed = self.policy.work.reader;
+        let password = Ask::Password { id: &doc.id };
+        let ask = match guard::checked(&self.secret, &password.bound(), proof, needed, now) {
+            Ok(()) => password,
+            Err(_) => Ask::Reader { id: &doc.id },
+        };
+        self.worked(&ask, proof, needed, now).await
+    }
+
+    async fn room_to_share(&self, doc: &Doc, now: i64, itself: u64) -> Result<(), Refused> {
+        if !doc.holders.is_empty() && doc.own.is_none() {
+            return Ok(());
+        }
+        let most = self.policy.limits.shares.saturating_add(itself);
+        match self.store.shares_of(&doc.owner, now).await? >= most {
+            true => Err(Refused::SharesFull),
+            false => Ok(()),
+        }
+    }
+
+    async fn undone(
+        &self,
+        id: &str,
+        kept: &Kept,
+        dropped: &[Kept],
+        now: i64,
+    ) -> Result<(), Refused> {
+        self.retried(id, now, |doc| {
+            if doc.versions.last() != Some(kept) {
+                return false;
+            }
+            doc.versions.pop();
+            doc.versions.splice(0..0, dropped.iter().copied());
+            true
+        })
+        .await?;
+        self.store.drop_envelope(id, kept).await?;
+        match self.store.doc(id).await? {
+            Some(doc) if doc.versions.is_empty() => self.forgotten(&doc).await,
+            _ => Ok(()),
+        }
+    }
+
     pub(crate) async fn owned(&self, id: &str, admin: &str, now: i64) -> Result<Doc, Refused> {
         let doc = self.live(id, now).await?;
         if keys::hashed(admin) != doc.admin {
@@ -807,6 +935,10 @@ impl<S: Store, R: Randomness> Share<S, R> {
             }),
         }
     }
+}
+
+fn readers_of(owner: &str, day: i64) -> String {
+    format!("readers:{owner}:{day}")
 }
 
 fn gated(doc: &Doc) -> &[u8] {

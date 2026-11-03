@@ -238,6 +238,8 @@ fn roomier(server: Limits) -> Limits {
         pictures: server.pictures.max(own.pictures),
         all_pictures: server.all_pictures.max(own.all_pictures),
         kinds,
+        shares: server.shares.max(own.shares),
+        cited: server.cited.max(own.cited),
     }
 }
 

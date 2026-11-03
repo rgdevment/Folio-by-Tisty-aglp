@@ -20,6 +20,8 @@ pub struct Limits {
     /// The kinds of picture taken.
     #[serde(deserialize_with = "known")]
     pub kinds: Vec<Kind>,
+    pub shares: u64,
+    pub cited: u64,
 }
 
 impl Default for Limits {
@@ -29,9 +31,11 @@ impl Default for Limits {
             text: 512 * 1024,
             html: 1024 * 1024,
             picture: 512 * 1024,
-            pictures: 10,
+            pictures: 2,
             all_pictures: 2 * 1024 * 1024,
             kinds: vec![Kind::Png, Kind::Jpeg, Kind::Webp, Kind::Gif],
+            shares: 2,
+            cited: 2,
         }
     }
 }

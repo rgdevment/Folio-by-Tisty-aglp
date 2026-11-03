@@ -95,6 +95,9 @@ enum Asking {
     Password {
         id: String,
     },
+    Reader {
+        id: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -204,6 +207,7 @@ async fn routed<S: Store, R: Randomness>(
                 Asking::Password { id } => {
                     share.challenge(Ask::Password { id }, caller, now).await?
                 }
+                Asking::Reader { id } => share.challenge(Ask::Reader { id }, caller, now).await?,
             };
             Ok(said(200, json!(challenge)))
         }
@@ -319,6 +323,8 @@ fn refusal(refused: &Refused, now: i64) -> Answer {
         Refused::Slow { .. } => (429, "slow"),
         Refused::Reported => (409, "reported"),
         Refused::TooLong => (413, "too_long"),
+        Refused::SharesFull => (409, "shares_full"),
+        Refused::PicturesFull => (413, "pictures_full"),
         Refused::Crowded => (503, "crowded"),
         Refused::NoRandomness => (500, "no_randomness"),
         Refused::Store(_) => (500, "store"),

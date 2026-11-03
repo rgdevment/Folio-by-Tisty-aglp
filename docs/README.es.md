@@ -15,8 +15,9 @@ sus promesas. Funciona en [tisty.cl](https://tisty.cl).
 
 ## Cómo funciona
 
-- **Se comparte desde Tisty,** con su botón *Compartir*. No hay otra forma de
-  compartir, y no hay cuentas: el link es el permiso.
+- **Se comparte desde Tisty,** con su botón *Compartir*, que todavía no está
+  encendido. No hay otra forma de compartir, y no hay cuentas: el link es el
+  permiso.
 - **Cada documento tiene tres links:** uno para leer, uno para editar y uno
   para administrar.
 - **Lo que compartes se cifra en tu Tisty antes de salir.** La llave viaja en
