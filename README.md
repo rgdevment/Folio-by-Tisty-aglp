@@ -66,3 +66,5 @@ and checks live.
 
 The same as Tisty: the
 [GNU Affero General Public License, version 3](LICENSE).
+[Commercial terms](docs/COMMERCIAL.md) exist for organisations that cannot
+comply with the AGPL.

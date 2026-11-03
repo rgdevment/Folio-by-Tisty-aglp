@@ -4,8 +4,9 @@ Folio by Tisty Individual Contributor License Agreement, version 1.0.
 
 Thank you for contributing to Folio by Tisty, the service behind Tisty's shared
 links. This agreement exists for one reason: Folio by Tisty is released under
-the AGPL-3.0 **and** offered under separate commercial terms, on request at
-<rgdevment@tisty.app>, to organisations that cannot comply with the AGPL.
+the AGPL-3.0 **and** offered under separate
+[commercial terms](docs/COMMERCIAL.md) to organisations that cannot comply
+with the AGPL.
 Offering those commercial terms requires the right to license the whole
 codebase that way — including your contribution. Without this agreement from
 every contributor, that right does not exist and the dual model collapses.

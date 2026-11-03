@@ -67,3 +67,5 @@ en vivo.
 
 La misma de Tisty: la
 [GNU Affero General Public License, versión 3](LICENSE).
+Hay [términos comerciales](docs/COMMERCIAL.md) para organizaciones que no
+pueden cumplir la AGPL.

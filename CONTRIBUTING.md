@@ -24,7 +24,7 @@ to an issue.
 ## The CLA
 
 Folio by Tisty is released under the AGPL-3.0 **and** offered under separate
-commercial terms, on request at <rgdevment@tisty.app>, to organisations that
+[commercial terms](docs/COMMERCIAL.md) to organisations that
 cannot comply with it. Because of that dual model, every contributor signs a
 one-time [CLA](CLA.md) before their code can be merged. Offering commercial
 terms requires the right to license the whole codebase that way, and that right
