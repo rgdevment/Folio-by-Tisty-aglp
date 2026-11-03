@@ -16,13 +16,13 @@ Tisty Share lo opera Mario, una persona natural en Chile, como proyecto de
 código abierto y sin fines de lucro. No hay empresa detrás ni nadie que gane
 dinero con él. El código del servicio es público, bajo la misma licencia que
 Tisty, la
-[GNU Affero General Public License, versión 3](../../LICENSE).
+[GNU Affero General Public License, versión 3](../LICENSE).
 
 ## Qué cubren
 
 El servicio que guarda y sirve los documentos compartidos, en
 [tisty.cl](https://tisty.cl), y la página donde se leen en un navegador.
-La app Tisty tiene sus propios [términos](../../TERMS.md).
+La app Tisty tiene sus propios [términos](../TERMS.md).
 
 ## Cómo funciona
 

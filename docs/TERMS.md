@@ -15,13 +15,13 @@ the link is a copy that expires.
 Tisty Share is run by Mario, a natural person in Chile, as an open-source,
 non-profit project. There is no company behind it and nobody makes money from
 it. The service's code is public, under the same licence as Tisty, the
-[GNU Affero General Public License, version 3](../../LICENSE).
+[GNU Affero General Public License, version 3](../LICENSE).
 
 ## What they cover
 
 The service that stores and serves shared documents, at
 [tisty.cl](https://tisty.cl), and the page where they are read in a browser.
-The Tisty app has [terms of its own](../../TERMS.md).
+The Tisty app has [terms of its own](../TERMS.md).
 
 ## How it works
 
