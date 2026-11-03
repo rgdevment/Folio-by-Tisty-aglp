@@ -224,34 +224,18 @@ fn every_answer_keeps_itself_out_of_caches_and_search_engines() {
         assert_eq!(header(&answer, "Referrer-Policy"), Some("no-referrer"));
         assert!(header(&answer, "Strict-Transport-Security").is_some());
     }
-    let robots = world.answer(asked("GET", "/robots.txt"));
-    assert_eq!(robots.body, b"User-agent: *\nDisallow: /\n");
 }
 
 #[test]
-fn the_domain_itself_goes_home_for_good_and_any_other_page_for_now() {
+fn only_the_api_reaches_the_worker_and_the_rest_of_the_domain_is_the_page_s_own() {
     let mut world = World::new();
-    let root = world.answer(asked("GET", "/"));
-    assert_eq!(root.status, 301);
-    assert_eq!(header(&root, "Location"), Some("https://www.tisty.app/"));
-    assert!(root.body.is_empty());
-
-    for path in ["/abcd1234", "/favicon.ico", "/a/b"] {
+    for path in ["/", "/404", "/robots.txt", "/abcd1234"] {
         let page = world.answer(asked("GET", path));
-        assert_eq!(page.status, 302, "{path}");
-        assert_eq!(header(&page, "Location"), Some("https://www.tisty.app/"));
+        assert_eq!(page.status, 404, "{path}");
+        assert_eq!(said(&page), json!({ "refused": "unknown" }));
     }
-    assert_eq!(world.answer(asked("HEAD", "/")).status, 301);
-
-    let lost = world.answer(asked("GET", "/404"));
-    assert_eq!(lost.status, 302);
-    assert_eq!(header(&lost, "Location"), Some("https://www.tisty.app/404"));
-
-    // The API keeps its own words, and nothing but reading is ever sent away.
     let missing = world.answer(asked("GET", "/api/v1/nothing"));
     assert_eq!(said(&missing), json!({ "refused": "unknown" }));
-    assert_eq!(world.answer(asked("POST", "/")).status, 404);
-    assert_eq!(world.answer(asked("GET", "/robots.txt")).status, 200);
 }
 
 #[test]

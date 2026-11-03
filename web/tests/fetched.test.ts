@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetched, limitsOf, reported } from "../src/fetched";
+import { early, fetched, limitsOf, reported } from "../src/fetched";
 
 const answering = (answer: () => Response) => (async () => answer()) as typeof fetch;
 
@@ -51,6 +51,29 @@ describe("what the server answers for a link", () => {
       ["/api/v1/docs/k7Qm2xPa", "cGVycm8gYXp1bA"],
       ["/api/v1/docs/k7Qm2xPa", "w7FhbmTDuiDigqzwn5SR"],
     ]);
+  });
+
+  it("takes once the envelope asked for before the page's code arrived, and asks again for anything else", async () => {
+    const asked: string[] = [];
+    const ask = (async (url: RequestInfo | URL) => {
+      asked.push(String(url));
+      return new Response("later");
+    }) as typeof fetch;
+    const held = globalThis as { tistyEarly?: unknown };
+    held.tistyEarly = { id: "k7Qm2xPa", answer: Promise.resolve(new Response("early")) };
+
+    const taking = early("k7Qm2xPa", ask);
+    expect(held.tistyEarly).toBeNull();
+    expect(await (await taking("/api/v1/docs/k7Qm2xPa")).text()).toBe("early");
+    expect(await (await taking("/api/v1/docs/k7Qm2xPa")).text()).toBe("later");
+    expect(await (await taking("/api/v1/docs/otro1234")).text()).toBe("later");
+    expect(asked).toEqual(["/api/v1/docs/k7Qm2xPa", "/api/v1/docs/otro1234"]);
+
+    // Nothing asked early, or asked for another id, leaves the page asking on its own.
+    held.tistyEarly = { id: "otro1234", answer: Promise.resolve(new Response("early")) };
+    expect(early("k7Qm2xPa", ask)).toBe(ask);
+    expect(early("k7Qm2xPa", ask)).toBe(ask);
+    delete held.tistyEarly;
   });
 
   it("is the word of its refusal", async () => {

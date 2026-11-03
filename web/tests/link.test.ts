@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { linkOf, readLinkOf } from "../src/link";
+import early from "../public/early.js?raw";
+import { ID, linkOf, readLinkOf } from "../src/link";
 
 describe("a link", () => {
   it("names the document by its path and keeps the key the # carries", () => {
@@ -34,5 +35,11 @@ describe("a link", () => {
       "/a/k7Qm2xPa",
     ])
       expect(linkOf(path, "#qR12Ff"), path).toBeNull();
+  });
+});
+
+describe("the envelope asked for before the page's code", () => {
+  it("is asked for the same links the page reads, so neither drifts from the other", () => {
+    expect(early).toContain(`/${ID.source}/`);
   });
 });

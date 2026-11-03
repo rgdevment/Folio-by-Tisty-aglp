@@ -39,14 +39,6 @@ const ALWAYS: [(&str, &str); 6] = [
     ),
 ];
 
-const ROBOTS: &str = "User-agent: *\nDisallow: /\n";
-
-/// Where a person who lands on the domain itself, or on a page it does not have, is sent.
-const HOME: &str = "https://www.tisty.app/";
-
-/// Where the reading page sends a link to nothing, so tisty.app answers it as it answers any missing page.
-const LOST: &str = "/404";
-
 /// What a step needs of a request, whatever carried it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asked {
@@ -188,12 +180,8 @@ async fn routed<S: Store, R: Randomness>(
     asked: Asked,
     seen: &mut Option<Seen>,
 ) -> Result<Answer, Turned> {
-    if asked.method == "GET" && asked.path == "/robots.txt" {
-        return Ok(plain(200, "text/plain; charset=utf-8", ROBOTS.into()));
-    }
-    let Some(rest) = asked.path.strip_prefix(ROOT) else {
-        return elsewhere(&asked);
-    };
+    // Only the API reaches the Worker; the home page, the lost page and robots are the reading page's own files.
+    let rest = asked.path.strip_prefix(ROOT).ok_or(Turned::Unknown)?;
     let parts: Vec<&str> = rest.split('/').collect();
     let (caller, now) = (asked.caller, asked.now);
     let token = asked.token.as_deref();
@@ -293,21 +281,6 @@ async fn routed<S: Store, R: Randomness>(
         }
         _ => Err(Turned::Unknown),
     }
-}
-
-/// A page outside the API that the reading page did not take goes home: for good from the root, for now elsewhere.
-fn elsewhere(asked: &Asked) -> Result<Answer, Turned> {
-    if asked.method != "GET" && asked.method != "HEAD" {
-        return Err(Turned::Unknown);
-    }
-    let (status, to) = match asked.path.as_str() {
-        "/" => (301, HOME.to_owned()),
-        LOST => (302, format!("{HOME}404")),
-        _ => (302, HOME.to_owned()),
-    };
-    let mut answer = plain(status, "text/plain", Vec::new());
-    answer.headers.push(("Location", to));
-    Ok(answer)
 }
 
 /// Each refusal as a status and a word Tisty and the web turn into the reader's language.

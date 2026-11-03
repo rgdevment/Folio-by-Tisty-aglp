@@ -143,7 +143,13 @@ jobs:
               -H 'Sec-Fetch-Mode: navigate' "$SHARE_URL/AAAAAAAA") || return 1
             [ "$page" = 200 ] || return 1
             grep -qi '^content-security-policy:.*wasm-unsafe-eval' "$RUNNER_TEMP/page-headers" || return 1
-            grep -q 'iframe class="sheet"' "$RUNNER_TEMP/page"
+            grep -q 'iframe class="sheet"' "$RUNNER_TEMP/page" || return 1
+            # The domain's home, its lost page and robots are the page's own files now, never the Worker's.
+            [ "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$SHARE_URL/")" = "301 https://www.tisty.app/" ] || return 1
+            [ "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$SHARE_URL/404")" = "302 https://www.tisty.app/404" ] || return 1
+            curl -s "$SHARE_URL/robots.txt" | grep -qx 'Disallow: /' || return 1
+            # Said, never required: Cloudflare may drop the header, and a Worker run elsewhere is slower, not wrong.
+            echo "cf-placement: $(grep -i '^cf-placement:' "$RUNNER_TEMP/headers" | cut -d' ' -f2 | tr -d '\r')"
           }
           for attempt in $(seq 1 10); do
             # The step's shell stops at the first failing command, so the answer is caught rather than run bare.

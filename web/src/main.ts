@@ -16,7 +16,7 @@ import {
   type View,
   viewOf,
 } from "./drawn";
-import { type Facts, fetched, limitsOf, REASONS, type Reason, reported } from "./fetched";
+import { early, type Facts, fetched, limitsOf, REASONS, type Reason, reported } from "./fetched";
 import { type About, accessOf, bylined, endsOf, otherHand, tagged, whenOf } from "./frame";
 import { type Link, linkOf, readLinkOf } from "./link";
 import { onward, type Placed, placedIn, type Ribboned, ribbon } from "./ribbon";
@@ -143,7 +143,10 @@ const opened = async (password?: string): Promise<Read | string> => {
     () => true,
     () => false,
   );
-  const [answer, loaded] = await Promise.all([fetched(link.id, fetch, password, checked), loading]);
+  const [answer, loaded] = await Promise.all([
+    fetched(link.id, early(link.id), password, checked),
+    loading,
+  ]);
   if ("refused" in answer) return answer.refused;
   if (!loaded) return "offline";
   return unsealed(link, answer);

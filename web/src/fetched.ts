@@ -91,6 +91,23 @@ const sealedOf = (id: string, ask: typeof fetch, headers: Record<string, string>
     Object.keys(headers).length > 0 ? { headers } : undefined,
   );
 
+// A contract with public/early.js, which a browser may keep an hour past a deploy: a new shape is only ever skipped.
+type Early = { readonly id: string; readonly answer: Promise<Response> };
+
+// Taken once and marked taken either way, so early.js arriving after the page's code never asks a second time.
+export const early = (id: string, ask: typeof fetch = fetch): typeof fetch => {
+  const held = globalThis as { tistyEarly?: Early | null };
+  const asked = held.tistyEarly;
+  held.tistyEarly = null;
+  if (!asked || asked.id !== id) return ask;
+  let taken = false;
+  return (url, init) => {
+    if (taken || init !== undefined || !String(url).endsWith(`/docs/${id}`)) return ask(url, init);
+    taken = true;
+    return asked.answer;
+  };
+};
+
 // The password travels in a header of its own, never in a URL or a log; work asked beside it is done and said once (decision 76).
 export const fetched = async (
   id: string,
