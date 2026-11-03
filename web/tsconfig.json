@@ -13,8 +13,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "tisty-diagrams/*": ["../tisty-diagrams/src/*"],
-      "tisty-editor/*": ["../tisty-editor/src/*"]
+      "tisty-diagrams/*": ["../tisty/packages/tisty-diagrams/src/*"],
+      "tisty-editor/*": ["../tisty/packages/tisty-editor/src/*"]
     }
   },
   "include": ["src", "tests", "wasm"]

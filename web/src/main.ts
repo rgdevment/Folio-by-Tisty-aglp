@@ -2,8 +2,8 @@ import "tisty-editor/tokens.css";
 import "tisty-editor/side.css";
 import "./web.css";
 import { type Head, heads as headsOf, sided } from "tisty-editor/read";
-import init, { open, open_sheet, type Page, type Sheet } from "../wasm/tisty_share_wasm.js";
-import wasm from "../wasm/tisty_share_wasm_bg.wasm?url";
+import init, { open, open_sheet, type Page, type Sheet } from "../wasm/folio_wasm.js";
+import wasm from "../wasm/folio_wasm_bg.wasm?url";
 import { panelsOf, signedApart } from "./beside";
 import { type Cited, citedOf, citedOpening, walking } from "./cited";
 import {

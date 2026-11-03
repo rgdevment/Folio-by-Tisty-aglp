@@ -6,10 +6,10 @@ import { defineConfig } from "vitest/config";
 
 // Stryker runs the tests from a copy of the page, so the packages are looked for up the folders.
 const packageAt = (name: string, from: string): string => {
-  const here = join(from, "packages", name);
+  const here = join(from, "tisty", "packages", name);
   if (existsSync(here)) return here;
   const up = dirname(from);
-  if (up === from) throw new Error(`packages/${name} is not above the page`);
+  if (up === from) throw new Error(`tisty/packages/${name} is not above the page`);
   return packageAt(name, up);
 };
 const pageAt = dirname(fileURLToPath(import.meta.url));

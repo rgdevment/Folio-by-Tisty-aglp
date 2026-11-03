@@ -1,13 +1,29 @@
 {
-  "name": "tisty-share-web",
+  "name": "folio-web",
   "private": true,
   "version": "0.1.0",
   "description": "The page that reads a Tisty Share link in the browser: it opens the envelope with the key in the link's #, which never reaches the server, and draws the body with tisty-editor.",
   "type": "module",
   "scripts": {
-    "wasm": "cargo build -p tisty-share-wasm --profile share-wasm --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir wasm ../../target/wasm32-unknown-unknown/share-wasm/tisty_share_wasm.wasm",
+    "wasm": "cargo build -p folio-wasm --profile folio-wasm --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir wasm ../target/wasm32-unknown-unknown/folio-wasm/folio_wasm.wasm",
     "build": "tsc && vite build",
     "dev": "vite",
+    "typecheck": "tsc",
+    "lint": "biome check .",
+    "format": "biome check . --write",
+    "test": "vitest run",
     "budget": "node budget.mjs"
+  },
+  "dependencies": {
+    "@xyflow/system": "^0.0.83",
+    "dompurify": "^3.4.17"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "@types/node": "^26.6.3",
+    "jsdom": "^30.1.1",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
   }
 }
