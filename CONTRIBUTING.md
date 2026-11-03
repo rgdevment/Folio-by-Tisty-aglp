@@ -1,8 +1,8 @@
 # Contributing to Folio by Tisty
 
-Folio by Tisty is the service behind Tisty's shared links, at
-[tisty.cl](https://tisty.cl): the server, the Worker it runs on and the page that
-reads a link. The Tisty app lives in [its own
+Folio by Tisty is the service behind Tisty's shared links at tisty.cl,
+whose site is [www.tisty.app](https://www.tisty.app): the server and the page
+that reads a link. The Tisty app lives in [its own
 repository](https://github.com/rgdevment/Tisty), with its own guide.
 
 Bug reports, feature discussions and pull requests are all welcome. Everyone
@@ -63,46 +63,26 @@ merging code into this repository requires the agreement.
 
 ## Development setup
 
-Rust 1.97 or newer, Node 22, and the `tisty` submodule, which brings the
-identity keys and the editor that draws a document from the app's repository:
+The service is being written again from scratch in TypeScript, and this
+repository holds only its documents and conventions for now. The earlier code,
+in Rust, stays in the `chore/rust-service-backup` branch. Node 22 is all it asks
+for:
 
 ```sh
-git clone --recurse-submodules https://github.com/rgdevment/Folio-by-Tisty.git
-# or, in a clone you already have:
-git submodule update --init
+git clone https://github.com/rgdevment/Folio-by-Tisty.git
 npm ci
 ```
 
 Before opening a pull request, run what CI runs:
 
 ```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo test -p folio-envelope --features mint,pictures
-cargo deny check
-```
-
-and, for the page and the documents:
-
-```sh
-cd web && npm run wasm && npm run typecheck && npm run lint && npm test
 npm run lint:md
 ```
-
-`npm run wasm` needs the `wasm32-unknown-unknown` target and the
-`wasm-bindgen` CLI at the version `crates/wasm/Cargo.toml` pins. The Worker
-bundles with `worker-build`, at the version `ci.yml` pins, from
-`crates/worker`.
-
-The `tisty` submodule moves by hand, never on its own: a new pin is a pull
-request of its own, checked like any other.
 
 ## House style
 
 **Code, identifiers, comments, test names and error messages are in English.**
-Conversations and issues can be in Spanish or English. What a reader sees on
-the page lives in `web/src/words.ts`, in both languages.
+Conversations and issues can be in Spanish or English.
 
 **Comments default to none.** Write one only for a non-obvious *why* that would
 surprise a future reader: a hidden constraint, a workaround, a subtle
@@ -122,7 +102,7 @@ up with `wrangler secret put` and never into the tree.
 A commit is one line in English, `type(scope): change`, where the type is one
 of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`,
 `chore` or `revert`, and the scope, when it helps, names the part it touches:
-`fix(share):`, `feat(web):`, `docs:`. Nothing goes under it — no body, no
+`fix(server):`, `feat(web):`, `docs:`. Nothing goes under it — no body, no
 trailers, no co-authors or sign-offs. The *why* belongs in the pull request; the
 *what* is already in the patch. Keep it to 112 characters at most: CI refuses a
 longer one, and a commit with lines under it.
@@ -137,13 +117,10 @@ where the kind is one of the types above or `hotfix` or `release`, as in
 `feat/expiry-notice` or `fix/reader-cap`. `scripts/branches.sh` holds that
 shape.
 
-`scripts/rules.sh` holds the conventions a person can break in a second: four
-lines of comment in a row, a file grown past what anybody reads through, Spanish
-where the code should be English, the page reaching into the editor other than
-by its doors, the English and Spanish documents drifting apart in shape, a
-token or a Worker secrets file in the tree, and a migration that takes
-something away. `scripts/commits.sh` holds the shape and the length of a
-subject, and that nothing sits under it. Run either whenever you like. They
+`scripts/rules.sh` holds the conventions a person can break in a second: the
+English and Spanish documents drifting apart in shape, and a token in the tree.
+`scripts/commits.sh` holds the shape and the length of a subject, and that
+nothing sits under it. Run either whenever you like. They
 also run for you: `npm install` or `npm ci` at the root points git at the hooks
 unless git already has a hooks path of yours, and `--ignore-scripts` skips it.
 Without npm it is one line:
@@ -152,18 +129,13 @@ Without npm it is one line:
 git config core.hooksPath hooks
 ```
 
-That gives you three. `pre-commit` runs the conventions, the branch's name,
-`rustfmt` and biome over what is staged, not over the working tree beside it —
-a few seconds, and between them they are most of what turns CI red.
+That gives you three. `pre-commit` runs the conventions and the branch's name
+over what is staged, not over the working tree beside it — a few seconds, and
+between them they are most of what turns CI red.
 `commit-msg` weighs the subject while the fix is still an `--amend` rather than
 a rebase. `pre-push` runs the conventions again, the name each branch takes on
 the remote and the subjects of everything you are about to send. Nothing slower
-goes in any of them: the suite, the build and the markdown lint are minutes, and
-they belong to CI.
-
-One of those rules keeps a written record rather than a threshold.
-`.github/oversized.txt` holds every file already past the ceiling, and what is
-above it only shrinks.
+goes in any of them: the markdown lint and the rest belong to CI.
 
 **Those hooks are comfort, not enforcement.** A fresh clone does not have them
 until `npm install` runs or somebody sets that, and `--no-verify` walks straight

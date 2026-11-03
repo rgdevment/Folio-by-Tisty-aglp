@@ -1,14 +1,15 @@
-# Tisty Share
+# Folio by Tisty
 
 [English](README.md)
 
-Tisty Share convierte un documento de Tisty en un link que cualquiera puede
+Folio by Tisty convierte un documento de Tisty en un link que cualquiera puede
 leer: anónimo, cifrado de punta a punta, y que se va solo después de un tiempo.
 Es un **servicio**, aparte de la app Tisty, con su propio servidor, sus reglas y
-sus promesas. Funciona en [tisty.cl](https://tisty.cl).
+sus promesas. Sus links viven en tisty.cl, y su sitio es
+[www.tisty.app](https://www.tisty.app).
 
 > **No promete lo que promete la app.** La app Tisty no tiene servidor y no
-> recolecta nada. Tisty Share sí tiene un servidor: guarda copias cifradas
+> recolecta nada. Folio sí tiene un servidor: guarda copias cifradas
 > hasta que caducan, cuenta lecturas y lleva algunos registros anónimos. Qué
 > guarda, para qué y por cuánto tiempo está en su
 > [política de privacidad](docs/PRIVACIDAD.md).
@@ -46,22 +47,12 @@ lucro. No hay una empresa detrás y nadie gana dinero con él. Contacto:
 
 ## Su código
 
-Vive en este repositorio. Lo que aún comparte con la
-[app Tisty](https://github.com/rgdevment/Tisty), las llaves de identidad y el
-editor que dibuja un documento, viene del repositorio de la app, fijado como el
-submódulo `tisty`:
-
-| Dónde | Qué |
-|---|---|
-| `crates/envelope` (`folio-envelope`) | El sobre, sus firmas y sus topes, que la app sella y el servidor revisa |
-| `crates/server` (`folio-server`) | El servicio en sí, sobre cualquier almacén: versiones, links, caducidad, defensas |
-| `crates/worker` (`folio-worker`) | El servicio en Cloudflare Workers, D1 y R2 |
-| `crates/wasm` (`folio-wasm`) | Lo que corre la página de lectura para abrir un sobre |
-| `web` (`folio-web`) | La página que lee un link |
-| `tisty` | El repositorio de la app Tisty: sus llaves de identidad (`tisty-share-proto`) y el editor que dibuja la página (`tisty-editor`) |
-
-Sale con tags `share-v*`, que `.github/workflows/share.yml` despliega y revisa
-en vivo.
+Se está escribiendo de nuevo desde cero en TypeScript, sobre Cloudflare Workers,
+D1 y R2, y el servicio no corre mientras tanto. Se entiende con la
+[app Tisty](https://github.com/rgdevment/Tisty) por un contrato que guarda el
+repositorio de la app: los formatos de lo que viaja y las reglas de estilo de la
+hoja. El código anterior, en Rust, queda en la rama
+`chore/rust-service-backup`.
 
 ## Licencia
 

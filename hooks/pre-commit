@@ -15,29 +15,4 @@ git checkout-index --all --prefix="$staged/" || {
 bash "$staged/scripts/rules.sh" < /dev/null || status=1
 bash "$staged/scripts/branches.sh" "$(git rev-parse --abbrev-ref HEAD)" || status=1
 
-quietly() {
-  local said
-  said=$(eval "$1" 2>&1) || {
-    printf '%s\n' "$said"
-    printf 'x  %s\n' "$2"
-    status=1
-  }
-}
-
-if command -v rustfmt > /dev/null; then
-  quietly "cd \"$staged\" && find crates -name '*.rs' -print0 | xargs -0r rustfmt --check --edition 2024" \
-    "rustfmt would change the crates"
-  quietly "cd \"$staged\" && rustfmt --check --edition 2021 fuzz/fuzz_targets/*.rs" \
-    "rustfmt would change the fuzz targets"
-else
-  echo "!  rustfmt is not here, so the formatting was not looked at"
-fi
-
-if [ -x node_modules/.bin/biome ]; then
-  quietly "cd \"$staged/web\" && \"$PWD/node_modules/.bin/biome\" check ." \
-    "biome would change files in web, or is not installed"
-else
-  echo "!  node_modules is not here, so biome did not look at the page"
-fi
-
 exit $status

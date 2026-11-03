@@ -1,14 +1,14 @@
-# Tisty Share
+# Folio by Tisty
 
 [Español](README.es.md)
 
-Tisty Share turns a Tisty document into a link anyone can read: anonymous,
+Folio by Tisty turns a Tisty document into a link anyone can read: anonymous,
 end-to-end encrypted, and gone on its own after a while. It is a **service**,
-separate from the Tisty app, with its own server, rules and promises. It runs at
-[tisty.cl](https://tisty.cl).
+separate from the Tisty app, with its own server, rules and promises. Its links
+live at tisty.cl, and its site is [www.tisty.app](https://www.tisty.app).
 
 > **It does not promise what the app promises.** The Tisty app has no server
-> and collects nothing. Tisty Share does run a server: it keeps encrypted copies
+> and collects nothing. Folio does run a server: it keeps encrypted copies
 > until they expire, counts reads and keeps a few anonymous records. What it
 > keeps, why and for how long is in its [privacy policy](docs/PRIVACY.md).
 
@@ -45,22 +45,12 @@ is no company behind it and nobody makes money from it. Contact:
 
 ## Its code
 
-It lives in this repository. What it still shares with the
-[Tisty app](https://github.com/rgdevment/Tisty), the identity keys and the
-editor that draws a document, comes from the app's repository, pinned as the
-`tisty` submodule:
-
-| Where | What |
-|---|---|
-| `crates/envelope` (`folio-envelope`) | The envelope, its signatures and limits, which the app seals and the server checks |
-| `crates/server` (`folio-server`) | The service itself, on any store: versions, links, expiry, defences |
-| `crates/worker` (`folio-worker`) | The service on Cloudflare Workers, D1 and R2 |
-| `crates/wasm` (`folio-wasm`) | What the reading page runs to open an envelope |
-| `web` (`folio-web`) | The page that reads a link |
-| `tisty` | The Tisty app's repository: its identity keys (`tisty-share-proto`) and the editor that draws the page (`tisty-editor`) |
-
-It is released with tags `share-v*`, which `.github/workflows/share.yml` deploys
-and checks live.
+It is being written again from scratch in TypeScript, on Cloudflare Workers, D1
+and R2, and the service is not running while that happens. It speaks to the
+[Tisty app](https://github.com/rgdevment/Tisty) through a contract that the
+app's repository keeps: the formats of what travels and the style rules of a
+page. The earlier code, in Rust, stays in the `chore/rust-service-backup`
+branch.
 
 ## Licence
 

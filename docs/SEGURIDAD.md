@@ -1,8 +1,8 @@
-# Política de seguridad de Tisty Share
+# Política de seguridad de Folio by Tisty
 
 [English](SECURITY.md)
 
-Cubre el servicio Tisty Share: [tisty.cl](https://tisty.cl), su API bajo
+Cubre el servicio Folio: sus links en tisty.cl, su API bajo
 `/api/v1/`, la página que lee un link y el formato del sobre que hablan la app y
 el servidor. La app Tisty tiene su propia [política de seguridad](https://github.com/rgdevment/Tisty/blob/main/SECURITY.md).
 
@@ -10,7 +10,7 @@ el servidor. La app Tisty tiene su propia [política de seguridad](https://githu
 
 **No abras un issue público.** Usa uno de estos canales privados:
 
-- **Correo** <rgdevment@tisty.app>, con asunto `[SECURITY][Share] descripción corta`.
+- **Correo** <rgdevment@tisty.app>, con asunto `[SECURITY][Folio] descripción corta`.
 - **GitHub Security Advisory**: la pestaña *Security*, *Report a vulnerability*.
 
 Sirve que el reporte diga qué podría hacer un atacante y a quién, y los pasos
@@ -61,5 +61,5 @@ amenazas legales.
 
 ## Versiones con soporte
 
-Solo lo que corre hoy en tisty.cl, el último tag `share-v*`. Los sobres se leen
+Solo lo que corre hoy en tisty.cl, el último tag `v*`. Los sobres se leen
 solo en su formato actual.

@@ -2,9 +2,7 @@ version: 2
 
 updates:
   - package-ecosystem: github-actions
-    directories:
-      - /
-      - /.github/actions/share-page
+    directory: /
     schedule:
       interval: monthly
     open-pull-requests-limit: 3
@@ -26,34 +24,6 @@ updates:
         update-types:
           - major
 
-  - package-ecosystem: cargo
-    directory: /
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 3
-    cooldown:
-      default-days: 7
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    ignore:
-      # Moves by hand with worker-build, pinned in ci.yml and share.yml, whose shim has to match it.
-      - dependency-name: worker
-      # Moves by hand with the wasm-bindgen CLI in the share-page action, which must read what it writes.
-      - dependency-name: wasm-bindgen
-    groups:
-      rust:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-      rust-major:
-        patterns:
-          - "*"
-        update-types:
-          - major
-
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -64,30 +34,15 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
-    # @stryker-mutator/vitest-runner 10 runs no test per mutant under vitest 5, so every mutant survives.
-    ignore:
-      - dependency-name: vitest
-        update-types: ["version-update:semver-major"]
     groups:
-      web:
+      npm:
         patterns:
           - "*"
         update-types:
           - minor
           - patch
-      web-major:
+      npm-major:
         patterns:
           - "*"
         update-types:
           - major
-
-  - package-ecosystem: npm
-    directory: /crates/worker
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 1
-    cooldown:
-      default-days: 7
-    commit-message:
-      prefix: "chore"
-      include: "scope"
