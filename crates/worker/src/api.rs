@@ -1,4 +1,4 @@
-//! Tisty Share over HTTP: a request read into one of the server's steps, and the answer it gets.
+//! Folio over HTTP: a request read into one of the server's steps, and the answer it gets.
 
 use std::net::IpAddr;
 
@@ -6,9 +6,9 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use folio_envelope::limits::Limits;
 use folio_envelope::work::Proof;
+use folio_server::folio::{Ask, Folio, Manage, Refused, Seen, Served};
 use folio_server::keys::Randomness;
 use folio_server::moderation::{Category, Complaint};
-use folio_server::share::{Ask, Manage, Refused, Seen, Served, Share};
 use folio_server::store::Store;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -46,9 +46,9 @@ pub struct Asked {
     pub path: String,
     /// The edit or management token, from `Authorization: Bearer`.
     pub token: Option<String>,
-    /// The reader's password as its UTF-8 in base64url, in `Tisty-Password` so it never sits in a URL or a log.
+    /// The reader's password as its UTF-8 in base64url, in `Folio-Password` so it never sits in a URL or a log.
     pub password: Option<String>,
-    /// The proof of work, as JSON in `Tisty-Work`.
+    /// The proof of work, as JSON in `Folio-Work`.
     pub work: Option<String>,
     pub sheet: bool,
     pub rest: Option<String>,
@@ -147,17 +147,17 @@ pub fn broken(why: String) -> Answer {
 }
 
 /// A step's answer with what a read leaves written down first, for a host that cannot wait past its answer.
-pub async fn answer<S: Store, R: Randomness>(share: &mut Share<S, R>, asked: Asked) -> Answer {
-    let (mut answer, seen) = answer_first(share, asked).await;
+pub async fn answer<S: Store, R: Randomness>(folio: &mut Folio<S, R>, asked: Asked) -> Answer {
+    let (mut answer, seen) = answer_first(folio, asked).await;
     if let Some(seen) = seen {
-        answer.fault = noted(share, seen).await;
+        answer.fault = noted(folio, seen).await;
     }
     answer
 }
 
 /// Writes down what a read left, saying what failed for the host's log; the reader already has their answer.
-pub async fn noted<S: Store, R: Randomness>(share: &Share<S, R>, seen: Seen) -> Option<String> {
-    share
+pub async fn noted<S: Store, R: Randomness>(folio: &Folio<S, R>, seen: Seen) -> Option<String> {
+    folio
         .seen(seen)
         .await
         .err()
@@ -166,12 +166,12 @@ pub async fn noted<S: Store, R: Randomness>(share: &Share<S, R>, seen: Seen) -> 
 
 /// A step's answer and what a read leaves to write down after it; the host has already held the body to `ceiling`.
 pub async fn answer_first<S: Store, R: Randomness>(
-    share: &mut Share<S, R>,
+    folio: &mut Folio<S, R>,
     asked: Asked,
 ) -> (Answer, Option<Seen>) {
     let now = asked.now;
     let mut seen = None;
-    let answer = match routed(share, asked, &mut seen).await {
+    let answer = match routed(folio, asked, &mut seen).await {
         Ok(answer) => answer,
         Err(Turned::Refused(refused)) => refusal(&refused, now),
         Err(Turned::Unreadable) => said(400, json!({ "refused": "unreadable" })),
@@ -181,7 +181,7 @@ pub async fn answer_first<S: Store, R: Randomness>(
 }
 
 async fn routed<S: Store, R: Randomness>(
-    share: &mut Share<S, R>,
+    folio: &mut Folio<S, R>,
     asked: Asked,
     seen: &mut Option<Seen>,
 ) -> Result<Answer, Turned> {
@@ -191,29 +191,29 @@ async fn routed<S: Store, R: Randomness>(
     let (caller, now) = (asked.caller, asked.now);
     let token = asked.token.as_deref();
     match (asked.method.as_str(), parts.as_slice()) {
-        ("GET", ["limits"]) => Ok(said(200, json!(share.policy.limits))),
+        ("GET", ["limits"]) => Ok(said(200, json!(folio.policy.limits))),
         ("POST", ["challenge"]) => {
             let asking: Asking = read(&asked.body)?;
             let challenge = match &asking {
-                Asking::Reserve => share.challenge(Ask::Reserve, caller, now).await?,
+                Asking::Reserve => folio.challenge(Ask::Reserve, caller, now).await?,
                 Asking::Upload { id, digest, bytes } => {
                     let digest = digest_of(digest).ok_or(Turned::Unreadable)?;
                     let bytes = *bytes;
-                    share
+                    folio
                         .challenge(Ask::Upload { id, digest, bytes }, caller, now)
                         .await?
                 }
-                Asking::Report { id } => share.challenge(Ask::Report { id }, caller, now).await?,
+                Asking::Report { id } => folio.challenge(Ask::Report { id }, caller, now).await?,
                 Asking::Password { id } => {
-                    share.challenge(Ask::Password { id }, caller, now).await?
+                    folio.challenge(Ask::Password { id }, caller, now).await?
                 }
-                Asking::Reader { id } => share.challenge(Ask::Reader { id }, caller, now).await?,
+                Asking::Reader { id } => folio.challenge(Ask::Reader { id }, caller, now).await?,
             };
             Ok(said(200, json!(challenge)))
         }
         ("POST", ["docs"]) => {
             let proof = proof(asked.work.as_deref())?;
-            let reserved = share.reserve(caller, &proof, now).await?;
+            let reserved = folio.reserve(caller, &proof, now).await?;
             let links = Links {
                 id: &reserved.id,
                 edit: &reserved.edit,
@@ -224,7 +224,7 @@ async fn routed<S: Store, R: Randomness>(
         ("PUT", ["docs", id]) => {
             let proof = proof(asked.work.as_deref())?;
             let edit = token.ok_or(Refused::Forbidden)?;
-            let version = share
+            let version = folio
                 .upload(id, edit, asked.body, caller, &proof, now)
                 .await?;
             Ok(said(200, json!({ "version": version })))
@@ -236,7 +236,7 @@ async fn routed<S: Store, R: Randomness>(
                 .work
                 .as_deref()
                 .and_then(|work| serde_json::from_str::<Proof>(work).ok());
-            let (served, left) = share
+            let (served, left) = folio
                 .read(
                     id,
                     password.as_deref(),
@@ -251,27 +251,27 @@ async fn routed<S: Store, R: Randomness>(
         }
         ("GET", ["docs", id, "rest"]) => {
             let ticket = asked.rest.as_deref().ok_or(Refused::Forbidden)?;
-            let rest = share.rest(id, ticket, caller, now).await?;
+            let rest = folio.rest(id, ticket, caller, now).await?;
             Ok(plain(200, "application/octet-stream", rest))
         }
         ("GET", ["docs", id, "latest"]) => {
-            let latest = share.latest(id, token, caller, now).await?;
+            let latest = folio.latest(id, token, caller, now).await?;
             Ok(said(200, json!({ "latest": latest })))
         }
         ("GET", ["docs", id, "versions", version]) => {
             let version = version.parse().map_err(|_| Turned::Unknown)?;
             let token = token.ok_or(Refused::Forbidden)?;
-            let served = share.version(id, token, version, now).await?;
+            let served = folio.version(id, token, version, now).await?;
             Ok(envelope(served))
         }
         ("GET", ["docs", id, "info"]) => {
             let admin = token.ok_or(Refused::Forbidden)?;
-            Ok(said(200, json!(share.info(id, admin, now).await?)))
+            Ok(said(200, json!(folio.info(id, admin, now).await?)))
         }
         ("POST", ["docs", id, "manage"]) => {
             let admin = token.ok_or(Refused::Forbidden)?;
             let what: Manage = read(&asked.body)?;
-            share.manage(id, admin, what, now).await?;
+            folio.manage(id, admin, what, now).await?;
             Ok(plain(204, "text/plain", Vec::new()))
         }
         ("POST", ["docs", id, "reports"]) => {
@@ -283,18 +283,18 @@ async fn routed<S: Store, R: Randomness>(
                 detail: reporting.detail,
                 link: None,
             };
-            share.report(id, complaint, caller, &proof, now).await?;
+            folio.report(id, complaint, caller, &proof, now).await?;
             Ok(plain(204, "text/plain", Vec::new()))
         }
         ("POST", ["revocations"]) => {
             let revocations: Vec<Revocation> = read(&asked.body)?;
-            share.revoke(&revocations, caller, now).await?;
+            folio.revoke(&revocations, caller, now).await?;
             Ok(plain(204, "text/plain", Vec::new()))
         }
         ("POST", ["docs", id, "appeal"]) => {
             let admin = token.ok_or(Refused::Forbidden)?;
             let appealing: Appealing = read(&asked.body)?;
-            share.appeal(id, admin, &appealing.detail, now).await?;
+            folio.appeal(id, admin, &appealing.detail, now).await?;
             Ok(plain(204, "text/plain", Vec::new()))
         }
         _ => Err(Turned::Unknown),
@@ -351,7 +351,7 @@ fn refusal(refused: &Refused, now: i64) -> Answer {
     if status == 401 {
         answer
             .headers
-            .push(("WWW-Authenticate", "Tisty-Password".into()));
+            .push(("WWW-Authenticate", "Folio-Password".into()));
     }
     if let Refused::Store(fault) = refused {
         answer.fault = Some(fault.to_string());
@@ -390,25 +390,25 @@ fn envelope(served: Served) -> Answer {
     let mut answer = plain(200, "application/octet-stream", served.envelope);
     answer
         .headers
-        .push(("Tisty-Version", served.version.to_string()));
+        .push(("Folio-Version", served.version.to_string()));
     answer
         .headers
-        .push(("Tisty-Shared", facts.shared.to_string()));
+        .push(("Folio-Shared", facts.shared.to_string()));
     if let Some(written) = facts.written {
-        answer.headers.push(("Tisty-Written", written.to_string()));
+        answer.headers.push(("Folio-Written", written.to_string()));
     }
-    answer.headers.push(("Tisty-Ends", facts.ends.to_string()));
+    answer.headers.push(("Folio-Ends", facts.ends.to_string()));
     if facts.gated {
-        answer.headers.push(("Tisty-Gated", "1".into()));
+        answer.headers.push(("Folio-Gated", "1".into()));
     }
     // Each one is the root's own signed word, so the page checks it rather than taking the server's.
     if !served.revoked.is_empty() {
         answer
             .headers
-            .push(("Tisty-Revoked", json!(served.revoked).to_string()));
+            .push(("Folio-Revoked", json!(served.revoked).to_string()));
     }
     if let Some(ticket) = served.rest {
-        answer.headers.push(("Tisty-Rest", ticket));
+        answer.headers.push(("Folio-Rest", ticket));
     }
     answer
 }

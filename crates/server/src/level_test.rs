@@ -62,10 +62,10 @@ fn a_third_share_alive_is_refused_before_anything_is_kept() {
     let mut world = level_one();
     let one = world.shared(T0);
     world.shared(T0);
-    let kept = world.share.store.envelopes();
+    let kept = world.folio.store.envelopes();
     let third = world.reserve(T0);
     assert_eq!(first(&mut world, &third, T0), Err(Refused::SharesFull));
-    assert_eq!(world.share.store.envelopes(), kept);
+    assert_eq!(world.folio.store.envelopes(), kept);
     assert!(world.doc(&third.id).versions.is_empty());
     assert!(world.doc(&third.id).owner.is_empty());
 
@@ -120,12 +120,12 @@ fn a_page_held_before_its_first_version_keeps_its_reserved_hour_until_it_is_writ
     world.manage(&root, hold(&never, true), T0).unwrap();
     world.manage(&root, hold(&written, false), T0).unwrap();
     assert_eq!(world.doc(&never.id).own, None);
-    assert_eq!(world.doc(&never.id).ends, T0 + world.share.policy.reserved);
+    assert_eq!(world.doc(&never.id).ends, T0 + world.folio.policy.reserved);
     assert_eq!(first(&mut world, &written, T0), Ok(1));
     assert_eq!(world.doc(&written.id).ends, crate::holding::HELD);
 
     let past_reserved = T0 + 2 * HOUR;
-    done(world.share.sweep(past_reserved)).unwrap();
+    done(world.folio.sweep(past_reserved)).unwrap();
     assert_eq!(world.read(&never.id, past_reserved), Err(Refused::Missing));
     assert_eq!(world.doc(&root.id).holds, vec![written.id.clone()]);
     assert!(world.read(&written.id, past_reserved).is_ok());
@@ -147,7 +147,7 @@ fn a_page_still_held_goes_with_its_holder() {
     world.manage(&root, hold(&page, false), T0).unwrap();
     assert_eq!(first(&mut world, &page, T0), Ok(1));
     let gone = T0 + 16 * DAY;
-    done(world.share.sweep(gone)).unwrap();
+    done(world.folio.sweep(gone)).unwrap();
     assert_eq!(world.read(&page.id, gone), Err(Refused::Missing));
 }
 
@@ -166,7 +166,7 @@ fn a_document_with_no_version_yet_cannot_be_kept_alive_by_its_management_link() 
     }
     assert_eq!(
         world.doc(&reserved.id).ends,
-        T0 + world.share.policy.reserved
+        T0 + world.folio.policy.reserved
     );
     assert_eq!(world.manage(&reserved, Manage::Delete, T0), Ok(()));
 }
@@ -182,7 +182,7 @@ fn a_hold_left_halfway_is_finished_when_asked_again_at_the_level_s_edge() {
     let mut halfway = world.doc(&pages[1].id);
     halfway.holders.clear();
     let revision = halfway.revision;
-    done(world.share.store.save(&halfway, Some(revision))).unwrap();
+    done(world.folio.store.save(&halfway, Some(revision))).unwrap();
 
     world.manage(&root, hold(&pages[1], false), T0).unwrap();
     assert_eq!(world.doc(&pages[1].id).holders, vec![root.id.clone()]);
@@ -203,7 +203,7 @@ fn the_pictures_of_a_share_and_its_pages_add_up_to_its_level() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .upload(&root.id, &root.edit, crowded, HERE, &unworked, T0)
         ),
         Err(Refused::PicturesFull)
@@ -253,15 +253,15 @@ fn with_pages(world: &mut World) -> (Reserved, Vec<Reserved>) {
 
 fn read_worked(world: &mut World, id: &str, caller: IpAddr, now: i64) -> Result<Served, Refused> {
     let proof = world.proof(Ask::Reader { id }, now);
-    let (served, seen) = done(world.share.read(id, None, Some(&proof), false, caller, now))?;
-    done(world.share.seen(seen))?;
+    let (served, seen) = done(world.folio.read(id, None, Some(&proof), false, caller, now))?;
+    done(world.folio.seen(seen))?;
     Ok(served)
 }
 
 fn counted_for(world: &World, doc: &Reserved, now: i64) -> u64 {
     let owner = world.doc(&doc.id).owner;
     let counter = format!("readers:{owner}:{}", now.div_euclid(DAY));
-    done(world.share.store.counted(&counter, now)).unwrap()
+    done(world.folio.store.counted(&counter, now)).unwrap()
 }
 
 #[test]
@@ -342,58 +342,58 @@ fn past_an_owner_s_readers_a_day_one_password_proof_also_lets_a_new_reader_in() 
     );
 }
 
-fn reserved_in(share: &mut Share<Faulty, Counting>) -> Reserved {
-    let proof = work::solve(&done(share.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
-    done(share.reserve(HERE, &proof, T0)).unwrap()
+fn reserved_in(folio: &mut Folio<Faulty, Counting>) -> Reserved {
+    let proof = work::solve(&done(folio.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
+    done(folio.reserve(HERE, &proof, T0)).unwrap()
 }
 
-fn faulty_one() -> Share<Faulty, Counting> {
-    let mut share = faulty();
-    share.policy.limits = Limits::default();
-    share
+fn faulty_one() -> Folio<Faulty, Counting> {
+    let mut folio = faulty();
+    folio.policy.limits = Limits::default();
+    folio
 }
 
 #[test]
 fn a_share_that_raced_past_its_owner_s_level_is_taken_back() {
-    let mut share = faulty_one();
-    let one = reserved_in(&mut share);
-    upload_faulty(&mut share, &one, sealed(&one.id, 1, None, "uno")).unwrap();
-    let two = reserved_in(&mut share);
-    let mut rival = done(share.store.inner.doc(&one.id)).unwrap().unwrap();
+    let mut folio = faulty_one();
+    let one = reserved_in(&mut folio);
+    upload_faulty(&mut folio, &one, sealed(&one.id, 1, None, "uno")).unwrap();
+    let two = reserved_in(&mut folio);
+    let mut rival = done(folio.store.inner.doc(&one.id)).unwrap().unwrap();
     rival.id = "rivalAa1".into();
-    *share.store.racing.borrow_mut() = Some(rival);
-    let kept = share.store.inner.envelopes();
+    *folio.store.racing.borrow_mut() = Some(rival);
+    let kept = folio.store.inner.envelopes();
     assert_eq!(
-        upload_faulty(&mut share, &two, sealed(&two.id, 1, None, "dos")),
+        upload_faulty(&mut folio, &two, sealed(&two.id, 1, None, "dos")),
         Err(Refused::SharesFull)
     );
-    assert_eq!(done(share.store.doc(&two.id)).unwrap(), None);
-    assert_eq!(share.store.inner.envelopes(), kept);
+    assert_eq!(done(folio.store.doc(&two.id)).unwrap(), None);
+    assert_eq!(folio.store.inner.envelopes(), kept);
 }
 
 #[test]
 fn a_version_that_raced_past_its_share_s_pictures_is_taken_back() {
-    let mut share = faulty_one();
-    let root = reserved_in(&mut share);
-    let pages = [reserved_in(&mut share), reserved_in(&mut share)];
+    let mut folio = faulty_one();
+    let root = reserved_in(&mut folio);
+    let pages = [reserved_in(&mut folio), reserved_in(&mut folio)];
     for page in &pages {
         let held = hold(page, false);
-        done(share.manage(&root.id, &root.admin, held, T0)).unwrap();
-        upload_faulty(&mut share, page, with_photos(&page.id, 1, None, 0)).unwrap();
+        done(folio.manage(&root.id, &root.admin, held, T0)).unwrap();
+        upload_faulty(&mut folio, page, with_photos(&page.id, 1, None, 0)).unwrap();
     }
-    upload_faulty(&mut share, &root, sealed(&root.id, 1, None, "raíz")).unwrap();
-    let mut rival = done(share.store.doc(&pages[0].id)).unwrap().unwrap();
+    upload_faulty(&mut folio, &root, sealed(&root.id, 1, None, "raíz")).unwrap();
+    let mut rival = done(folio.store.doc(&pages[0].id)).unwrap().unwrap();
     rival.versions.last_mut().unwrap().pictures = 2;
-    *share.store.racing.borrow_mut() = Some(rival);
-    let kept = share.store.inner.envelopes();
+    *folio.store.racing.borrow_mut() = Some(rival);
+    let kept = folio.store.inner.envelopes();
     let more = with_photos(&pages[1].id, 2, Some(1), 1);
     assert_eq!(
-        upload_faulty(&mut share, &pages[1], more),
+        upload_faulty(&mut folio, &pages[1], more),
         Err(Refused::PicturesFull)
     );
-    let back = done(share.store.doc(&pages[1].id)).unwrap().unwrap();
+    let back = done(folio.store.doc(&pages[1].id)).unwrap().unwrap();
     assert_eq!(back.latest(), Some(1));
-    assert_eq!(share.store.inner.envelopes(), kept);
+    assert_eq!(folio.store.inner.envelopes(), kept);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-// Says whether Tisty Share's Worker errs or nears the Free plan's daily limits; exits 1 when it does.
+// Says whether Folio's Worker errs or nears the Free plan's daily limits; exits 1 when it does.
 // Needs CLOUDFLARE_ANALYTICS_TOKEN (Account Analytics: Read) and CLOUDFLARE_ACCOUNT_ID.
 import { readFileSync } from "node:fs";
 
@@ -13,7 +13,7 @@ const FREE = {
 const NEAR = 0.8;
 // Errors in the last hour worth a word: a few at least, and at least one request in a hundred.
 const ERRORS_AT_LEAST = 5;
-const ERRORS_SHARE = 0.01;
+const ERRORS_RATIO = 0.01;
 
 const QUERY = `query Watch($account: string!, $script: string!, $database: string!, $bucket: string!, $day: Time!, $hour: Time!, $date: Date!, $since: Date!) {
   viewer {
@@ -33,9 +33,13 @@ function kept(toml) {
     if (!found) throw new Error(`wrangler.toml names no ${what}`);
     return found[1];
   };
+  const database = first(/^database_id\s*=\s*"([^"]+)"/m, "D1 database");
+  if (/^[0-]+$/.test(database)) {
+    throw new Error("wrangler.toml still holds the placeholder D1 id: run wrangler d1 create folio and put its id in database_id");
+  }
   return {
     script: first(/^name\s*=\s*"([^"]+)"/m, "Worker"),
-    database: first(/^database_id\s*=\s*"([^"]+)"/m, "D1 database"),
+    database,
     bucket: first(/^bucket_name\s*=\s*"([^"]+)"/m, "R2 bucket"),
   };
 }
@@ -84,7 +88,7 @@ function troubles(seen) {
     if (seen[what] >= limit * NEAR) found.push(`${what} at ${seen[what]} of the plan's ${limit}`);
   }
   const { requests, errors } = seen.lastHour;
-  if (errors >= ERRORS_AT_LEAST && errors >= requests * ERRORS_SHARE) {
+  if (errors >= ERRORS_AT_LEAST && errors >= requests * ERRORS_RATIO) {
     found.push(`${errors} errors in the last hour, over ${requests} requests`);
   }
   return found;

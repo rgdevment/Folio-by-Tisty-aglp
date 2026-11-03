@@ -111,7 +111,7 @@ fn digest_of(bytes: &[u8]) -> [u8; 32] {
 
 /// The server as a Tisty and a browser meet it: every step pays the work it is asked.
 struct World {
-    share: Share<Memory, Counting>,
+    folio: Folio<Memory, Counting>,
 }
 
 impl World {
@@ -121,17 +121,17 @@ impl World {
 
     fn with(policy: Policy) -> Self {
         Self {
-            share: Share::new(Memory::default(), Counting(0), policy, [5; 32]),
+            folio: Folio::new(Memory::default(), Counting(0), policy, [5; 32]),
         }
     }
 
     fn proof(&mut self, ask: Ask, now: i64) -> Proof {
-        work::solve(&done(self.share.challenge(ask, HERE, now)).unwrap()).unwrap()
+        work::solve(&done(self.folio.challenge(ask, HERE, now)).unwrap()).unwrap()
     }
 
     fn reserve_from(&mut self, caller: IpAddr, now: i64) -> Result<Reserved, Refused> {
         let proof = self.proof(Ask::Reserve, now);
-        done(self.share.reserve(caller, &proof, now))
+        done(self.folio.reserve(caller, &proof, now))
     }
 
     fn reserve(&mut self, now: i64) -> Reserved {
@@ -145,7 +145,7 @@ impl World {
             bytes: bytes.len() as u64,
         };
         let proof = self.proof(ask, now);
-        done(self.share.upload(id, edit, bytes, HERE, &proof, now))
+        done(self.folio.upload(id, edit, bytes, HERE, &proof, now))
     }
 
     /// A document already shared once.
@@ -167,8 +167,8 @@ impl World {
         caller: IpAddr,
         now: i64,
     ) -> Result<Served, Refused> {
-        let (served, seen) = done(self.share.read(id, password, None, false, caller, now))?;
-        done(self.share.seen(seen))?;
+        let (served, seen) = done(self.folio.read(id, password, None, false, caller, now))?;
+        done(self.folio.seen(seen))?;
         Ok(served)
     }
 
@@ -182,15 +182,15 @@ impl World {
     ) -> Result<Served, Refused> {
         let (served, seen) =
             done(
-                self.share
+                self.folio
                     .read(id, Some(password), Some(proof), false, caller, now),
             )?;
-        done(self.share.seen(seen))?;
+        done(self.folio.seen(seen))?;
         Ok(served)
     }
 
     fn manage(&mut self, reserved: &Reserved, what: Manage, now: i64) -> Result<(), Refused> {
-        done(self.share.manage(&reserved.id, &reserved.admin, what, now))
+        done(self.folio.manage(&reserved.id, &reserved.admin, what, now))
     }
 
     fn report_from(&mut self, id: &str, caller: IpAddr, now: i64) -> Result<(), Refused> {
@@ -200,11 +200,11 @@ impl World {
             detail: "pide la clave del banco".into(),
             link: None,
         };
-        done(self.share.report(id, complaint, caller, &proof, now))
+        done(self.folio.report(id, complaint, caller, &proof, now))
     }
 
     fn doc(&self, id: &str) -> Doc {
-        done(self.share.store.doc(id)).unwrap().unwrap()
+        done(self.folio.store.doc(id)).unwrap().unwrap()
     }
 }
 
@@ -218,7 +218,7 @@ fn a_document_is_reserved_shared_and_read_as_tisty_sealed_it() {
     assert_eq!(served.version, 1);
     assert_eq!(opened(&served), "uno");
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0)),
+        done(world.folio.latest(&reserved.id, None, HERE, T0)),
         Ok(Some(1))
     );
 }
@@ -286,15 +286,15 @@ fn readers_get_only_the_latest_and_the_editors_see_the_last_five() {
 
     let served = world.read(&reserved.id, T0).unwrap();
     assert_eq!((served.version, opened(&served)), (7, "v7".to_owned()));
-    assert_eq!(world.share.store.envelopes(), 5);
-    let third = done(world.share.version(&reserved.id, &reserved.admin, 3, T0)).unwrap();
+    assert_eq!(world.folio.store.envelopes(), 5);
+    let third = done(world.folio.version(&reserved.id, &reserved.admin, 3, T0)).unwrap();
     assert_eq!(opened(&third), "v3");
     assert_eq!(
-        done(world.share.version(&reserved.id, &reserved.edit, 2, T0)),
+        done(world.folio.version(&reserved.id, &reserved.edit, 2, T0)),
         Err(Refused::Missing)
     );
     assert_eq!(
-        done(world.share.version(&reserved.id, "a reader", 3, T0)),
+        done(world.folio.version(&reserved.id, "a reader", 3, T0)),
         Err(Refused::Forbidden)
     );
 }
@@ -302,7 +302,7 @@ fn readers_get_only_the_latest_and_the_editors_see_the_last_five() {
 #[test]
 fn an_envelope_over_the_server_s_limits_is_refused() {
     let mut world = World::new();
-    world.share.policy.limits.text = 3;
+    world.folio.policy.limits.text = 3;
     let reserved = world.reserve(T0);
     let long = sealed(&reserved.id, 1, None, "demasiado");
 
@@ -381,7 +381,7 @@ fn five_wrong_passwords_make_only_the_place_that_said_them_wait() {
         );
     }
     // Even the right one waits there until the stretch ends.
-    let locked = world.share.policy.locked;
+    let locked = world.folio.policy.locked;
     let until = (T0.div_euclid(locked) + 1) * locked;
     assert_eq!(
         world.read_from(&reserved.id, Some("perro azul"), HERE, T0 + 60),
@@ -477,9 +477,9 @@ fn a_document_guessed_at_from_everywhere_asks_work_with_every_password() {
     );
 
     // Each doubling of the guesses asks two more bits; the next day starts clean.
-    let base = world.share.policy.work.password;
+    let base = world.folio.policy.work.password;
     assert_eq!(
-        done(world.share.challenge(ask, HERE, T0)).unwrap().bits,
+        done(world.folio.challenge(ask, HERE, T0)).unwrap().bits,
         base
     );
     for place in 5..=8 {
@@ -494,7 +494,7 @@ fn a_document_guessed_at_from_everywhere_asks_work_with_every_password() {
         );
     }
     assert_eq!(
-        done(world.share.challenge(ask, HERE, T0)).unwrap().bits,
+        done(world.folio.challenge(ask, HERE, T0)).unwrap().bits,
         base + 2
     );
     assert!(
@@ -531,7 +531,7 @@ fn only_a_document_that_asks_for_a_password_hands_out_work_for_one() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .challenge(Ask::Password { id: &open.id }, HERE, T0)
         )
         .err(),
@@ -540,7 +540,7 @@ fn only_a_document_that_asks_for_a_password_hands_out_work_for_one() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .challenge(Ask::Password { id: "nadaaqui" }, HERE, T0)
         )
         .err(),
@@ -554,7 +554,7 @@ fn only_a_document_that_asks_for_a_password_hands_out_work_for_one() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .challenge(Ask::Password { id: &paused.id }, HERE, T0)
         )
         .err(),
@@ -582,7 +582,7 @@ fn a_block_of_networks_shares_one_allowance_of_wrong_passwords() {
     world
         .manage(&reserved, Manage::Password(Some("perro azul".into())), T0)
         .unwrap();
-    let wide = world.share.policy.misses_wide;
+    let wide = world.folio.policy.misses_wide;
     for net in 0..wide as u16 {
         assert_eq!(
             world.read_from(&reserved.id, Some("gato"), in_block(net), T0),
@@ -670,7 +670,7 @@ fn a_known_network_that_guesses_still_waits_and_a_new_password_is_known_nowhere(
             .read_from(&reserved.id, Some("perro azul"), HERE, T0)
             .is_ok()
     );
-    for _ in 0..world.share.policy.misses {
+    for _ in 0..world.folio.policy.misses {
         assert_eq!(
             world.read_from(&reserved.id, Some("gato"), HERE, T0),
             Err(Refused::PasswordWrong)
@@ -682,7 +682,7 @@ fn a_known_network_that_guesses_still_waits_and_a_new_password_is_known_nowhere(
     ));
 
     // After the owner changes the password, even a network that knew the old one pays the work again.
-    let later = T0 + world.share.policy.locked;
+    let later = T0 + world.folio.policy.locked;
     world
         .manage(
             &reserved,
@@ -708,7 +708,7 @@ fn a_reader_who_knows_the_password_is_not_held_back_by_a_guesser_in_its_block() 
             .read_from(&reserved.id, Some("perro azul"), in_block(500), T0)
             .is_ok()
     );
-    for net in 0..world.share.policy.misses_wide as u16 {
+    for net in 0..world.folio.policy.misses_wide as u16 {
         let _ = world.read_from(&reserved.id, Some("gato"), in_block(net), T0);
     }
     assert!(
@@ -734,7 +734,7 @@ fn a_heavily_guessed_day_gives_a_block_a_fifth_too() {
         .manage(&reserved, Manage::Password(Some("perro azul".into())), T0)
         .unwrap();
     let _ = world.read_from(&reserved.id, Some("gato"), there(1), T0);
-    let fifth = world.share.policy.misses_wide / 5;
+    let fifth = world.folio.policy.misses_wide / 5;
     for net in 0..fifth as u16 {
         assert_eq!(
             world.read_from(&reserved.id, Some("gato"), in_block(net), T0),
@@ -762,7 +762,7 @@ fn a_network_already_waiting_spends_no_proof() {
         world.read_from(&reserved.id, Some("gato"), there(1), T0),
         Err(Refused::PasswordWrong)
     );
-    for _ in 0..world.share.policy.misses {
+    for _ in 0..world.folio.policy.misses {
         let proof = world.proof(ask, T0);
         let _ = world.read_worked(&reserved.id, "gato", &proof, there(2), T0);
     }
@@ -791,8 +791,8 @@ fn a_block_of_blocks_shares_one_allowance_too() {
         .manage(&reserved, Manage::Password(Some("perro azul".into())), T0)
         .unwrap();
     // Each /48 of one /32 stays under its own allowance, and the /32 still fills up.
-    let wider = world.share.policy.misses_wider as u16;
-    let per = world.share.policy.misses_wide as u16 - 1;
+    let wider = world.folio.policy.misses_wider as u16;
+    let per = world.folio.policy.misses_wide as u16 - 1;
     let mut said = 0;
     for block in 0.. {
         for net in 0..per {
@@ -825,13 +825,13 @@ fn behind_a_password_only_its_own_links_see_the_latest_version() {
         .manage(&reserved, Manage::Password(Some("perro azul".into())), T0)
         .unwrap();
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0)),
+        done(world.folio.latest(&reserved.id, None, HERE, T0)),
         Err(Refused::Forbidden)
     );
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .latest(&reserved.id, Some(&reserved.edit), HERE, T0)
         ),
         Ok(Some(1))
@@ -848,13 +848,13 @@ fn a_document_nobody_reads_for_fifteen_days_is_gone() {
     assert!(world.read(&reserved.id, T0 + 28 * DAY).is_ok());
     assert_eq!(world.read(&reserved.id, T0 + 44 * DAY), Err(Refused::Gone));
     // Reading it took nothing away; the sweep does.
-    assert_eq!(world.share.store.envelopes(), 1);
-    done(world.share.sweep(T0 + 44 * DAY)).unwrap();
+    assert_eq!(world.folio.store.envelopes(), 1);
+    done(world.folio.sweep(T0 + 44 * DAY)).unwrap();
     assert_eq!(
         world.read(&reserved.id, T0 + 44 * DAY),
         Err(Refused::Missing)
     );
-    assert_eq!(world.share.store.envelopes(), 0);
+    assert_eq!(world.folio.store.envelopes(), 0);
 }
 
 #[test]
@@ -864,12 +864,12 @@ fn tisty_asking_for_the_latest_version_is_not_activity() {
 
     for day in [5, 10, 14] {
         assert_eq!(
-            done(world.share.latest(&reserved.id, None, HERE, T0 + day * DAY)),
+            done(world.folio.latest(&reserved.id, None, HERE, T0 + day * DAY)),
             Ok(Some(1))
         );
     }
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0 + 16 * DAY)),
+        done(world.folio.latest(&reserved.id, None, HERE, T0 + 16 * DAY)),
         Err(Refused::Gone)
     );
 }
@@ -952,7 +952,7 @@ fn a_paused_document_is_not_served_and_its_trash_time_runs_instead() {
 
     assert_eq!(world.read(&reserved.id, T0 + DAY), Err(Refused::Paused));
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0 + DAY)),
+        done(world.folio.latest(&reserved.id, None, HERE, T0 + DAY)),
         Err(Refused::Paused)
     );
     let next = sealed(&reserved.id, 2, Some(1), "dos");
@@ -978,7 +978,7 @@ fn deleting_takes_the_document_and_every_envelope_away() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .manage(&reserved.id, &reserved.edit, Manage::Delete, T0)
         ),
         Err(Refused::Forbidden)
@@ -986,7 +986,7 @@ fn deleting_takes_the_document_and_every_envelope_away() {
     world.manage(&reserved, Manage::Delete, T0).unwrap();
 
     assert_eq!(world.read(&reserved.id, T0), Err(Refused::Missing));
-    assert_eq!(world.share.store.envelopes(), 0);
+    assert_eq!(world.folio.store.envelopes(), 0);
 }
 
 #[test]
@@ -999,7 +999,7 @@ fn a_sweep_takes_only_so_many_and_the_next_takes_the_rest() {
         world.shared(T0);
     }
     let later = T0 + 31 * DAY;
-    let gone = |world: &World| done(world.share.sweep(later)).unwrap().gone;
+    let gone = |world: &World| done(world.folio.sweep(later)).unwrap().gone;
     assert_eq!(gone(&world), 2);
     assert_eq!(gone(&world), 1);
     assert_eq!(gone(&world), 0);
@@ -1012,7 +1012,7 @@ fn a_gate_keeps_how_slow_it_was_made_and_opens_after_the_server_grows_slower() {
     world
         .manage(&reserved, Manage::Password(Some("perro azul".into())), T0)
         .unwrap();
-    world.share.policy.slowness = Slowness { log_n: 5, r: 8 };
+    world.folio.policy.slowness = Slowness { log_n: 5, r: 8 };
 
     assert!(
         world
@@ -1031,10 +1031,10 @@ fn a_sweep_takes_whatever_ran_out_and_leaves_the_rest() {
     world
         .put(&fresh.id, &fresh.edit, first, T0 + 20 * DAY)
         .unwrap();
-    let kept_before = world.share.store.kept();
+    let kept_before = world.folio.store.kept();
 
-    assert_eq!(done(world.share.sweep(T0 + 31 * DAY)).unwrap().gone, 2);
-    assert!(world.share.store.kept() < kept_before);
+    assert_eq!(done(world.folio.sweep(T0 + 31 * DAY)).unwrap().gone, 2);
+    assert!(world.folio.store.kept() < kept_before);
     assert_eq!(world.read(&old.id, T0 + 31 * DAY), Err(Refused::Missing));
     assert_eq!(
         world.read(&never_used.id, T0 + 31 * DAY),
@@ -1049,16 +1049,16 @@ fn a_reserved_id_with_nothing_uploaded_cannot_be_read_yet() {
     let reserved = world.reserve(T0);
     assert_eq!(world.read(&reserved.id, T0), Err(Refused::Unwritten));
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0)),
+        done(world.folio.latest(&reserved.id, None, HERE, T0)),
         Ok(None)
     );
 }
 
 #[test]
 fn nothing_is_reserved_without_randomness() {
-    let mut share = Share::new(Memory::default(), Empty, policy(), [5; 32]);
+    let mut folio = Folio::new(Memory::default(), Empty, policy(), [5; 32]);
     assert_eq!(
-        done(share.challenge(Ask::Reserve, HERE, T0)).err(),
+        done(folio.challenge(Ask::Reserve, HERE, T0)).err(),
         Some(Refused::NoRandomness)
     );
 }
@@ -1067,9 +1067,9 @@ fn nothing_is_reserved_without_randomness() {
 fn every_step_pays_its_work_and_a_proof_answers_only_once() {
     let mut world = World::new();
     let proof = world.proof(Ask::Reserve, T0);
-    assert!(done(world.share.reserve(HERE, &proof, T0)).is_ok());
+    assert!(done(world.folio.reserve(HERE, &proof, T0)).is_ok());
     assert_eq!(
-        done(world.share.reserve(HERE, &proof, T0)).err(),
+        done(world.folio.reserve(HERE, &proof, T0)).err(),
         Some(Refused::WorkRefused)
     );
 
@@ -1079,21 +1079,21 @@ fn every_step_pays_its_work_and_a_proof_answers_only_once() {
         wrong.nonce += 1;
     }
     assert_eq!(
-        done(world.share.reserve(HERE, &wrong, T0)).err(),
+        done(world.folio.reserve(HERE, &wrong, T0)).err(),
         Some(Refused::WorkRefused)
     );
 
     let expired = world.proof(Ask::Reserve, T0);
     assert_eq!(
-        done(world.share.reserve(HERE, &expired, T0 + HOUR)).err(),
+        done(world.folio.reserve(HERE, &expired, T0 + HOUR)).err(),
         Some(Refused::WorkRefused)
     );
 
-    let mut other_server = Share::new(Memory::default(), Counting(0), policy(), [6; 32]);
+    let mut other_server = Folio::new(Memory::default(), Counting(0), policy(), [6; 32]);
     let theirs =
         work::solve(&done(other_server.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
     assert_eq!(
-        done(world.share.reserve(HERE, &theirs, T0)).err(),
+        done(world.folio.reserve(HERE, &theirs, T0)).err(),
         Some(Refused::WorkRefused)
     );
 }
@@ -1114,7 +1114,7 @@ fn work_done_for_one_envelope_does_not_carry_another() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .upload(&reserved.id, &reserved.edit, other, HERE, &proof, T0)
         ),
         Err(Refused::WorkRefused)
@@ -1122,7 +1122,7 @@ fn work_done_for_one_envelope_does_not_carry_another() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .upload(&reserved.id, &reserved.edit, meant, HERE, &proof, T0)
         ),
         Ok(1)
@@ -1175,7 +1175,7 @@ fn a_heavier_envelope_costs_more_work_than_it_was_asked_for_when_it_claims_to_be
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .upload(&reserved.id, &reserved.edit, heavy, HERE, &light_work, T0)
         ),
         Err(Refused::WorkRefused)
@@ -1185,7 +1185,7 @@ fn a_heavier_envelope_costs_more_work_than_it_was_asked_for_when_it_claims_to_be
 #[test]
 fn the_server_s_own_work_is_solved_in_a_moment() {
     let mut world = World::with(Policy::default());
-    let challenge = done(world.share.challenge(Ask::Reserve, HERE, T0)).unwrap();
+    let challenge = done(world.folio.challenge(Ask::Reserve, HERE, T0)).unwrap();
     assert_eq!(challenge.bits, Work::default().reserve);
     assert!(work::solve(&challenge).is_some());
 }
@@ -1265,16 +1265,16 @@ fn tisty_asking_for_changes_has_its_own_allowance_and_waits_only_the_hour() {
     world.read(&reserved.id, T0).unwrap();
     for _ in 0..2 {
         assert_eq!(
-            done(world.share.latest(&reserved.id, None, HERE, T0)),
+            done(world.folio.latest(&reserved.id, None, HERE, T0)),
             Ok(Some(1))
         );
     }
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0)),
+        done(world.folio.latest(&reserved.id, None, HERE, T0)),
         Err(Refused::Slow { until: T0 + HOUR })
     );
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0 + HOUR)),
+        done(world.folio.latest(&reserved.id, None, HERE, T0 + HOUR)),
         Ok(Some(1))
     );
 }
@@ -1365,12 +1365,12 @@ fn a_reader_is_counted_once_a_day_and_the_owner_sees_the_count() {
     world.read_from(&reserved.id, None, there(1), T0).unwrap();
     world.read(&reserved.id, T0 + DAY).unwrap();
 
-    let info = done(world.share.info(&reserved.id, &reserved.admin, T0 + DAY)).unwrap();
+    let info = done(world.folio.info(&reserved.id, &reserved.admin, T0 + DAY)).unwrap();
     assert_eq!(info.reads, 3);
     assert_eq!(info.latest, Some(1));
     assert!(!info.blocked && !info.paused && !info.gated);
     assert_eq!(
-        done(world.share.info(&reserved.id, &reserved.edit, T0)).err(),
+        done(world.folio.info(&reserved.id, &reserved.edit, T0)).err(),
         Some(Refused::Forbidden)
     );
 }
@@ -1386,7 +1386,7 @@ fn reports_from_three_places_block_the_document_and_keep_it_as_evidence() {
 
     assert_eq!(world.read(&reserved.id, T0), Err(Refused::Blocked));
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, T0)),
+        done(world.folio.latest(&reserved.id, None, HERE, T0)),
         Err(Refused::Blocked)
     );
     assert_eq!(
@@ -1429,7 +1429,7 @@ fn a_report_says_what_is_against_the_law_in_a_few_words() {
         link: None,
     };
     assert_eq!(
-        done(world.share.report(&reserved.id, long, there(1), &proof, T0)),
+        done(world.folio.report(&reserved.id, long, there(1), &proof, T0)),
         Err(Refused::TooLong)
     );
     let posing = Complaint {
@@ -1440,7 +1440,7 @@ fn a_report_says_what_is_against_the_law_in_a_few_words() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .report(&reserved.id, posing, there(1), &proof, T0)
         ),
         Err(Refused::Forbidden)
@@ -1454,7 +1454,7 @@ fn the_owner_appeals_a_block_from_the_management_link_only() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .appeal(&reserved.id, &reserved.admin, "era una broma", T0)
         ),
         Err(Refused::Missing)
@@ -1464,13 +1464,13 @@ fn the_owner_appeals_a_block_from_the_management_link_only() {
     }
 
     assert_eq!(
-        done(world.share.appeal(&reserved.id, &reserved.edit, "mío", T0)),
+        done(world.folio.appeal(&reserved.id, &reserved.edit, "mío", T0)),
         Err(Refused::Forbidden)
     );
     assert!(
         done(
             world
-                .share
+                .folio
                 .appeal(&reserved.id, &reserved.admin, "es mío y es legal", T0)
         )
         .is_ok()
@@ -1478,16 +1478,16 @@ fn the_owner_appeals_a_block_from_the_management_link_only() {
     assert_eq!(
         done(
             world
-                .share
+                .folio
                 .appeal(&reserved.id, &reserved.admin, "otra vez", T0 + DAY)
         ),
         Err(Refused::Reported)
     );
-    let filed = done(world.share.store.reports(&reserved.id, T0)).unwrap();
+    let filed = done(world.folio.store.reports(&reserved.id, T0)).unwrap();
     assert_eq!(filed.len(), 4);
     assert_eq!(filed.last().unwrap().category, Category::Appeal);
     assert!(
-        done(world.share.info(&reserved.id, &reserved.admin, T0))
+        done(world.folio.info(&reserved.id, &reserved.admin, T0))
             .unwrap()
             .blocked
     );
@@ -1599,7 +1599,7 @@ impl Store for Faulty {
     }
 }
 
-fn faulty() -> Share<Faulty, Counting> {
+fn faulty() -> Folio<Faulty, Counting> {
     let store = Faulty {
         inner: Memory::default(),
         lose: Cell::new(false),
@@ -1608,11 +1608,11 @@ fn faulty() -> Share<Faulty, Counting> {
         unlapsing: Cell::new(false),
         racing: RefCell::new(None),
     };
-    Share::new(store, Counting(0), policy(), [5; 32])
+    Folio::new(store, Counting(0), policy(), [5; 32])
 }
 
 fn upload_faulty(
-    share: &mut Share<Faulty, Counting>,
+    folio: &mut Folio<Faulty, Counting>,
     reserved: &Reserved,
     bytes: Vec<u8>,
 ) -> Result<u64, Refused> {
@@ -1621,129 +1621,129 @@ fn upload_faulty(
         digest: digest_of(&bytes),
         bytes: bytes.len() as u64,
     };
-    let proof = work::solve(&done(share.challenge(ask, HERE, T0)).unwrap()).unwrap();
-    done(share.upload(&reserved.id, &reserved.edit, bytes, HERE, &proof, T0))
+    let proof = work::solve(&done(folio.challenge(ask, HERE, T0)).unwrap()).unwrap();
+    done(folio.upload(&reserved.id, &reserved.edit, bytes, HERE, &proof, T0))
 }
 
 #[test]
 fn an_upload_that_loses_the_race_leaves_nothing_of_itself_behind() {
-    let mut share = faulty();
-    let proof = work::solve(&done(share.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
-    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
-    share.store.lose.set(true);
+    let mut folio = faulty();
+    let proof = work::solve(&done(folio.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
+    let reserved = done(folio.reserve(HERE, &proof, T0)).unwrap();
+    folio.store.lose.set(true);
     let first = sealed(&reserved.id, 1, None, "perdió");
 
     assert_eq!(
-        upload_faulty(&mut share, &reserved, first),
+        upload_faulty(&mut folio, &reserved, first),
         Err(Refused::Behind { latest: None })
     );
-    assert_eq!(share.store.inner.envelopes(), 0);
+    assert_eq!(folio.store.inner.envelopes(), 0);
 }
 
 #[test]
 fn an_upload_that_keeps_nothing_spends_none_of_the_day() {
-    let mut share = faulty();
-    let proof = work::solve(&done(share.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
-    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+    let mut folio = faulty();
+    let proof = work::solve(&done(folio.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
+    let reserved = done(folio.reserve(HERE, &proof, T0)).unwrap();
     let first = sealed(&reserved.id, 1, None, "uno");
-    share.policy.allowance.bytes_a_day = first.len() as u64;
-    share.store.lose.set(true);
+    folio.policy.allowance.bytes_a_day = first.len() as u64;
+    folio.store.lose.set(true);
 
     assert_eq!(
-        upload_faulty(&mut share, &reserved, first.clone()),
+        upload_faulty(&mut folio, &reserved, first.clone()),
         Err(Refused::Behind { latest: None })
     );
-    assert_eq!(upload_faulty(&mut share, &reserved, first), Ok(1));
+    assert_eq!(upload_faulty(&mut folio, &reserved, first), Ok(1));
 }
 
 #[test]
 fn the_report_that_blocks_holds_its_block_even_when_it_loses_a_race() {
-    let mut share = faulty();
-    let proof = work::solve(&done(share.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
-    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+    let mut folio = faulty();
+    let proof = work::solve(&done(folio.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
+    let reserved = done(folio.reserve(HERE, &proof, T0)).unwrap();
     let first = sealed(&reserved.id, 1, None, "uno");
-    upload_faulty(&mut share, &reserved, first).unwrap();
+    upload_faulty(&mut folio, &reserved, first).unwrap();
     for place in 1..=3 {
         if place == 3 {
-            share.store.lose.set(true);
+            folio.store.lose.set(true);
         }
         let ask = Ask::Report { id: &reserved.id };
-        let proof = work::solve(&done(share.challenge(ask, HERE, T0)).unwrap()).unwrap();
+        let proof = work::solve(&done(folio.challenge(ask, HERE, T0)).unwrap()).unwrap();
         let complaint = Complaint {
             category: Category::Phishing,
             detail: "pide la clave del banco".into(),
             link: None,
         };
         assert_eq!(
-            done(share.report(&reserved.id, complaint, there(place), &proof, T0)),
+            done(folio.report(&reserved.id, complaint, there(place), &proof, T0)),
             Ok(())
         );
     }
 
-    let doc = done(share.store.doc(&reserved.id)).unwrap().unwrap();
+    let doc = done(folio.store.doc(&reserved.id)).unwrap().unwrap();
     assert_eq!(doc.blocked, Some(T0));
 }
 
 #[test]
 fn a_host_s_own_limiter_decides_the_reads_and_its_wait_is_the_one_told() {
-    let mut share = faulty();
-    let proof = work::solve(&done(share.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
-    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+    let mut folio = faulty();
+    let proof = work::solve(&done(folio.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
+    let reserved = done(folio.reserve(HERE, &proof, T0)).unwrap();
     let first = sealed(&reserved.id, 1, None, "uno");
-    upload_faulty(&mut share, &reserved, first).unwrap();
-    share.store.limited.set(Some(T0 + 60));
+    upload_faulty(&mut folio, &reserved, first).unwrap();
+    folio.store.limited.set(Some(T0 + 60));
 
     for _ in 0..3 {
         assert_eq!(
-            done(share.read(&reserved.id, None, None, false, HERE, T0)).err(),
+            done(folio.read(&reserved.id, None, None, false, HERE, T0)).err(),
             Some(Refused::Slow { until: T0 + 60 })
         );
     }
-    share.store.limited.set(None);
-    assert!(done(share.read(&reserved.id, None, None, false, HERE, T0 + 60)).is_ok());
+    folio.store.limited.set(None);
+    assert!(done(folio.read(&reserved.id, None, None, false, HERE, T0 + 60)).is_ok());
 }
 
 #[test]
 fn a_document_that_cannot_go_is_passed_over_and_the_rest_still_go() {
-    let mut share = faulty();
+    let mut folio = faulty();
     let mut ids = Vec::new();
     for _ in 0..3 {
-        let proof = work::solve(&done(share.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
-        let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+        let proof = work::solve(&done(folio.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
+        let reserved = done(folio.reserve(HERE, &proof, T0)).unwrap();
         let first = sealed(&reserved.id, 1, None, "uno");
-        upload_faulty(&mut share, &reserved, first).unwrap();
+        upload_faulty(&mut folio, &reserved, first).unwrap();
         ids.push(reserved.id);
     }
     ids.sort();
-    *share.store.stuck.borrow_mut() = Some(ids[0].clone());
+    *folio.store.stuck.borrow_mut() = Some(ids[0].clone());
 
     let later = T0 + 31 * DAY;
-    let swept = done(share.sweep(later)).unwrap();
+    let swept = done(folio.sweep(later)).unwrap();
     assert_eq!(swept.gone, 2);
     assert_eq!(swept.stuck.len(), 1);
     assert_eq!(swept.stuck[0].0, ids[0]);
     assert_eq!(swept.stuck[0].1, Fault("the envelopes would not go".into()));
 
     // It waits a day before it is tried again, and reading it says only that it is gone.
-    let again = done(share.sweep(later + 60)).unwrap();
+    let again = done(folio.sweep(later + 60)).unwrap();
     assert_eq!((again.gone, again.stuck.len()), (0, 0));
     assert_eq!(
-        done(share.read(&ids[0], None, None, false, HERE, later + 60)).err(),
+        done(folio.read(&ids[0], None, None, false, HERE, later + 60)).err(),
         Some(Refused::Gone)
     );
-    *share.store.stuck.borrow_mut() = None;
-    assert_eq!(done(share.sweep(later + DAY + 1)).unwrap().gone, 1);
+    *folio.store.stuck.borrow_mut() = None;
+    assert_eq!(done(folio.sweep(later + DAY + 1)).unwrap().gone, 1);
 }
 
 #[test]
 fn old_counters_that_cannot_go_never_keep_documents_from_going() {
-    let mut share = faulty();
-    let proof = work::solve(&done(share.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
-    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
-    upload_faulty(&mut share, &reserved, sealed(&reserved.id, 1, None, "uno")).unwrap();
-    share.store.unlapsing.set(true);
+    let mut folio = faulty();
+    let proof = work::solve(&done(folio.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
+    let reserved = done(folio.reserve(HERE, &proof, T0)).unwrap();
+    upload_faulty(&mut folio, &reserved, sealed(&reserved.id, 1, None, "uno")).unwrap();
+    folio.store.unlapsing.set(true);
 
-    let swept = done(share.sweep(T0 + 31 * DAY)).unwrap();
+    let swept = done(folio.sweep(T0 + 31 * DAY)).unwrap();
     assert_eq!(swept.gone, 1);
     assert_eq!(
         swept.unlapsed,
@@ -1792,7 +1792,7 @@ fn neither_link_reaches_an_earlier_version_of_a_blocked_or_paused_document() {
     let reserved = world.shared(T0);
     world.manage(&reserved, Manage::Pause, T0).unwrap();
     assert_eq!(
-        done(world.share.version(&reserved.id, &reserved.edit, 1, T0)),
+        done(world.folio.version(&reserved.id, &reserved.edit, 1, T0)),
         Err(Refused::Paused)
     );
     world.manage(&reserved, Manage::Restore, T0).unwrap();
@@ -1800,28 +1800,28 @@ fn neither_link_reaches_an_earlier_version_of_a_blocked_or_paused_document() {
         world.report_from(&reserved.id, there(place), T0).unwrap();
     }
     assert_eq!(
-        done(world.share.version(&reserved.id, &reserved.admin, 1, T0)),
+        done(world.folio.version(&reserved.id, &reserved.admin, 1, T0)),
         Err(Refused::Blocked)
     );
 }
 
 #[test]
 fn two_readers_racing_to_write_their_visit_are_both_served() {
-    let mut share = faulty();
-    let proof = work::solve(&done(share.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
-    let reserved = done(share.reserve(HERE, &proof, T0)).unwrap();
+    let mut folio = faulty();
+    let proof = work::solve(&done(folio.challenge(Ask::Reserve, HERE, T0)).unwrap()).unwrap();
+    let reserved = done(folio.reserve(HERE, &proof, T0)).unwrap();
     let first = sealed(&reserved.id, 1, None, "uno");
-    upload_faulty(&mut share, &reserved, first).unwrap();
-    share.store.lose.set(true);
+    upload_faulty(&mut folio, &reserved, first).unwrap();
+    folio.store.lose.set(true);
 
-    assert!(done(share.read(&reserved.id, None, None, false, HERE, T0 + DAY)).is_ok());
+    assert!(done(folio.read(&reserved.id, None, None, false, HERE, T0 + DAY)).is_ok());
 }
 
 #[test]
 fn a_version_whose_envelope_the_store_lost_is_a_fault_not_a_missing_document() {
     let mut world = World::new();
     let shared = world.shared(T0);
-    world.share.store.lose_envelopes();
+    world.folio.store.lose_envelopes();
     assert!(matches!(world.read(&shared.id, T0), Err(Refused::Store(_))));
 }
 
@@ -1840,7 +1840,7 @@ fn a_reader_is_told_when_it_was_shared_and_written_when_it_ends_and_whether_it_a
     let facts = world.read(&reserved.id, T0 + 2 * DAY).unwrap().facts;
     assert_eq!(facts.shared, T0 + 600);
     assert_eq!(facts.written, Some(T0 + DAY));
-    assert_eq!(facts.ends, T0 + 2 * DAY + world.share.policy.idle);
+    assert_eq!(facts.ends, T0 + 2 * DAY + world.folio.policy.idle);
     assert!(!facts.gated);
 
     world
@@ -1858,7 +1858,7 @@ fn a_reader_is_told_when_it_was_shared_and_written_when_it_ends_and_whether_it_a
 fn a_key_taken_back_is_told_to_every_reader_and_sends_nothing_more() {
     let mut world = World::new();
     let reserved = world.shared(T0);
-    done(world.share.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
+    done(world.folio.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
 
     let served = world.read(&reserved.id, T0).unwrap();
     assert_eq!(served.revoked, vec![taken_back(T0)]);
@@ -1883,7 +1883,7 @@ fn a_revocation_that_does_not_hold_is_not_kept() {
     forged.at = Timestamp::from_second(T0 + 1).unwrap();
 
     assert_eq!(
-        done(world.share.revoke(&[forged], HERE, T0)),
+        done(world.folio.revoke(&[forged], HERE, T0)),
         Err(Refused::Unsigned)
     );
     assert!(world.read(&reserved.id, T0).unwrap().revoked.is_empty());
@@ -1893,8 +1893,8 @@ fn a_revocation_that_does_not_hold_is_not_kept() {
 fn the_same_revocation_carried_twice_is_kept_once() {
     let mut world = World::new();
     let reserved = world.shared(T0);
-    done(world.share.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
-    done(world.share.revoke(&[taken_back(T0)], there(2), T0)).unwrap();
+    done(world.folio.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
+    done(world.folio.revoke(&[taken_back(T0)], there(2), T0)).unwrap();
 
     assert_eq!(world.read(&reserved.id, T0).unwrap().revoked.len(), 1);
 }
@@ -1906,7 +1906,7 @@ fn another_root_taking_back_the_same_key_is_kept_but_never_told_nor_heeded() {
     let (machine, _) = vouched();
     let stranger = tisty_share_proto::identity::Root::from_bytes(&[4; 32])
         .revoke(&machine.public(), Timestamp::from_second(T0).unwrap());
-    done(world.share.revoke(&[stranger], HERE, T0)).unwrap();
+    done(world.folio.revoke(&[stranger], HERE, T0)).unwrap();
 
     assert!(world.read(&reserved.id, T0).unwrap().revoked.is_empty());
     let second = sealed(&reserved.id, 2, Some(1), "dos");
@@ -1919,11 +1919,11 @@ fn many_revocations_go_in_one_request_and_too_many_are_turned_away() {
     let many = vec![taken_back(T0); tisty_share_proto::identity::REVOCATIONS_AT_ONCE + 1];
 
     assert_eq!(
-        done(world.share.revoke(&many, HERE, T0)),
+        done(world.folio.revoke(&many, HERE, T0)),
         Err(Refused::TooLong)
     );
     let enough = &many[..tisty_share_proto::identity::REVOCATIONS_AT_ONCE];
-    assert_eq!(done(world.share.revoke(enough, HERE, T0)), Ok(()));
+    assert_eq!(done(world.folio.revoke(enough, HERE, T0)), Ok(()));
 }
 
 #[test]
@@ -1936,10 +1936,10 @@ fn carrying_too_many_revocations_waits_out_the_hour_and_blocks_nothing_else() {
         ..policy()
     });
     let reserved = world.shared(T0);
-    done(world.share.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
+    done(world.folio.revoke(&[taken_back(T0)], HERE, T0)).unwrap();
 
     assert!(matches!(
-        done(world.share.revoke(&[taken_back(T0)], HERE, T0)),
+        done(world.folio.revoke(&[taken_back(T0)], HERE, T0)),
         Err(Refused::Slow { .. })
     ));
     assert!(world.read(&reserved.id, T0).is_ok());
@@ -1967,7 +1967,7 @@ fn a_cited_document_lives_as_long_as_the_share_that_holds_it_and_goes_with_it() 
     assert_eq!(world.doc(&root.id).holds, vec![cited.id.clone()]);
 
     let gone = later + 16 * DAY;
-    done(world.share.sweep(gone)).unwrap();
+    done(world.folio.sweep(gone)).unwrap();
     assert_eq!(world.read(&root.id, gone), Err(Refused::Missing));
     assert_eq!(world.read(&cited.id, gone), Err(Refused::Missing));
 }
@@ -1985,7 +1985,7 @@ fn a_cited_document_shared_on_its_own_too_keeps_its_own_life_once_let_go() {
     world.manage(&root, Manage::Delete, T0 + 2 * DAY).unwrap();
     assert_eq!(
         world.doc(&cited.id).ends,
-        T0 + DAY + world.share.policy.idle
+        T0 + DAY + world.folio.policy.idle
     );
     assert!(world.doc(&cited.id).holders.is_empty());
     assert!(world.read(&cited.id, T0 + 3 * DAY).is_ok());
@@ -2043,7 +2043,7 @@ fn a_document_two_shares_hold_goes_only_when_the_last_lets_go() {
     let cited = world.shared(T0);
     world.manage(&one, hold(&cited, false), T0).unwrap();
     world.manage(&two, hold(&cited, false), T0).unwrap();
-    // Held twice by one share is held once.
+    // Held twice by one folio is held once.
     world.manage(&two, hold(&cited, false), T0).unwrap();
     assert_eq!(
         world.doc(&cited.id).holders,
@@ -2068,7 +2068,7 @@ fn a_holder_that_went_without_letting_go_is_let_go_of_when_its_document_is_read(
     let cited = world.shared(T0);
     world.manage(&root, hold(&cited, false), T0).unwrap();
     // A store that failed midway: the root went, and the cited document never heard.
-    done(world.share.store.forget(&root.id)).unwrap();
+    done(world.folio.store.forget(&root.id)).unwrap();
 
     assert_eq!(world.read(&cited.id, T0 + HOUR), Err(Refused::Gone));
     assert_eq!(world.read(&cited.id, T0 + 2 * HOUR), Err(Refused::Missing));
@@ -2101,7 +2101,7 @@ fn stopping_a_document_a_share_still_holds_leaves_it_to_that_share() {
     world.manage(&cited, Manage::Delete, T0 + HOUR).unwrap();
     assert!(world.read(&cited.id, T0 + 2 * HOUR).is_ok());
     assert_eq!(world.doc(&cited.id).own, None);
-    // With no life of its own left, it goes with the share that held it.
+    // With no life of its own left, it goes with the folio that held it.
     world.manage(&root, Manage::Delete, T0 + 3 * HOUR).unwrap();
     assert_eq!(world.read(&cited.id, T0 + 4 * HOUR), Err(Refused::Missing));
 }
@@ -2117,7 +2117,7 @@ fn a_reader_and_an_owner_are_told_the_end_a_held_document_really_has() {
     // Read just now, the root's end is what keeps it, never the far end the sweep sees.
     assert_eq!(read.facts.ends, world.doc(&root.id).ends);
     assert!(read.facts.ends < crate::holding::HELD);
-    let info = done(world.share.info(&cited.id, &cited.admin, T0 + DAY)).unwrap();
+    let info = done(world.folio.info(&cited.id, &cited.admin, T0 + DAY)).unwrap();
     assert_eq!(info.ends, world.doc(&cited.id).own.unwrap());
 }
 
@@ -2143,16 +2143,16 @@ fn a_held_document_paused_and_then_stopped_reads_again_through_its_holder() {
     world.manage(&cited, Manage::Delete, T0 + 2 * HOUR).unwrap();
     assert!(world.read(&cited.id, T0 + 3 * HOUR).is_ok());
     // Its owner is told the end its holder gives it, never the sweep's far one.
-    let info = done(world.share.info(&cited.id, &cited.admin, T0 + 3 * HOUR)).unwrap();
+    let info = done(world.folio.info(&cited.id, &cited.admin, T0 + 3 * HOUR)).unwrap();
     assert_eq!(info.ends, world.doc(&root.id).ends);
 }
 
 #[test]
 fn a_document_made_under_a_longer_ceiling_comes_down_to_today_s_when_it_is_read() {
     let mut world = World::new();
-    world.share.policy.idle = 30 * DAY;
+    world.folio.policy.idle = 30 * DAY;
     let reserved = world.shared(T0);
-    world.share.policy.idle = 15 * DAY;
+    world.folio.policy.idle = 15 * DAY;
 
     world.read(&reserved.id, T0 + DAY).unwrap();
     assert_eq!(world.doc(&reserved.id).idle, 15 * DAY);
@@ -2168,7 +2168,7 @@ fn a_read_answers_before_it_writes_anything_and_tells_the_end_it_will_leave() {
 
     let (served, seen) = done(
         world
-            .share
+            .folio
             .read(&reserved.id, None, None, false, HERE, later),
     )
     .unwrap();
@@ -2177,9 +2177,9 @@ fn a_read_answers_before_it_writes_anything_and_tells_the_end_it_will_leave() {
         (untouched.reads, untouched.revision),
         (before.reads, before.revision)
     );
-    assert_eq!(served.facts.ends, later + world.share.policy.idle);
+    assert_eq!(served.facts.ends, later + world.folio.policy.idle);
 
-    done(world.share.seen(seen)).unwrap();
+    done(world.folio.seen(seen)).unwrap();
     let noted = world.doc(&reserved.id);
     assert_eq!(noted.reads, before.reads + 1);
     assert_eq!(noted.ends, served.facts.ends);
@@ -2192,16 +2192,16 @@ fn a_holder_gone_without_letting_go_is_let_go_of_once_the_read_is_answered() {
     let cited = world.shared(T0);
     world.manage(&root, hold(&cited, true), T0).unwrap();
     // The holder went with its store failing midway, still named by what it held.
-    done(world.share.store.forget(&root.id)).unwrap();
+    done(world.folio.store.forget(&root.id)).unwrap();
 
     let (_, seen) = done(
         world
-            .share
+            .folio
             .read(&cited.id, None, None, false, HERE, T0 + DAY),
     )
     .unwrap();
     assert_eq!(world.doc(&cited.id).holders, vec![root.id.clone()]);
-    done(world.share.seen(seen)).unwrap();
+    done(world.folio.seen(seen)).unwrap();
     assert!(world.doc(&cited.id).holders.is_empty());
 }
 
@@ -2211,14 +2211,14 @@ fn a_document_past_its_end_is_gone_to_everyone_and_taken_only_by_the_sweep() {
     let reserved = world.shared(T0);
     let past = T0 + 16 * DAY;
     assert_eq!(
-        done(world.share.latest(&reserved.id, None, HERE, past)),
+        done(world.folio.latest(&reserved.id, None, HERE, past)),
         Err(Refused::Gone)
     );
     assert_eq!(
         world.manage(&reserved, Manage::Visit, past),
         Err(Refused::Gone)
     );
-    assert!(done(world.share.store.doc(&reserved.id)).unwrap().is_some());
+    assert!(done(world.folio.store.doc(&reserved.id)).unwrap().is_some());
 }
 
 impl World {
@@ -2233,13 +2233,13 @@ impl World {
     }
 
     fn sheet(&mut self, id: &str, now: i64) -> Result<Served, Refused> {
-        let (served, seen) = done(self.share.read(id, None, None, true, HERE, now))?;
-        done(self.share.seen(seen))?;
+        let (served, seen) = done(self.folio.read(id, None, None, true, HERE, now))?;
+        done(self.folio.seen(seen))?;
         Ok(served)
     }
 
     fn rest(&self, id: &str, ticket: &str, now: i64) -> Result<Vec<u8>, Refused> {
-        done(self.share.rest(id, ticket, HERE, now))
+        done(self.folio.rest(id, ticket, HERE, now))
     }
 }
 
@@ -2333,7 +2333,7 @@ fn the_rest_is_refused_once_its_document_is_paused_blocked_gone_or_its_version_d
     let ticket = world.sheet(&short.id, T0).unwrap().rest.unwrap();
     assert_eq!(world.rest(&short.id, &ticket, T0 + 120), Err(Refused::Gone));
 
-    world.share.policy.versions = 1;
+    world.folio.policy.versions = 1;
     let (replaced, _) = world.shared_pictured(T0);
     let ticket = world.sheet(&replaced.id, T0).unwrap().rest.unwrap();
     let next = pictured(&replaced.id, 2, Some(1));
@@ -2360,7 +2360,7 @@ fn the_rest_behind_a_password_needs_only_its_ticket_and_counts_as_a_poll() {
     );
     let (served, _) = done(
         world
-            .share
+            .folio
             .read(&reserved.id, Some("clave"), None, true, HERE, T0),
     )
     .unwrap();
@@ -2384,7 +2384,7 @@ fn a_ticket_no_longer_holds_once_the_password_or_the_version_changes() {
         .unwrap();
     let (served, _) = done(
         world
-            .share
+            .folio
             .read(&gated.id, Some("clave"), None, true, HERE, T0),
     )
     .unwrap();

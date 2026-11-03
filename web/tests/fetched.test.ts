@@ -6,11 +6,11 @@ const answering = (answer: () => Response) => (async () => answer()) as typeof f
 describe("what the server answers for a link", () => {
   it("is the sealed bytes, what the server holds in the clear beside them, and the keys taken back", async () => {
     const headers = {
-      "Tisty-Shared": "1793000000",
-      "Tisty-Written": "1793100000",
-      "Tisty-Ends": "1795600000",
-      "Tisty-Gated": "1",
-      "Tisty-Revoked": '[{"root":"r"}]',
+      "Folio-Shared": "1793000000",
+      "Folio-Written": "1793100000",
+      "Folio-Ends": "1795600000",
+      "Folio-Gated": "1",
+      "Folio-Revoked": '[{"root":"r"}]',
     };
     const said = await fetched(
       "k7Qm2xPa",
@@ -24,7 +24,7 @@ describe("what the server answers for a link", () => {
   });
 
   it("leaves out what the server did not tell, or told badly", async () => {
-    const headers = { "Tisty-Shared": "ayer", "Tisty-Ends": "-5", "Tisty-Gated": "0" };
+    const headers = { "Folio-Shared": "ayer", "Folio-Ends": "-5", "Folio-Gated": "0" };
     const said = await fetched(
       "k7Qm2xPa",
       answering(() => new Response("", { headers })),
@@ -40,7 +40,7 @@ describe("what the server answers for a link", () => {
   it("asks for the document the link names, with the password as its UTF-8 only when there is one", async () => {
     const asked: [string, string | null][] = [];
     const ask = (async (url: RequestInfo | URL, init?: RequestInit) => {
-      asked.push([String(url), new Headers(init?.headers).get("Tisty-Password")]);
+      asked.push([String(url), new Headers(init?.headers).get("Folio-Password")]);
       return new Response("");
     }) as typeof fetch;
     await fetched("k7Qm2xPa", ask);
@@ -79,8 +79,8 @@ describe("what the server answers for a link", () => {
   it("is asked as its sheet first, and comes with the ticket for its rest when it was cut there", async () => {
     const sheets: (string | null)[] = [];
     const ask = (async (_: RequestInfo | URL, init?: RequestInit) => {
-      sheets.push(new Headers(init?.headers).get("Tisty-Sheet"));
-      return new Response(new Uint8Array([1]), { headers: { "Tisty-Rest": "1.2.firma" } });
+      sheets.push(new Headers(init?.headers).get("Folio-Sheet"));
+      return new Response(new Uint8Array([1]), { headers: { "Folio-Rest": "1.2.firma" } });
     }) as typeof fetch;
     const said = await fetched("k7Qm2xPa", ask);
     await fetched("k7Qm2xPa", ask, "perro azul");
@@ -97,9 +97,9 @@ describe("what the server answers for a link", () => {
     const held = globalThis as { tistyEarly?: unknown };
     held.tistyEarly = { id: "k7Qm2xPa", answer: Promise.resolve(new Response("early")) };
     const taking = early("k7Qm2xPa", ask);
-    const passworded = { headers: { "Tisty-Sheet": "1", "Tisty-Password": "eA" } };
+    const passworded = { headers: { "Folio-Sheet": "1", "Folio-Password": "eA" } };
     expect(await (await taking("/api/v1/docs/k7Qm2xPa", passworded)).text()).toBe("later");
-    const sheet = { headers: { "Tisty-Sheet": "1" } };
+    const sheet = { headers: { "Folio-Sheet": "1" } };
     expect(await (await taking("/api/v1/docs/k7Qm2xPa", sheet)).text()).toBe("early");
     expect(asked).toEqual(["/api/v1/docs/k7Qm2xPa"]);
   });
@@ -139,7 +139,7 @@ describe("the rest of a sheet", () => {
       init?: RequestInit,
     ) => {
       const headers = new Headers(init?.headers);
-      asked.push([String(url), headers.get("Tisty-Rest"), headers.get("Tisty-Password")]);
+      asked.push([String(url), headers.get("Folio-Rest"), headers.get("Folio-Password")]);
       return new Response(new Uint8Array([4, 5]));
     }) as typeof fetch);
     expect(said).toEqual(new Uint8Array([4, 5]));
@@ -178,8 +178,8 @@ describe("a password to a document guessed at from everywhere", () => {
       const headers = new Headers(init?.headers);
       asked.push({
         url: String(url),
-        password: headers.get("Tisty-Password"),
-        work: headers.get("Tisty-Work"),
+        password: headers.get("Folio-Password"),
+        work: headers.get("Folio-Work"),
         body: init?.body as string | undefined,
       });
       return answers.shift() as Response;
@@ -292,7 +292,7 @@ describe("a report", () => {
       asked.push({
         url: String(url),
         method: init?.method,
-        work: new Headers(init?.headers).get("Tisty-Work"),
+        work: new Headers(init?.headers).get("Folio-Work"),
         body: init?.body as string | undefined,
       });
       return answers.shift() as Response;

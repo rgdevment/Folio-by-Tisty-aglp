@@ -4,9 +4,9 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use tisty_share_proto::identity::{REVOCATIONS_AT_ONCE, Revocation};
 
+use crate::folio::{Folio, Refused};
 use crate::guard::Act;
 use crate::keys::Randomness;
-use crate::share::{Refused, Share};
 use crate::store::{Sender, Store};
 
 /// A key or a root as the store names it: its bytes, so two spellings of one are never two rows.
@@ -14,7 +14,7 @@ fn named(key: &[u8; 32]) -> String {
     URL_SAFE_NO_PAD.encode(key)
 }
 
-impl<S: Store, R: Randomness> Share<S, R> {
+impl<S: Store, R: Randomness> Folio<S, R> {
     /// Anyone may carry a root's word taking keys back: the root's signature is the authority, not who brings it (decision 73).
     pub async fn revoke(
         &mut self,

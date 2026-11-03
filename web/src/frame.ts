@@ -113,4 +113,4 @@ export const endsOf = (facts: Facts, language: string): string =>
   facts.ends === undefined ? "" : day(facts.ends, language, "medium");
 
 // Tisty takes the whole link, key and all, from its own scheme; the browser hands it over only on a click.
-export const tistyOf = (link: string): string => `tisty://share?link=${encodeURIComponent(link)}`;
+export const tistyOf = (link: string): string => `tisty://folio?link=${encodeURIComponent(link)}`;

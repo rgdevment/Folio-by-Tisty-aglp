@@ -105,12 +105,12 @@ describe("a click on a card", () => {
 });
 
 const sealed = (status = 200, body: BodyInit = new Uint8Array([7])) =>
-  new Response(body, { status, headers: { "Tisty-Shared": "1793000000" } });
+  new Response(body, { status, headers: { "Folio-Shared": "1793000000" } });
 
 const opening = (answer: () => Response) => {
   const asked: [string, string | null][] = [];
   const ask = (async (url: RequestInfo | URL, init?: RequestInit) => {
-    asked.push([String(url), new Headers(init?.headers).get("Tisty-Password")]);
+    asked.push([String(url), new Headers(init?.headers).get("Folio-Password")]);
     return answer();
   }) as typeof fetch;
   const read = vi.fn(async (one: Cited, answer: { sealed: Uint8Array }) => ({

@@ -121,7 +121,7 @@ describe("the byline", () => {
 describe("opening it in Tisty", () => {
   it("hands Tisty the whole link, key and all", () => {
     expect(tistyOf("https://tisty.cl/k7Qm2xPa#clave+/=")).toBe(
-      "tisty://share?link=https%3A%2F%2Ftisty.cl%2Fk7Qm2xPa%23clave%2B%2F%3D",
+      "tisty://folio?link=https%3A%2F%2Ftisty.cl%2Fk7Qm2xPa%23clave%2B%2F%3D",
     );
   });
 });

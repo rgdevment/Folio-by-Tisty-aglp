@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const WORK: &[u8] = b"tisty-share.work.v1\0";
+const WORK: &[u8] = b"folio.work.v1\0";
 /// Past this many leading zero bits nobody could finish, so a server asking for more is refused rather than obeyed.
 pub const BITS_AT_MOST: u8 = 32;
 

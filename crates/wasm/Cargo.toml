@@ -21,7 +21,7 @@ tisty-share-proto.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# Pinned with the wasm-bindgen CLI in ci.yml and share.yml, which must read what this version writes.
+# Pinned with the wasm-bindgen CLI in ci.yml and deploy.yml, which must read what this version writes.
 wasm-bindgen = "=0.2.129"
 
 [dev-dependencies]

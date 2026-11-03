@@ -2,10 +2,10 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use folio_envelope::envelope::{self, Draft, Envelope, Kind, LinkKey, Signer};
 use folio_envelope::work::{self, Challenge};
+use folio_server::folio::Policy;
 use folio_server::guard::{Allowance, Work};
 use folio_server::keys::Slowness;
 use folio_server::memory::Memory;
-use folio_server::share::Policy;
 use folio_server::testing::{Counting, SIGNED_AT, done, taken_back, vouched};
 use serde_json::Value;
 
@@ -107,7 +107,7 @@ fn place(n: u8) -> IpAddr {
 }
 
 struct World {
-    share: Share<Memory, Counting>,
+    folio: Folio<Memory, Counting>,
 }
 
 /// A document reserved and shared once, as a Tisty does it over HTTP.
@@ -125,12 +125,12 @@ impl World {
 
     fn with(policy: Policy) -> Self {
         Self {
-            share: Share::new(Memory::default(), Counting(0), policy, [5; 32]),
+            folio: Folio::new(Memory::default(), Counting(0), policy, [5; 32]),
         }
     }
 
     fn answer(&mut self, asked: Asked) -> Answer {
-        done(answer(&mut self.share, asked))
+        done(answer(&mut self.folio, asked))
     }
 
     fn work(&mut self, asking: Value) -> String {
@@ -223,12 +223,12 @@ fn a_document_is_reserved_shared_and_read_over_http() {
     let read = world.answer(asked("GET", &format!("/api/v1/docs/{}", shared.id)));
     assert_eq!(read.status, 200);
     assert_eq!(read.body, shared.first);
-    assert_eq!(header(&read, "Tisty-Version"), Some("1"));
-    let shared_at = header(&read, "Tisty-Shared").unwrap();
-    assert_eq!(header(&read, "Tisty-Written"), Some(shared_at));
-    let ends: i64 = header(&read, "Tisty-Ends").unwrap().parse().unwrap();
+    assert_eq!(header(&read, "Folio-Version"), Some("1"));
+    let shared_at = header(&read, "Folio-Shared").unwrap();
+    assert_eq!(header(&read, "Folio-Written"), Some(shared_at));
+    let ends: i64 = header(&read, "Folio-Ends").unwrap().parse().unwrap();
     assert!(ends > shared_at.parse::<i64>().unwrap());
-    assert_eq!(header(&read, "Tisty-Gated"), None);
+    assert_eq!(header(&read, "Folio-Gated"), None);
     assert_eq!(
         header(&read, "Content-Type"),
         Some("application/octet-stream")
@@ -403,7 +403,7 @@ fn a_password_travels_in_its_own_header_and_is_asked_for_by_name() {
     assert_eq!(said(&asked_for), json!({ "refused": "password_asked" }));
     assert_eq!(
         header(&asked_for, "WWW-Authenticate"),
-        Some("Tisty-Password")
+        Some("Folio-Password")
     );
 
     let mut with_it = asked("GET", &path);
@@ -480,7 +480,7 @@ fn the_owner_sees_the_card_and_the_editors_see_earlier_versions() {
     let mut earlier = asked("GET", &format!("/api/v1/docs/{}/versions/1", shared.id));
     earlier.token = Some(shared.edit.clone());
     let served = world.answer(earlier);
-    assert_eq!(header(&served, "Tisty-Version"), Some("1"));
+    assert_eq!(header(&served, "Folio-Version"), Some("1"));
     assert_eq!(served.body, shared.first);
 
     assert_eq!(world.manage(&shared, json!({ "do": "pause" })).status, 204);
@@ -515,10 +515,10 @@ fn three_places_reporting_block_the_document_and_its_owner_appeals_once() {
 
 #[test]
 fn a_host_that_cannot_reach_a_step_still_answers_as_every_answer_does() {
-    let broken = broken("SHARE_SECRET is missing".into());
+    let broken = broken("FOLIO_SECRET is missing".into());
     assert_eq!(broken.status, 500);
     assert_eq!(said(&broken), json!({ "refused": "unready" }));
-    assert_eq!(broken.fault.as_deref(), Some("SHARE_SECRET is missing"));
+    assert_eq!(broken.fault.as_deref(), Some("FOLIO_SECRET is missing"));
     assert_eq!(header(&broken, "Cache-Control"), Some("no-store"));
     assert_eq!(header(&broken, "X-Robots-Tag"), Some("noindex, nofollow"));
 }
@@ -545,7 +545,7 @@ fn a_revocation_anyone_carries_reaches_every_reader_of_what_that_key_sent() {
 
     let read = world.answer(asked("GET", &format!("/api/v1/docs/{}", shared.id)));
     let told: Vec<tisty_share_proto::identity::Revocation> =
-        serde_json::from_str(header(&read, "Tisty-Revoked").unwrap()).unwrap();
+        serde_json::from_str(header(&read, "Folio-Revoked").unwrap()).unwrap();
     assert_eq!(told, vec![taken]);
 }
 
@@ -555,12 +555,12 @@ fn a_read_leaves_what_it_writes_down_for_after_the_answer() {
     let shared = world.shared();
     let reading = asked("GET", &format!("/api/v1/docs/{}", shared.id));
     let reads = |world: &World| {
-        done(world.share.store.doc(&shared.id))
+        done(world.folio.store.doc(&shared.id))
             .unwrap()
             .unwrap()
             .reads
     };
-    let (first, seen) = done(answer_first(&mut world.share, reading.clone()));
+    let (first, seen) = done(answer_first(&mut world.folio, reading.clone()));
     assert_eq!(first.status, 200);
     assert!(seen.is_some());
     assert_eq!(reads(&world), 0);
@@ -627,8 +627,8 @@ fn the_page_reads_the_sheet_first_and_then_the_rest_for_the_ticket_it_came_with(
     let sheet = world.answer(sheet_asked(&shared.id));
     assert_eq!(sheet.status, 200);
     assert_eq!(sheet.body, shared.first[..end]);
-    assert_eq!(header(&sheet, "Tisty-Version"), Some("1"));
-    let ticket = header(&sheet, "Tisty-Rest").unwrap().to_owned();
+    assert_eq!(header(&sheet, "Folio-Version"), Some("1"));
+    let ticket = header(&sheet, "Folio-Rest").unwrap().to_owned();
 
     let rest = world.answer(rest_asked(&shared.id, Some(&ticket)));
     assert_eq!(rest.status, 200);
@@ -648,12 +648,12 @@ fn tisty_and_an_envelope_without_pictures_are_served_whole_in_one_request() {
     let pictured = world.shared_as(pictured);
     let whole = world.answer(asked("GET", &format!("/api/v1/docs/{}", pictured.id)));
     assert_eq!(whole.body, pictured.first);
-    assert_eq!(header(&whole, "Tisty-Rest"), None);
+    assert_eq!(header(&whole, "Folio-Rest"), None);
 
     let plain = world.shared();
     let whole = world.answer(sheet_asked(&plain.id));
     assert_eq!(whole.body, plain.first);
-    assert_eq!(header(&whole, "Tisty-Rest"), None);
+    assert_eq!(header(&whole, "Folio-Rest"), None);
 }
 
 #[test]
@@ -661,7 +661,7 @@ fn the_rest_without_its_ticket_or_of_a_paused_document_is_refused_by_a_word() {
     let mut world = World::new();
     let shared = world.shared_as(pictured);
     let sheet = world.answer(sheet_asked(&shared.id));
-    let ticket = header(&sheet, "Tisty-Rest").unwrap().to_owned();
+    let ticket = header(&sheet, "Folio-Rest").unwrap().to_owned();
 
     for wrong in [None, Some("1.2.3"), Some(&ticket[1..])] {
         let refused = world.answer(rest_asked(&shared.id, wrong));
@@ -687,16 +687,16 @@ fn the_rest_counts_as_a_poll_and_writes_nothing_down() {
     });
     let shared = world.shared_as(pictured);
     let sheet = world.answer(sheet_asked(&shared.id));
-    let ticket = header(&sheet, "Tisty-Rest").unwrap().to_owned();
-    let before = done(world.share.store.doc(&shared.id)).unwrap();
+    let ticket = header(&sheet, "Folio-Rest").unwrap().to_owned();
+    let before = done(world.folio.store.doc(&shared.id)).unwrap();
 
     let (rest, seen) = done(answer_first(
-        &mut world.share,
+        &mut world.folio,
         rest_asked(&shared.id, Some(&ticket)),
     ));
     assert_eq!(rest.status, 200);
     assert!(seen.is_none());
-    assert_eq!(done(world.share.store.doc(&shared.id)).unwrap(), before);
+    assert_eq!(done(world.folio.store.doc(&shared.id)).unwrap(), before);
     let slow = world.answer(rest_asked(&shared.id, Some(&ticket)));
     assert_eq!(
         (slow.status, said(&slow)["refused"].clone()),

@@ -1,4 +1,4 @@
-name = "tisty-share"
+name = "folio"
 main = "build/worker/shim.mjs"
 compatibility_date = "2026-10-01"
 workers_dev = false
@@ -21,16 +21,16 @@ run_worker_first = ["/api/*"]
 [build]
 command = "worker-build --release"
 
-# `wrangler d1 create tisty-share` hands out the id; it names the database, it opens nothing.
+# `wrangler d1 create folio` hands out the id; it names the database, it opens nothing.
 [[d1_databases]]
 binding = "DB"
-database_name = "tisty-share"
-database_id = "991ef5c4-5199-41b9-9abd-87bb40a35ba1"
+database_name = "folio"
+database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "ENVELOPES"
-bucket_name = "tisty-share-envelopes"
+bucket_name = "folio-envelopes"
 
 # Reads and polls are counted here, by the minute, so they write nothing to D1; kept.rs says the same numbers and a test holds them together.
 [[ratelimits]]
@@ -54,6 +54,6 @@ enabled = true
 [observability.logs]
 invocation_logs = false
 
-# Lets the Worker say which tagged version answers, which the share workflow checks after a deploy.
+# Lets the Worker say which tagged version answers, which the deploy workflow checks after a deploy.
 [version_metadata]
 binding = "VERSION"

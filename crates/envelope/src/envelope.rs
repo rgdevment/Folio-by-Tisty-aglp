@@ -29,15 +29,15 @@ const FORMAT: u32 = 4;
 /// Deflate's best, which the writer's machine pays once so every reader downloads less.
 #[cfg(feature = "mint")]
 const DEFLATED_AS: u8 = 9;
-const PART: &[u8] = b"tisty-share.part.v1\0";
-const INDEXED: &[u8] = b"tisty-share.indexed.v1\0";
+const PART: &[u8] = b"folio.part.v1\0";
+const INDEXED: &[u8] = b"folio.indexed.v1\0";
 const HASH: usize = 32;
-const WRITTEN: &[u8] = b"tisty-share.written.v1\0";
-const COMMIT: &[u8] = b"tisty-share.commit.v1\0";
+const WRITTEN: &[u8] = b"folio.written.v1\0";
+const COMMIT: &[u8] = b"folio.commit.v1\0";
 /// What the outer signature answers for: these sealed bytes, uploaded as this id and version.
-pub const SENT: &str = "tisty-share.envelope.v1";
+pub const SENT: &str = "folio.envelope.v1";
 /// What the inner signature answers for: these words and pictures, shared as this id, then, as this name.
-pub const WROTE: &str = "tisty-share.text.v1";
+pub const WROTE: &str = "folio.text.v1";
 /// A person's name or alias, as long as Tisty lets one be.
 pub const NAME_AT_MOST: usize = 80;
 /// Documents one envelope may lead to, so a reader never walks an endless list (decision 64).
@@ -186,7 +186,7 @@ pub struct Manifest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Refused {
-    #[error("this is not a Tisty Share envelope")]
+    #[error("this is not a Folio envelope")]
     Foreign,
     #[error("this envelope was sealed by a newer Tisty")]
     Newer,

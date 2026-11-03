@@ -137,7 +137,7 @@ pub fn open_sheet(
         .map_err(|unread| JsError::new(unread.word()))
 }
 
-/// The proof a server's challenge asks for, as the JSON it takes in `Tisty-Work`.
+/// The proof a server's challenge asks for, as the JSON it takes in `Folio-Work`.
 #[wasm_bindgen]
 pub fn solved(challenge: &str) -> Option<String> {
     worked::solved(challenge)

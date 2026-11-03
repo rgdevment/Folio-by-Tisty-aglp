@@ -2,9 +2,9 @@ use std::net::IpAddr;
 
 use folio_envelope::work::Proof;
 
+use crate::folio::{Ask, Folio, Refused};
 use crate::guard;
 use crate::keys::{self, Randomness};
-use crate::share::{Ask, Refused, Share};
 use crate::store::{Doc, Store};
 
 const DAY: i64 = 24 * 60 * 60;
@@ -21,7 +21,7 @@ struct Place {
     until: i64,
 }
 
-impl<S: Store, R: Randomness> Share<S, R> {
+impl<S: Store, R: Randomness> Folio<S, R> {
     /// A wrong password counts against the network that said it, so a guesser never locks the readers out (decision 76).
     pub(crate) async fn let_in(
         &self,

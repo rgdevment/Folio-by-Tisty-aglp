@@ -1,4 +1,4 @@
--- What Tisty Share keeps in D1: what it knows of each document, never a word of it.
+-- What Folio keeps in D1: what it knows of each document, never a word of it.
 CREATE TABLE docs (
   id TEXT PRIMARY KEY,
   revision INTEGER NOT NULL,

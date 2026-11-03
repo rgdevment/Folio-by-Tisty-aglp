@@ -2,45 +2,45 @@
 :root {
   /* The panels' column, its gap and the desk's own margins: what the paper needs beside it. */
   --beside: 372px;
-  --share-ground: var(--tisty-desk);
-  --share-card: var(--tisty-sheet);
-  --share-line: #e7e6e1;
-  --share-edge: #d9d8d2;
-  --share-chip: #f3f2ee;
-  --share-ink: #17171a;
-  --share-soft: #5c5c63;
-  --share-green: #0b6b53;
-  --share-green-ink: #ffffff;
-  --share-green-soft: #e7f2ee;
-  --share-dark: #17171a;
-  --share-dark-ink: #ffffff;
-  --share-warn: #9a4d00;
-  --share-warn-soft: #fff3e3;
-  --share-bad: #b3261e;
-  --share-bad-soft: #fdecea;
+  --folio-ground: var(--tisty-desk);
+  --folio-card: var(--tisty-sheet);
+  --folio-line: #e7e6e1;
+  --folio-edge: #d9d8d2;
+  --folio-chip: #f3f2ee;
+  --folio-ink: #17171a;
+  --folio-soft: #5c5c63;
+  --folio-green: #0b6b53;
+  --folio-green-ink: #ffffff;
+  --folio-green-soft: #e7f2ee;
+  --folio-dark: #17171a;
+  --folio-dark-ink: #ffffff;
+  --folio-warn: #9a4d00;
+  --folio-warn-soft: #fff3e3;
+  --folio-bad: #b3261e;
+  --folio-bad-soft: #fdecea;
 }
 html[data-theme="dark"] {
   color-scheme: dark;
-  --share-line: rgb(255 255 255 / 0.1);
-  --share-edge: rgb(255 255 255 / 0.18);
-  --share-chip: rgb(255 255 255 / 0.07);
-  --share-ink: #f2f2f7;
-  --share-soft: #adadb4;
-  --share-green: #2f9d7c;
+  --folio-line: rgb(255 255 255 / 0.1);
+  --folio-edge: rgb(255 255 255 / 0.18);
+  --folio-chip: rgb(255 255 255 / 0.07);
+  --folio-ink: #f2f2f7;
+  --folio-soft: #adadb4;
+  --folio-green: #2f9d7c;
   /* White on this green reads at 3.4:1, so dark ink takes it past 4.5:1. */
-  --share-green-ink: #17171a;
-  --share-green-soft: rgb(47 157 124 / 0.16);
-  --share-dark: #f2f2f7;
-  --share-dark-ink: #17171a;
-  --share-warn: #f0a24a;
-  --share-warn-soft: rgb(240 162 74 / 0.14);
-  --share-bad: #ff8a80;
-  --share-bad-soft: rgb(255 138 128 / 0.14);
+  --folio-green-ink: #17171a;
+  --folio-green-soft: rgb(47 157 124 / 0.16);
+  --folio-dark: #f2f2f7;
+  --folio-dark-ink: #17171a;
+  --folio-warn: #f0a24a;
+  --folio-warn-soft: rgb(240 162 74 / 0.14);
+  --folio-bad: #ff8a80;
+  --folio-bad-soft: rgb(255 138 128 / 0.14);
 }
 html {
   color-scheme: light;
-  background: var(--share-ground);
-  color: var(--share-ink);
+  background: var(--folio-ground);
+  color: var(--folio-ink);
   -webkit-text-size-adjust: 100%;
 }
 body {
@@ -58,14 +58,14 @@ body {
   display: none;
 }
 a {
-  color: var(--share-green);
+  color: var(--folio-green);
 }
 .mono {
   font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 .bar {
-  background: var(--share-card);
-  border-bottom: 1px solid var(--share-line);
+  background: var(--folio-card);
+  border-bottom: 1px solid var(--folio-line);
 }
 .bar-in {
   display: flex;
@@ -81,7 +81,7 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--share-ink);
+  color: var(--folio-ink);
   font-weight: 700;
   font-size: 18px;
   text-decoration: none;
@@ -95,7 +95,7 @@ a {
 }
 .said {
   margin: 48px 0;
-  color: var(--share-soft);
+  color: var(--folio-soft);
   text-align: center;
 }
 .wait {
@@ -111,17 +111,17 @@ a {
   visibility: hidden;
 }
 .card {
-  background: var(--share-card);
-  border: 1px solid var(--share-line);
+  background: var(--folio-card);
+  border: 1px solid var(--folio-line);
   border-radius: 14px;
   padding: 20px;
   box-sizing: border-box;
 }
 .field {
   font: inherit;
-  color: var(--share-ink);
-  background: var(--share-ground);
-  border: 1px solid var(--share-line);
+  color: var(--folio-ink);
+  background: var(--folio-ground);
+  border: 1px solid var(--folio-line);
   border-radius: 10px;
   padding: 10px 12px;
   min-height: 44px;
@@ -140,27 +140,27 @@ a {
   padding: 0 18px;
   box-sizing: border-box;
   border-radius: 10px;
-  border: 1px solid var(--share-edge);
-  background: var(--share-card);
-  color: var(--share-ink);
+  border: 1px solid var(--folio-edge);
+  background: var(--folio-card);
+  color: var(--folio-ink);
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
 }
 .button:hover {
-  background: var(--share-chip);
+  background: var(--folio-chip);
 }
 .button.green {
-  background: var(--share-green);
-  border-color: var(--share-green);
-  color: var(--share-green-ink);
+  background: var(--folio-green);
+  border-color: var(--folio-green);
+  color: var(--folio-green-ink);
   font-weight: 600;
   min-height: 46px;
 }
 .button.dark {
-  background: var(--share-dark);
-  border-color: var(--share-dark);
-  color: var(--share-dark-ink);
+  background: var(--folio-dark);
+  border-color: var(--folio-dark);
+  color: var(--folio-dark-ink);
   font-weight: 600;
 }
 .button.green:hover,
@@ -174,7 +174,7 @@ a {
 .quiet {
   font: inherit;
   font-size: 14px;
-  color: var(--share-soft);
+  color: var(--folio-soft);
   background: transparent;
   border: 0;
   padding: 0;
@@ -196,7 +196,7 @@ a {
 .gate-label,
 .report-label {
   font-size: 14px;
-  color: var(--share-soft);
+  color: var(--folio-soft);
 }
 .gate-row {
   display: flex;
@@ -210,7 +210,7 @@ a {
 .paper {
   flex: 0 1 var(--across, 794px);
   min-width: 0;
-  background: var(--share-card);
+  background: var(--folio-card);
   border-radius: 16px;
   overflow: hidden;
 }
@@ -225,15 +225,15 @@ a {
 }
 .tag {
   font-size: 13px;
-  color: var(--share-ink);
-  background: var(--share-chip);
+  color: var(--folio-ink);
+  background: var(--folio-chip);
   border-radius: 6px;
   padding: 3px 8px;
 }
 .when {
   margin: 0;
   font-size: 15px;
-  color: var(--share-soft);
+  color: var(--folio-soft);
 }
 /* Over the sheet, as Tisty draws it: back to the document above, and a page's place among its sisters. */
 .ribbon {
@@ -241,9 +241,9 @@ a {
   align-items: center;
   gap: 9px;
   padding: 12px 40px;
-  border-bottom: 1px solid var(--share-line);
+  border-bottom: 1px solid var(--folio-line);
   font-size: 12px;
-  color: var(--share-soft);
+  color: var(--folio-soft);
 }
 .ribbon button {
   font: inherit;
@@ -284,8 +284,8 @@ a {
 }
 .ribbon-back:hover,
 .ribbon-arrows button:hover:not(:disabled) {
-  background: var(--share-chip);
-  color: var(--share-ink);
+  background: var(--folio-chip);
+  color: var(--folio-ink);
 }
 .ribbon-arrows button:disabled {
   opacity: 0.35;
@@ -299,12 +299,12 @@ a {
   width: 100%;
   padding: 18px 40px 22px;
   border: 0;
-  border-top: 1px solid var(--share-line);
+  border-top: 1px solid var(--folio-line);
   background: none;
   font: inherit;
   font-size: 12.5px;
   text-align: left;
-  color: var(--share-soft);
+  color: var(--folio-soft);
   cursor: pointer;
 }
 .onward-name {
@@ -312,10 +312,10 @@ a {
   min-width: 0;
   font-size: 14px;
   font-weight: 600;
-  color: var(--share-ink);
+  color: var(--folio-ink);
 }
 .onward:hover .onward-name {
-  color: var(--share-green);
+  color: var(--folio-green);
 }
 .onward-go {
   font-size: 16px;
@@ -344,7 +344,7 @@ a {
     monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--share-ink);
+  color: var(--folio-ink);
 }
 .beside {
   flex: 0 0 300px;
@@ -370,7 +370,7 @@ a {
   flex-direction: column;
   gap: 8px;
   font-size: 14px;
-  color: var(--share-soft);
+  color: var(--folio-soft);
 }
 .facts dl {
   margin: 0;
@@ -385,7 +385,7 @@ a {
 }
 .facts dd {
   margin: 0;
-  color: var(--share-ink);
+  color: var(--folio-ink);
   font-weight: 500;
   text-align: right;
 }
@@ -408,7 +408,7 @@ a {
 .report-said {
   margin: 0;
   font-size: 14px;
-  color: var(--share-soft);
+  color: var(--folio-soft);
 }
 .report-said:empty {
   display: none;
@@ -430,7 +430,7 @@ html.tight .beside {
   padding: 12px 12px 20px;
   overflow-y: auto;
   border-radius: 16px 16px 0 0;
-  background: var(--share-ground);
+  background: var(--folio-ground);
   box-shadow: 0 -10px 30px rgb(0 0 0 / 0.25);
 }
 html.tight .read.is-side .beside {

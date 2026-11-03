@@ -6,17 +6,17 @@ use folio_envelope::work::{self, Challenge, Proof};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
-use crate::share::{Policy, Refused};
+use crate::folio::{Policy, Refused};
 use crate::store::{Fault, Store};
 
 const HOUR: i64 = 60 * 60;
 const DAY: i64 = 24 * HOUR;
-const CHALLENGE: &[u8] = b"tisty-share.challenge.v1\0";
-const WHO_TODAY: &[u8] = b"tisty-share.who.day.v1\0";
-const WHO: &[u8] = b"tisty-share.who.v1\0";
-const WHO_WIDE: &[u8] = b"tisty-share.who.wide.v1\0";
-const REST: &[u8] = b"tisty-share.rest.v1\0";
-const REST_GATE: &[u8] = b"tisty-share.rest.gate.v1\0";
+const CHALLENGE: &[u8] = b"folio.challenge.v1\0";
+const WHO_TODAY: &[u8] = b"folio.who.day.v1\0";
+const WHO: &[u8] = b"folio.who.v1\0";
+const WHO_WIDE: &[u8] = b"folio.who.wide.v1\0";
+const REST: &[u8] = b"folio.rest.v1\0";
+const REST_GATE: &[u8] = b"folio.rest.gate.v1\0";
 
 /// What a caller is about to do, each with its own hourly allowance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

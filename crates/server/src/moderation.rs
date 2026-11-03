@@ -3,9 +3,9 @@ use std::net::IpAddr;
 use folio_envelope::work::Proof;
 use serde::{Deserialize, Serialize};
 
+use crate::folio::{Ask, Folio, Refused};
 use crate::guard::{self, Act};
 use crate::keys::Randomness;
-use crate::share::{Ask, Refused, Share};
 use crate::store::Store;
 
 /// Room for the why, short of a place to leave a document of one's own.
@@ -50,7 +50,7 @@ pub struct Complaint {
     pub link: Option<Vec<u8>>,
 }
 
-impl<S: Store, R: Randomness> Share<S, R> {
+impl<S: Store, R: Randomness> Folio<S, R> {
     /// Anyone may report, once per place, and the reports of three places block it (decisions 36 and 41).
     pub async fn report(
         &mut self,

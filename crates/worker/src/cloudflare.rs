@@ -4,10 +4,10 @@ use std::cell::Cell;
 use std::future::Future;
 use std::net::IpAddr;
 
+use folio_server::folio::{Folio, Policy, Seen};
 use folio_server::guard::{self, Act, Allowance};
 use folio_server::keys::{Randomness, Slowness};
 use folio_server::moderation::Report;
-use folio_server::share::{Policy, Seen, Share};
 use folio_server::store::{Doc, Fault, Kept, Saved, Store};
 use futures_util::StreamExt;
 use serde::de::DeserializeOwned;
@@ -317,7 +317,7 @@ fn drawn(into: &mut [u8]) -> Result<(), JsValue> {
     Ok(())
 }
 
-fn share(env: &Env) -> worker::Result<Share<Cloud, Crypto>> {
+fn folio(env: &Env) -> worker::Result<Folio<Cloud, Crypto>> {
     let cloud = Cloud {
         db: env.d1("DB")?,
         envelopes: env.bucket("ENVELOPES")?,
@@ -326,8 +326,8 @@ fn share(env: &Env) -> worker::Result<Share<Cloud, Crypto>> {
         on_d1: Cell::new(0),
         on_r2: Cell::new(0),
     };
-    let secret = kept::secret_from_hex(&env.secret("SHARE_SECRET")?.to_string())
-        .ok_or_else(|| worker::Error::from("SHARE_SECRET is not 64 hexadecimal digits"))?;
+    let secret = kept::secret_from_hex(&env.secret("FOLIO_SECRET")?.to_string())
+        .ok_or_else(|| worker::Error::from("FOLIO_SECRET is not 64 hexadecimal digits"))?;
     let per_hour = (3_600 / kept::LIMITER_PERIOD) as u64;
     let policy = Policy {
         // Measured in V8: log_n 12 takes about 7 ms, too close to the free plan's 10 ms of CPU a request.
@@ -340,7 +340,7 @@ fn share(env: &Env) -> worker::Result<Share<Cloud, Crypto>> {
         },
         ..Policy::default()
     };
-    Ok(Share::new(cloud, Crypto, policy, secret))
+    Ok(Folio::new(cloud, Crypto, policy, secret))
 }
 
 fn now() -> i64 {
@@ -367,7 +367,7 @@ async fn served(
     mut request: Request,
     env: &Env,
 ) -> worker::Result<(api::Answer, Option<Seen>, [u64; 2])> {
-    let mut share = share(env)?;
+    let mut folio = folio(env)?;
     let headers = request.headers();
     // Cloudflare sets it on every request and a caller cannot, so the allowances rest on it.
     let caller: IpAddr = headers
@@ -377,11 +377,11 @@ async fn served(
     let token = headers
         .get("Authorization")?
         .and_then(|said| said.strip_prefix("Bearer ").map(str::to_owned));
-    let password = headers.get("Tisty-Password")?;
-    let work = headers.get("Tisty-Work")?;
-    let sheet = headers.get("Tisty-Sheet")?.as_deref() == Some("1");
-    let rest = headers.get("Tisty-Rest")?;
-    let ceiling = api::ceiling(&share.policy.limits);
+    let password = headers.get("Folio-Password")?;
+    let work = headers.get("Folio-Work")?;
+    let sheet = headers.get("Folio-Sheet")?.as_deref() == Some("1");
+    let rest = headers.get("Folio-Rest")?;
+    let ceiling = api::ceiling(&folio.policy.limits);
     let Some(body) = body_within(&mut request, ceiling).await? else {
         return Ok((api::oversized(), None, [0, 0]));
     };
@@ -397,11 +397,11 @@ async fn served(
         caller,
         now: now(),
     };
-    let (answer, seen) = api::answer_first(&mut share, asked).await;
+    let (answer, seen) = api::answer_first(&mut folio, asked).await;
     Ok((
         answer,
         seen,
-        [share.store.on_d1.get(), share.store.on_r2.get()],
+        [folio.store.on_d1.get(), folio.store.on_r2.get()],
     ))
 }
 
@@ -449,8 +449,8 @@ async fn fetch(request: Request, env: Env, ctx: Context) -> worker::Result<Respo
     if let Some(seen) = seen {
         let env = env.clone();
         ctx.wait_until(async move {
-            let fault = match share(&env) {
-                Ok(share) => api::noted(&share, seen).await,
+            let fault = match folio(&env) {
+                Ok(folio) => api::noted(&folio, seen).await,
                 Err(why) => Some(why.to_string()),
             };
             if let Some(fault) = fault {
@@ -464,22 +464,22 @@ async fn fetch(request: Request, env: Env, ctx: Context) -> worker::Result<Respo
         .push(("Server-Timing", api::timing(read.then_some(waited), total)));
     // Said on every answer, so a deploy can tell its own version is the one answering.
     if let Some(tag) = deployed_as(&env) {
-        answer.headers.push(("Tisty-Worker", tag));
+        answer.headers.push(("Folio-Worker", tag));
     }
     answered(answer)
 }
 
 #[event(scheduled)]
 async fn scheduled(_: ScheduledEvent, env: Env, _: ScheduleContext) {
-    let share = match share(&env) {
-        Ok(share) => share,
+    let folio = match folio(&env) {
+        Ok(folio) => folio,
         Err(why) => return worker::console_error!("the sweep could not start: {why}"),
     };
     // Said here, a few times an hour, rather than on every request that falls back to D1.
-    if share.store.reads.is_none() || share.store.polls.is_none() {
+    if folio.store.reads.is_none() || folio.store.polls.is_none() {
         worker::console_warn!("a rate limiter is missing, so D1 counts reads and polls");
     }
-    let swept = match share.sweep(now()).await {
+    let swept = match folio.sweep(now()).await {
         Ok(swept) => swept,
         Err(why) => return worker::console_error!("the sweep failed: {why}"),
     };
@@ -493,7 +493,7 @@ async fn scheduled(_: ScheduledEvent, env: Env, _: ScheduleContext) {
         worker::console_error!("the sweep could not let old counters go: {fault}");
     }
     // Numbers only, every quarter of an hour, so how the service stands is seen without looking at any document.
-    match share.store.census(now()).await {
+    match folio.store.census(now()).await {
         Ok(census) => worker::console_log!("{}", serde_json::json!({ "census": census })),
         Err(why) => worker::console_error!("the census failed: {why}"),
     }

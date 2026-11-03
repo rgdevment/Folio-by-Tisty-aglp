@@ -9,8 +9,8 @@ use crate::store::Gate;
 /// Short enough to say aloud, long enough that guessing a live one is hopeless: 62^8 is about 2^47.
 pub const ID_LEN: usize = 8;
 const ID_ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const TOKEN: &[u8] = b"tisty-share.token.v1\0";
-const GATE: &[u8] = b"tisty-share.gate.v1\0";
+const TOKEN: &[u8] = b"folio.token.v1\0";
+const GATE: &[u8] = b"folio.gate.v1\0";
 
 /// Whatever the host draws its randomness from: Workers' crypto, the system's, or a fixed list in a test.
 pub trait Randomness {

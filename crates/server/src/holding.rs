@@ -1,5 +1,5 @@
+use crate::folio::{Folio, Refused};
 use crate::keys::{self, Randomness};
-use crate::share::{Refused, Share};
 use crate::store::{Doc, Store};
 
 /// How long a held document reads, and the holders found gone without letting go of it.
@@ -14,7 +14,7 @@ pub const HOLDERS_AT_MOST: usize = 16;
 /// The end a held document shows the sweep: past any day a server runs, and exact as a number in JavaScript.
 pub const HELD: i64 = 253_402_300_799;
 
-impl<S: Store, R: Randomness> Share<S, R> {
+impl<S: Store, R: Randomness> Folio<S, R> {
     /// The holder takes up a document it cites, proven its owner's by its management link; no ring of holders keeps itself alive (decision 64).
     pub(crate) async fn hold(
         &self,

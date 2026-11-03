@@ -269,7 +269,7 @@ impl Ask<'_> {
     }
 }
 
-pub struct Share<S, R> {
+pub struct Folio<S, R> {
     pub store: S,
     pub random: R,
     pub policy: Policy,
@@ -277,7 +277,7 @@ pub struct Share<S, R> {
     pub(crate) secret: Zeroizing<[u8; 32]>,
 }
 
-impl<S: Store, R: Randomness> Share<S, R> {
+impl<S: Store, R: Randomness> Folio<S, R> {
     pub fn new(store: S, random: R, policy: Policy, secret: [u8; 32]) -> Self {
         Self {
             store,
@@ -974,5 +974,5 @@ fn lost(id: &str, kept: &Kept) -> Refused {
 }
 
 #[cfg(test)]
-#[path = "share_test.rs"]
+#[path = "folio_test.rs"]
 mod tests;

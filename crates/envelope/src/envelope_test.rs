@@ -407,7 +407,7 @@ fn a_machine_whose_certificate_is_another_key_s_cannot_sign() {
 }
 
 #[test]
-fn bytes_not_sealed_by_tisty_share_or_by_a_newer_one_say_so() {
+fn bytes_not_sealed_by_folio_or_by_a_newer_one_say_so() {
     assert_eq!(read(b"# hola").err(), Some(Refused::Foreign));
     let mut bytes = sealed(&key(9), &draft("hola", &[]), None)
         .unwrap()

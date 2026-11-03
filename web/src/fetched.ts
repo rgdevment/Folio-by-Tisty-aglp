@@ -42,10 +42,10 @@ const secondsOf = (said: string | null): number | undefined => {
 };
 
 export const factsOf = (headers: Headers): Facts => ({
-  shared: secondsOf(headers.get("Tisty-Shared")),
-  written: secondsOf(headers.get("Tisty-Written")),
-  ends: secondsOf(headers.get("Tisty-Ends")),
-  gated: headers.get("Tisty-Gated") === "1",
+  shared: secondsOf(headers.get("Folio-Shared")),
+  written: secondsOf(headers.get("Folio-Written")),
+  ends: secondsOf(headers.get("Folio-Ends")),
+  gated: headers.get("Folio-Gated") === "1",
 });
 
 // A header carries only Latin-1, so a password in any language travels as its UTF-8, which the Worker decodes.
@@ -78,7 +78,7 @@ const worked = async (
   return work ? work : { refused: "failed" };
 };
 
-const SHEET = { "Tisty-Sheet": "1" };
+const SHEET = { "Folio-Sheet": "1" };
 
 const sealedOf = (id: string, ask: typeof fetch, headers: Record<string, string>) =>
   asked(
@@ -88,8 +88,8 @@ const sealedOf = (id: string, ask: typeof fetch, headers: Record<string, string>
       sealed: new Uint8Array(await answer.arrayBuffer()),
       facts: factsOf(answer.headers),
       // The keys taken back that sent it, which the page believes only as far as their roots signed them.
-      revoked: answer.headers.get("Tisty-Revoked") ?? undefined,
-      rest: answer.headers.get("Tisty-Rest") ?? undefined,
+      revoked: answer.headers.get("Folio-Revoked") ?? undefined,
+      rest: answer.headers.get("Folio-Rest") ?? undefined,
     }),
     { headers: { ...SHEET, ...headers } },
   );
@@ -105,7 +105,7 @@ export const early = (id: string, ask: typeof fetch = fetch): typeof fetch => {
   if (!asked || asked.id !== id) return ask;
   let taken = false;
   return (url, init) => {
-    const passworded = new Headers(init?.headers).has("Tisty-Password");
+    const passworded = new Headers(init?.headers).has("Folio-Password");
     if (taken || passworded || !String(url).endsWith(`/docs/${id}`)) return ask(url, init);
     taken = true;
     return asked.answer;
@@ -120,7 +120,7 @@ export const fetched = async (
   solve?: Solve,
 ) => {
   const headers: Record<string, string> =
-    password === undefined ? {} : { "Tisty-Password": passwordOf(password) };
+    password === undefined ? {} : { "Folio-Password": passwordOf(password) };
   const first = await sealedOf(id, ask, headers);
   if (!("refused" in first) || first.refused !== "work_asked" || !solve) return first;
   const work = await worked(
@@ -133,7 +133,7 @@ export const fetched = async (
     if (ENDS.has(work.refused) || password === undefined) return work;
     return { refused: worded(work) };
   }
-  return sealedOf(id, ask, { ...headers, "Tisty-Work": work });
+  return sealedOf(id, ask, { ...headers, "Folio-Work": work });
 };
 
 export const restOf = (id: string, ticket: string, ask: typeof fetch = fetch) =>
@@ -141,7 +141,7 @@ export const restOf = (id: string, ticket: string, ask: typeof fetch = fetch) =>
     `docs/${encodeURIComponent(id)}/rest`,
     ask,
     async (answer) => new Uint8Array(await answer.arrayBuffer()),
-    { headers: { "Tisty-Rest": ticket } },
+    { headers: { "Folio-Rest": ticket } },
   );
 
 export const limitsOf = (ask: typeof fetch = fetch) =>
@@ -177,7 +177,7 @@ export const reported = async (
     () => Promise.resolve("thanked"),
     {
       method: "POST",
-      headers: { "Tisty-Work": work, "Content-Type": "application/json" },
+      headers: { "Folio-Work": work, "Content-Type": "application/json" },
       body: JSON.stringify({ category: reason, detail }),
     },
   );

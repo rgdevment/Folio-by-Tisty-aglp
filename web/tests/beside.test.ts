@@ -86,7 +86,7 @@ describe("the panels beside a shared document", () => {
     const [open, md, copy] = acts;
     expect(open).toMatchObject({
       main: true,
-      href: `tisty://share?link=${encodeURIComponent(LINKS.opened)}`,
+      href: `tisty://folio?link=${encodeURIComponent(LINKS.opened)}`,
     });
     const copiedText = document.createElement("button");
     md.onPick?.(copiedText);
@@ -107,7 +107,7 @@ describe("opening in Tisty", () => {
   it("offers Tisty instead when the page is still in front a moment later", () => {
     vi.useFakeTimers();
     const link = document.createElement("a");
-    link.href = "tisty://share?link=x";
+    link.href = "tisty://folio?link=x";
     link.textContent = "Abrir en Tisty";
     vi.spyOn(document, "hasFocus").mockReturnValue(true);
     falling("¿No se abrió? Descarga Tisty")(link);
@@ -119,7 +119,7 @@ describe("opening in Tisty", () => {
   it("leaves the link as it was when Tisty took the page's place", () => {
     vi.useFakeTimers();
     const link = document.createElement("a");
-    link.href = "tisty://share?link=x";
+    link.href = "tisty://folio?link=x";
     link.textContent = "Abrir en Tisty";
     vi.spyOn(document, "hasFocus").mockReturnValue(false);
     falling("¿No se abrió? Descarga Tisty")(link);

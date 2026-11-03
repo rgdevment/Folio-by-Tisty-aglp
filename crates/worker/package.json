@@ -1,7 +1,7 @@
 {
   "name": "folio-worker",
   "private": true,
-  "description": "What builds and deploys Tisty Share's Worker; none of it ships with the Worker.",
+  "description": "What builds and deploys Folio's Worker; none of it ships with the Worker.",
   "devDependencies": {
     "wrangler": "4.155.0"
   }
