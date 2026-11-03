@@ -80,8 +80,7 @@ aimed at protecting the community—not silencing dissent or criticism.
 
 This Code of Conduct applies to:
 
-- All project spaces (GitHub repository, issues, pull requests, discussions,
-  wiki, etc.)
+- All project spaces (GitHub repository, issues and pull requests)
 - Official communication channels (if we create them in the future)
 - Public spaces when an individual is representing the project or community
 - Private conversations if they involve project-related interactions
@@ -204,8 +203,8 @@ For answers to common questions about this code of conduct, see the FAQ at
 
 If you have questions about this Code of Conduct:
 
-- [Open a Discussion](https://github.com/rgdevment/Folio-by-Tisty/discussions)
-  — Ask publicly, I'm happy to clarify.
+- [Open an issue](https://github.com/rgdevment/Folio-by-Tisty/issues) — Ask
+  publicly, I'm happy to clarify.
 - [Email me](mailto:rgdevment@tisty.app) — If it's sensitive, reach out privately.
 
 ### Thank you for helping make Folio by Tisty a welcoming and inclusive project
