@@ -116,6 +116,56 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run lint:md
 
+  audit:
+    name: advisories + licences
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check bans licenses sources
+      # A warning on a pull request, like npm's: an advisory published today would otherwise fail every one at once.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        with:
+          command: check advisories
+
+  npm-audit:
+    name: npm advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      # A warning, never a red check: an advisory published today would otherwise fail every pull request at once.
+      - name: Advisories at moderate or above, in the page and in the Worker's tooling
+        run: |
+          for dir in . crates/worker; do
+            npm audit --prefix "$dir" --package-lock-only --json > "$RUNNER_TEMP/audit.json" || true
+            if ! jq -e '.vulnerabilities' "$RUNNER_TEMP/audit.json" > /dev/null; then
+              echo "::warning::npm audit gave no report for $dir/package-lock.json"
+              continue
+            fi
+            found=$(jq -r '[.vulnerabilities[].via[] | objects
+              | select(.severity != "low" and .severity != "info") | "\(.severity) \(.name) \(.url)"]
+              | unique[]' "$RUNNER_TEMP/audit.json")
+            if [ -n "$found" ]; then
+              echo "$found"
+              echo "::warning::npm advisories at moderate or above in $dir/package-lock.json"
+            else
+              echo "$dir/package-lock.json: nothing at moderate or above"
+            fi
+          done
+
   coverage:
     name: coverage
     if: github.actor != 'dependabot[bot]'
