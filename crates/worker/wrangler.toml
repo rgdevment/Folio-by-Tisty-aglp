@@ -12,7 +12,6 @@ routes = [
 [placement]
 region = "aws:us-east-1"
 
-# Every other path is the reading page (packages/tisty-share-web/dist), served free of the Worker's daily requests.
 [assets]
 directory = "../../web/dist"
 not_found_handling = "single-page-application"

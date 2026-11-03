@@ -1,7 +1,6 @@
 // What a link names: the id the server keeps, and the key in the # that never leaves the browser.
 export type Link = { readonly id: string; readonly key: string };
 
-// Eight letters and digits, as the server mints them (tisty-share-server's keys.rs).
 export const ID = /^\/([0-9A-Za-z]{8})\/?$/;
 
 // What a reader may pass on: the link to read, never an edit token the address they opened carried.
