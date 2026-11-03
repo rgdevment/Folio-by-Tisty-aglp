@@ -10,6 +10,7 @@ use serde_json::json;
 use tisty_share_proto::identity::Revocation;
 use tisty_share_proto::limits::Limits;
 use tisty_share_proto::work::Proof;
+use tisty_share_server::cached::doc_tag;
 use tisty_share_server::keys::Randomness;
 use tisty_share_server::moderation::{Category, Complaint};
 use tisty_share_server::share::{Ask, Manage, Refused, Seen, Served, Share};
@@ -70,6 +71,8 @@ pub struct Answer {
     pub body: Vec<u8>,
     /// What failed in the store, for the host's log and never for the caller.
     pub fault: Option<String>,
+    /// The cache tags a write leaves stale, which the host empties before it answers (decision 94).
+    pub purge: Vec<String>,
 }
 
 /// Why a request gets no step, besides the server's own refusals.
@@ -233,7 +236,10 @@ async fn routed<S: Store, R: Randomness>(
             let version = share
                 .upload(id, edit, asked.body, caller, &proof, now)
                 .await?;
-            Ok(said(200, json!({ "version": version })))
+            Ok(purging(
+                said(200, json!({ "version": version })),
+                [doc_tag(id)],
+            ))
         }
         ("GET", ["docs", id]) => {
             let password = asked.password.as_deref().map(password_of).transpose()?;
@@ -245,8 +251,15 @@ async fn routed<S: Store, R: Randomness>(
             let (served, left) = share
                 .read(id, password.as_deref(), proof.as_ref(), caller, now)
                 .await?;
-            *seen = Some(left);
+            // A read the cache may keep is told by its reader, since the next ones never reach here.
+            if served.kept.is_none() {
+                *seen = Some(left);
+            }
             Ok(envelope(served))
+        }
+        ("POST", ["docs", id, "seen"]) => {
+            share.noticed(id, caller, now).await?;
+            Ok(plain(204, "text/plain", Vec::new()))
         }
         ("GET", ["docs", id, "latest"]) => {
             let latest = share.latest(id, token, caller, now).await?;
@@ -265,8 +278,14 @@ async fn routed<S: Store, R: Randomness>(
         ("POST", ["docs", id, "manage"]) => {
             let admin = token.ok_or(Refused::Forbidden)?;
             let what: Manage = read(&asked.body)?;
+            // Holding or letting go changes whether the other document may wait in the cache too.
+            let other = match &what {
+                Manage::Hold { id, .. } | Manage::Release(id) => Some(doc_tag(id)),
+                _ => None,
+            };
             share.manage(id, admin, what, now).await?;
-            Ok(plain(204, "text/plain", Vec::new()))
+            let tags = std::iter::once(doc_tag(id)).chain(other);
+            Ok(purging(plain(204, "text/plain", Vec::new()), tags))
         }
         ("POST", ["docs", id, "reports"]) => {
             let proof = proof(asked.work.as_deref())?;
@@ -278,12 +297,13 @@ async fn routed<S: Store, R: Randomness>(
                 link: None,
             };
             share.report(id, complaint, caller, &proof, now).await?;
-            Ok(plain(204, "text/plain", Vec::new()))
+            // Enough reports block it, and a blocked document is never served from the cache.
+            Ok(purging(plain(204, "text/plain", Vec::new()), [doc_tag(id)]))
         }
         ("POST", ["revocations"]) => {
             let revocations: Vec<Revocation> = read(&asked.body)?;
-            share.revoke(&revocations, caller, now).await?;
-            Ok(plain(204, "text/plain", Vec::new()))
+            let tags = share.revoke(&revocations, caller, now).await?;
+            Ok(purging(plain(204, "text/plain", Vec::new()), tags))
         }
         ("POST", ["docs", id, "appeal"]) => {
             let admin = token.ok_or(Refused::Forbidden)?;
@@ -414,6 +434,19 @@ fn envelope(served: Served) -> Answer {
             .headers
             .push(("Tisty-Revoked", json!(served.revoked).to_string()));
     }
+    // Kept by the cache in front of the server and never by the browser, which no purge reaches.
+    if let Some(kept) = served.kept {
+        answer.headers.push((
+            "Cache-Control",
+            format!("public, max-age=0, s-maxage={}", kept.seconds),
+        ));
+        answer.headers.push(("Cache-Tag", kept.tags.join(",")));
+    }
+    answer
+}
+
+fn purging(mut answer: Answer, tags: impl IntoIterator<Item = String>) -> Answer {
+    answer.purge.extend(tags);
     answer
 }
 
@@ -423,6 +456,7 @@ fn plain(status: u16, kind: &str, body: Vec<u8>) -> Answer {
         headers: vec![("Content-Type", kind.to_owned())],
         body,
         fault: None,
+        purge: Vec::new(),
     }
 }
 
@@ -440,12 +474,14 @@ pub fn timing(waited: Option<[u64; 2]>, total: u64) -> String {
     }
 }
 
+// A header the answer already says, as a read the cache may keep says its own Cache-Control, is not said twice.
 fn finished(mut answer: Answer) -> Answer {
-    answer.headers.extend(
-        ALWAYS
-            .iter()
-            .map(|(name, value)| (*name, (*value).to_owned())),
-    );
+    let always = ALWAYS
+        .iter()
+        .filter(|(name, _)| !answer.headers.iter().any(|(said, _)| said == name))
+        .map(|(name, value)| (*name, (*value).to_owned()))
+        .collect::<Vec<_>>();
+    answer.headers.extend(always);
     answer
 }
 

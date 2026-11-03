@@ -4,6 +4,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use tisty_share_proto::identity::{REVOCATIONS_AT_ONCE, Revocation};
 
+use crate::cached::sender_tag;
 use crate::guard::Act;
 use crate::keys::Randomness;
 use crate::share::{Refused, Share};
@@ -21,7 +22,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
         revocations: &[Revocation],
         caller: IpAddr,
         now: i64,
-    ) -> Result<(), Refused> {
+    ) -> Result<Vec<String>, Refused> {
         if revocations.len() > REVOCATIONS_AT_ONCE {
             return Err(Refused::TooLong);
         }
@@ -30,12 +31,19 @@ impl<S: Store, R: Randomness> Share<S, R> {
         for one in revocations {
             held.push(one.holds().map_err(|_| Refused::Unsigned)?);
         }
+        let mut tags = Vec::with_capacity(held.len());
         for ((person, share), one) in held.iter().zip(revocations) {
+            let by = Sender {
+                share: *share.as_bytes(),
+                root: person.to_bytes(),
+            };
             self.store
-                .revoke(&named(share.as_bytes()), &named(&person.to_bytes()), one)
+                .revoke(&named(&by.share), &named(&by.root), one)
                 .await?;
+            tags.push(sender_tag(&by));
         }
-        Ok(())
+        // The reads each key sent are emptied from the cache, so none goes on saying the key holds.
+        Ok(tags)
     }
 
     /// What the root that vouched for this sender said taking it back; another root's word on the key is no concern of its readers.

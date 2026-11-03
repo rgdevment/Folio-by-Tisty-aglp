@@ -14,6 +14,10 @@ directory = "../../packages/tisty-share-web/dist"
 not_found_handling = "single-page-application"
 run_worker_first = ["/", "/404", "/api/*", "/robots.txt"]
 
+# Reads with no password wait here, in front of the Worker, and every write empties what it changed (decision 94).
+[cache]
+enabled = true
+
 # worker-build is installed once, as the CI's wasm job does: cargo install worker-build@0.8.7 --locked
 [build]
 command = "worker-build --release"

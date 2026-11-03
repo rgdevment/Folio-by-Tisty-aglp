@@ -53,6 +53,22 @@ describe("what the server answers for a link", () => {
     ]);
   });
 
+  it("tells the read itself when the cache may have answered it, and only then", async () => {
+    const asked: [string, string][] = [];
+    const answer = (control: string) =>
+      (async (url: RequestInfo | URL, init?: RequestInit) => {
+        asked.push([String(url), init?.method ?? "GET"]);
+        return new Response("", { headers: { "Cache-Control": control } });
+      }) as typeof fetch;
+    await fetched("k7Qm2xPa", answer("public, max-age=0, s-maxage=3600"));
+    await fetched("k7Qm2xPa", answer("no-store"));
+    expect(asked).toEqual([
+      ["/api/v1/docs/k7Qm2xPa", "GET"],
+      ["/api/v1/docs/k7Qm2xPa/seen", "POST"],
+      ["/api/v1/docs/k7Qm2xPa", "GET"],
+    ]);
+  });
+
   it("is the word of its refusal", async () => {
     const missing = () => new Response('{"refused":"missing"}', { status: 404 });
     expect(await fetched("k7Qm2xPa", answering(missing))).toEqual({ refused: "missing" });

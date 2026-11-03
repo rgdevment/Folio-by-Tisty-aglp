@@ -78,16 +78,26 @@ const worked = async (
   return work ? work : { refused: "failed" };
 };
 
+// A read the cache may have answered never reached the server, so the page tells it, without waiting on the answer.
+const told = (id: string, ask: typeof fetch, answer: Response) => {
+  if (!answer.headers.get("Cache-Control")?.startsWith("public")) return;
+  const path = `${API}/docs/${encodeURIComponent(id)}/seen`;
+  Promise.resolve(ask(path, { method: "POST", keepalive: true })).catch(() => undefined);
+};
+
 const sealedOf = (id: string, ask: typeof fetch, headers: Record<string, string>) =>
   asked(
     `docs/${encodeURIComponent(id)}`,
     ask,
-    async (answer) => ({
-      sealed: new Uint8Array(await answer.arrayBuffer()),
-      facts: factsOf(answer.headers),
-      // The keys taken back that sent it, which the page believes only as far as their roots signed them.
-      revoked: answer.headers.get("Tisty-Revoked") ?? undefined,
-    }),
+    async (answer) => {
+      told(id, ask, answer);
+      return {
+        sealed: new Uint8Array(await answer.arrayBuffer()),
+        facts: factsOf(answer.headers),
+        // The keys taken back that sent it, which the page believes only as far as their roots signed them.
+        revoked: answer.headers.get("Tisty-Revoked") ?? undefined,
+      };
+    },
     Object.keys(headers).length > 0 ? { headers } : undefined,
   );
 

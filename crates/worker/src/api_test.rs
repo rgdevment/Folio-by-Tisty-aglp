@@ -489,10 +489,12 @@ fn a_revocation_anyone_carries_reaches_every_reader_of_what_that_key_sent() {
 }
 
 #[test]
-fn a_read_leaves_what_it_writes_down_for_after_the_answer() {
+fn a_read_behind_a_password_leaves_what_it_writes_down_for_after_the_answer() {
     let mut world = World::new();
     let shared = world.shared();
-    let reading = asked("GET", &format!("/api/v1/docs/{}", shared.id));
+    world.manage(&shared, json!({ "do": "password", "with": "perro azul" }));
+    let mut reading = asked("GET", &format!("/api/v1/docs/{}", shared.id));
+    reading.password = Some(URL_SAFE_NO_PAD.encode("perro azul"));
     let reads = |world: &World| {
         done(world.share.store.doc(&shared.id))
             .unwrap()
@@ -501,6 +503,7 @@ fn a_read_leaves_what_it_writes_down_for_after_the_answer() {
     };
     let (first, seen) = done(answer_first(&mut world.share, reading.clone()));
     assert_eq!(first.status, 200);
+    assert_eq!(header(&first, "Cache-Control"), Some("no-store"));
     assert!(seen.is_some());
     assert_eq!(reads(&world), 0);
 
@@ -508,6 +511,73 @@ fn a_read_leaves_what_it_writes_down_for_after_the_answer() {
     let whole = world.answer(reading);
     assert_eq!(whole.status, 200);
     assert_eq!(reads(&world), 1);
+}
+
+#[test]
+fn a_read_with_no_password_waits_in_the_cache_and_its_reader_tells_it() {
+    let mut world = World::new();
+    let shared = world.shared();
+    let reading = asked("GET", &format!("/api/v1/docs/{}", shared.id));
+    let (first, seen) = done(answer_first(&mut world.share, reading));
+    assert_eq!(first.status, 200);
+    assert!(
+        seen.is_none(),
+        "the next reads never reach the server, so none is written down here"
+    );
+    let control = header(&first, "Cache-Control").unwrap();
+    assert!(
+        control.starts_with("public, max-age=0, s-maxage="),
+        "{control}"
+    );
+    assert_eq!(
+        first
+            .headers
+            .iter()
+            .filter(|(name, _)| *name == "Cache-Control")
+            .count(),
+        1
+    );
+    assert!(
+        header(&first, "Cache-Tag")
+            .unwrap()
+            .contains(&format!("doc:{}", shared.id))
+    );
+
+    let told = world.answer(asked("POST", &format!("/api/v1/docs/{}/seen", shared.id)));
+    assert_eq!(told.status, 204);
+    assert_eq!(header(&told, "Cache-Control"), Some("no-store"));
+    let reads = done(world.share.store.doc(&shared.id))
+        .unwrap()
+        .unwrap()
+        .reads;
+    assert_eq!(reads, 1);
+    let unknown = world.answer(asked("POST", "/api/v1/docs/nothing/seen"));
+    assert_eq!(unknown.status, 404);
+}
+
+#[test]
+fn every_write_empties_from_the_cache_what_it_changed_and_a_refusal_empties_nothing() {
+    let mut world = World::new();
+    let shared = world.shared();
+    let doc = format!("doc:{}", shared.id);
+
+    let paused = world.manage(&shared, json!({ "do": "pause" }));
+    assert_eq!(paused.status, 204);
+    assert_eq!(paused.purge, vec![doc.clone()]);
+
+    let reported = world.report_from(&shared.id, place(1), "phishing");
+    assert_eq!(reported.purge, vec![doc.clone()]);
+
+    let mut taking = asked("POST", "/api/v1/revocations");
+    taking.body = serde_json::to_vec(&[taken_back(T0)]).unwrap();
+    let taken = world.answer(taking);
+    assert_eq!(taken.purge.len(), 1);
+    assert!(taken.purge[0].starts_with("by:"));
+
+    let refused = world.answer(asked("POST", "/api/v1/docs/nothing/manage"));
+    assert!(refused.purge.is_empty());
+    let read = world.answer(asked("GET", "/api/v1/limits"));
+    assert!(read.purge.is_empty());
 }
 
 #[test]

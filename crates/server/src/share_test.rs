@@ -1880,7 +1880,11 @@ fn many_revocations_go_in_one_request_and_too_many_are_turned_away() {
         Err(Refused::TooLong)
     );
     let enough = &many[..tisty_share_proto::identity::REVOCATIONS_AT_ONCE];
-    assert_eq!(done(world.share.revoke(enough, HERE, T0)), Ok(()));
+    // Each revocation empties from the cache what its key sent.
+    assert_eq!(
+        done(world.share.revoke(enough, HERE, T0)).map(|tags| tags.len()),
+        Ok(enough.len())
+    );
 }
 
 #[test]
@@ -2166,4 +2170,47 @@ fn a_document_past_its_end_is_gone_to_everyone_and_taken_only_by_the_sweep() {
         Err(Refused::Gone)
     );
     assert!(done(world.share.store.doc(&reserved.id)).unwrap().is_some());
+}
+
+#[test]
+fn a_read_with_no_password_may_wait_in_the_cache_and_its_reader_tells_it_apart() {
+    let mut world = World::new();
+    let reserved = world.shared(T0);
+    let (served, _) = done(world.share.read(&reserved.id, None, None, HERE, T0)).unwrap();
+    let kept = served
+        .kept
+        .expect("a document alone and open waits in the cache");
+    assert!(kept.tags.contains(&crate::cached::doc_tag(&reserved.id)));
+
+    assert_eq!(
+        world.doc(&reserved.id).reads,
+        0,
+        "the cache answers without counting"
+    );
+    done(world.share.noticed(&reserved.id, HERE, T0 + 10)).unwrap();
+    done(world.share.noticed(&reserved.id, there(2), T0 + 20)).unwrap();
+    assert_eq!(world.doc(&reserved.id).reads, 2);
+    assert_eq!(
+        done(world.share.noticed("nothere", HERE, T0)),
+        Err(Refused::Missing)
+    );
+
+    world
+        .manage(
+            &reserved,
+            Manage::Password(Some("perro azul".into())),
+            T0 + 30,
+        )
+        .unwrap();
+    assert_eq!(
+        world.read(&reserved.id, T0 + 40),
+        Err(Refused::PasswordAsked)
+    );
+    let behind = world
+        .read_from(&reserved.id, Some("perro azul"), HERE, T0 + 50)
+        .unwrap();
+    assert_eq!(
+        behind.kept, None,
+        "what a password guards never waits in the cache"
+    );
 }

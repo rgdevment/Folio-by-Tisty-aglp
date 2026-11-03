@@ -12,7 +12,7 @@ use tisty_share_server::keys::{Randomness, Slowness};
 use tisty_share_server::moderation::Report;
 use tisty_share_server::share::{Policy, Seen, Share};
 use tisty_share_server::store::{Doc, Fault, Kept, Saved, Store};
-use worker::js_sys::{self, Function, Reflect, Uint8Array};
+use worker::js_sys::{self, Array, Function, Object, Promise, Reflect, Uint8Array};
 use worker::wasm_bindgen::{JsCast, JsValue};
 use worker::{
     Bucket, Context, D1Database, D1PreparedStatement, Date, Env, Headers, RateLimiter, Request,
@@ -380,6 +380,21 @@ fn answered(answer: api::Answer) -> worker::Result<Response> {
     Ok(response.with_status(answer.status).with_headers(headers))
 }
 
+/// Empties what the cache in front of the Worker holds under these tags; the Worker's own cache, reached only from here.
+async fn purged(ctx: &Context, tags: &[String]) -> Result<(), JsValue> {
+    let cache = Reflect::get(ctx.as_ref(), &"cache".into())?;
+    let purge: Function = Reflect::get(&cache, &"purge".into())?.dyn_into()?;
+    let asked = Object::new();
+    let named: Array = tags.iter().map(|tag| JsValue::from_str(tag)).collect();
+    Reflect::set(&asked, &"tags".into(), &named)?;
+    let promise: Promise = purge.call1(&cache, &asked)?.dyn_into()?;
+    let said = worker::wasm_bindgen_futures::JsFuture::from(promise).await?;
+    match Reflect::get(&said, &"success".into())?.as_bool() {
+        Some(true) => Ok(()),
+        _ => Err(Reflect::get(&said, &"errors".into()).unwrap_or(said)),
+    }
+}
+
 /// The tag this version was deployed with, if it has one; read loosely, since a version deployed by hand has none.
 fn deployed_as(env: &Env) -> Option<String> {
     let metadata = Reflect::get(env, &"VERSION".into()).ok()?;
@@ -393,6 +408,11 @@ async fn fetch(request: Request, env: Env, ctx: Context) -> worker::Result<Respo
     let (mut answer, seen, waited) = served(request, &env)
         .await
         .unwrap_or_else(|why| (api::broken(why.to_string()), None, [0, 0]));
+    // A write is answered once the cache no longer holds what it changed; a purge that fails leaves it at most an hour.
+    let purging = (200..300).contains(&answer.status) && !answer.purge.is_empty();
+    if purging && let Err(why) = purged(&ctx, &answer.purge).await {
+        worker::console_error!("the cache kept {:?}: {why:?}", answer.purge);
+    }
     let read = seen.is_some();
     // A read is written down once its reader has the envelope, so no write stands between them.
     if let Some(seen) = seen {

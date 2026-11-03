@@ -1,5 +1,6 @@
 //! Tisty Share's server, blind to HTTP and to where it runs: a host lends it a store, randomness and the time.
 
+pub mod cached;
 pub mod guard;
 mod guessing;
 pub mod holding;

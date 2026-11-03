@@ -8,6 +8,7 @@ use tisty_share_proto::limits::Limits;
 use tisty_share_proto::work::{Challenge, Proof};
 use zeroize::Zeroizing;
 
+use crate::cached::{Cached, cached};
 use crate::guard::{self, Act, Allowance, Work};
 use crate::holding::ending_at;
 use crate::keys::{self, Randomness, Slowness};
@@ -148,6 +149,8 @@ pub struct Served {
     pub facts: Facts,
     /// What took back the key that sent it, so the reader is told rather than shown it as holding.
     pub revoked: Vec<Revocation>,
+    /// How long it may wait in the cache in front of the server, when it may at all; then its reader tells the read.
+    pub kept: Option<Cached>,
 }
 
 /// What a read leaves to be written down once its reader has the envelope: who read it today, and that it is in use.
@@ -468,6 +471,7 @@ impl<S: Store, R: Randomness> Share<S, R> {
             envelope,
             facts: Facts::of(&doc, ends),
             revoked: revoked?,
+            kept: cached(&doc, kept.by.as_ref(), ends, now),
         };
         let seen = Seen {
             id: id.to_owned(),
@@ -477,6 +481,22 @@ impl<S: Store, R: Randomness> Share<S, R> {
             lost: held.lost,
         };
         Ok((served, seen))
+    }
+
+    /// A read the cache answered, told by its reader so it still counts and still pushes the end back.
+    pub async fn noticed(&self, id: &str, caller: IpAddr, now: i64) -> Result<(), Refused> {
+        self.admit(caller, Act::Read, now).await?;
+        let doc = self.live(id, now).await?;
+        open_to_read(&doc)?;
+        let held = self.held_up(&doc, now).await?;
+        let seen = Seen {
+            id: id.to_owned(),
+            caller,
+            now,
+            doc,
+            lost: held.lost,
+        };
+        self.seen(seen).await
     }
 
     /// Counts a new reader today, pushes the end back and lets go of holders that went without letting go.
@@ -556,6 +576,8 @@ impl<S: Store, R: Randomness> Share<S, R> {
             envelope,
             facts: Facts::of(&doc, self.told_end(&doc, now).await),
             revoked: self.revoked(kept.by.as_ref()).await?,
+            // Asked with a token, which the cache in front of the server never answers.
+            kept: None,
         })
     }
 
