@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: github-actions
     directories:
       - /
-      - /.github/actions/share-page
+      - /.github/actions/page
     schedule:
       interval: monthly
     open-pull-requests-limit: 3
@@ -37,9 +37,9 @@ updates:
       prefix: "chore"
       include: "scope"
     ignore:
-      # Moves by hand with worker-build, pinned in ci.yml and share.yml, whose shim has to match it.
+      # Moves by hand with worker-build, pinned in ci.yml and deploy.yml, whose shim has to match it.
       - dependency-name: worker
-      # Moves by hand with the wasm-bindgen CLI in the share-page action, which must read what it writes.
+      # Moves by hand with the wasm-bindgen CLI in the page action, which must read what it writes.
       - dependency-name: wasm-bindgen
     groups:
       rust:

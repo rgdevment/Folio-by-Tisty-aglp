@@ -1,5 +1,5 @@
-name: The share page, built
-description: Builds the page that reads a Tisty Share link into web/dist, wasm and all.
+name: The reading page, built
+description: Builds the page that reads a Folio link into web/dist, wasm and all.
 
 inputs:
   checked:

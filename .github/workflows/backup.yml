@@ -1,4 +1,4 @@
-name: Share backup
+name: Backup
 
 on:
   schedule:
@@ -8,39 +8,45 @@ on:
 permissions:
   contents: read
 
-# Apart from share-worker: a group keeps one run waiting, so a backup there could push out a waiting deploy.
+# Apart from the deploy's worker group: a group keeps one run waiting, so a backup there could push out a waiting deploy.
 concurrency:
-  group: share-backup
+  group: backup
   cancel-in-progress: false
 
 jobs:
   backup:
     name: Export D1 out of Cloudflare
     if: github.ref == 'refs/heads/main'
-    # Its deployment rules let only main and share-v* tags reach the Cloudflare token.
-    environment: share
+    # Its deployment rules let only main and v* tags reach the Cloudflare token.
+    environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      RECIPIENT: ${{ vars.SHARE_BACKUP_RECIPIENT }}
+      RECIPIENT: ${{ vars.BACKUP_RECIPIENT }}
     defaults:
       run:
         working-directory: crates/worker
     steps:
       - name: The account, its token and the backup's key are there
         run: |
-          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::the share environment has no CLOUDFLARE_API_TOKEN secret"; exit 1; }
-          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::the share environment has no CLOUDFLARE_ACCOUNT_ID variable"; exit 1; }
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::the production environment has no CLOUDFLARE_API_TOKEN secret"; exit 1; }
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::the production environment has no CLOUDFLARE_ACCOUNT_ID variable"; exit 1; }
           case "$RECIPIENT" in
             age1*) ;;
-            *) echo "::error::the share environment's SHARE_BACKUP_RECIPIENT variable is not an age public key"; exit 1 ;;
+            *) echo "::error::the production environment's BACKUP_RECIPIENT variable is not an age public key"; exit 1 ;;
           esac
         working-directory: .
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: The database is there
+        run: |
+          if grep -qE '^database_id = "[0-]+"$' wrangler.toml; then
+            echo "::error::wrangler.toml still holds the placeholder D1 id: run wrangler d1 create folio and put its id in database_id"
+            exit 1
+          fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -49,23 +55,23 @@ jobs:
       - run: npm ci --ignore-scripts
 
       - name: Export
-        run: npx --no-install wrangler d1 export tisty-share --remote --output "$RUNNER_TEMP/tisty-share.sql"
+        run: npx --no-install wrangler d1 export folio --remote --output "$RUNNER_TEMP/folio.sql"
 
       # A dump that does not load, or loads into other tables than its own migrations build, is no backup.
       - name: It restores
         run: |
           set -euo pipefail
           sql() {
-            npx --no-install wrangler d1 execute tisty-share --local --persist-to "$1" --json --command "$2" | jq -c '.[0].results'
+            npx --no-install wrangler d1 execute folio --local --persist-to "$1" --json --command "$2" | jq -c '.[0].results'
           }
           schema="SELECT type, name, sql FROM sqlite_master WHERE name NOT GLOB '_cf_*' AND name NOT GLOB 'sqlite_*' AND tbl_name <> 'd1_migrations' ORDER BY name"
-          npx --no-install wrangler d1 execute tisty-share --local --persist-to "$RUNNER_TEMP/restored" --file "$RUNNER_TEMP/tisty-share.sql" > /dev/null
+          npx --no-install wrangler d1 execute folio --local --persist-to "$RUNNER_TEMP/restored" --file "$RUNNER_TEMP/folio.sql" > /dev/null
           # Only the migrations the dump ran: main may hold one no tag has deployed yet.
           ran=$(sql "$RUNNER_TEMP/restored" "SELECT name FROM d1_migrations ORDER BY id" | jq -r '.[].name')
           [ -n "$ran" ] || { echo "::error::the restored database lists no migration"; exit 1; }
           for name in $ran; do
             [ -f "migrations/$name" ] || { echo "::error::the restored database ran $name, which the repository does not have"; exit 1; }
-            npx --no-install wrangler d1 execute tisty-share --local --persist-to "$RUNNER_TEMP/built" --file "migrations/$name" > /dev/null
+            npx --no-install wrangler d1 execute folio --local --persist-to "$RUNNER_TEMP/built" --file "migrations/$name" > /dev/null
           done
           if [ "$(sql "$RUNNER_TEMP/restored" "$schema")" != "$(sql "$RUNNER_TEMP/built" "$schema")" ]; then
             echo "::error::the restored tables differ from the ones its migrations build"
@@ -81,9 +87,9 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq age > /dev/null
-          name="tisty-share-d1-$(date -u +%Y-%m-%dT%H%MZ)"
-          age --encrypt --recipient "$RECIPIENT" --output "$RUNNER_TEMP/$name.sql.age" "$RUNNER_TEMP/tisty-share.sql"
-          rm "$RUNNER_TEMP/tisty-share.sql"
+          name="folio-d1-$(date -u +%Y-%m-%dT%H%MZ)"
+          age --encrypt --recipient "$RECIPIENT" --output "$RUNNER_TEMP/$name.sql.age" "$RUNNER_TEMP/folio.sql"
+          rm "$RUNNER_TEMP/folio.sql"
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

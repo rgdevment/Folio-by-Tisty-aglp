@@ -52,7 +52,7 @@ jobs:
       - run: cargo test -p folio-envelope --features mint,pictures
 
   wasm:
-    name: share protocol on wasm
+    name: wasm32 builds
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -88,7 +88,7 @@ jobs:
       - run: cargo check --manifest-path fuzz/Cargo.toml --bins
 
   page:
-    name: share page
+    name: page
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -96,7 +96,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: true
-      - uses: ./.github/actions/share-page
+      - uses: ./.github/actions/page
         with:
           checked: "true"
 
