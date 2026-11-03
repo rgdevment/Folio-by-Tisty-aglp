@@ -27,7 +27,7 @@ jobs:
       RECIPIENT: ${{ vars.SHARE_BACKUP_RECIPIENT }}
     defaults:
       run:
-        working-directory: crates/tisty-share-worker
+        working-directory: crates/worker
     steps:
       - name: The account, its token and the backup's key are there
         run: |

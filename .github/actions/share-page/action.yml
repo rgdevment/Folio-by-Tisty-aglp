@@ -1,5 +1,11 @@
 name: The share page, built
-description: Builds the page that reads a Tisty Share link into packages/tisty-share-web/dist, wasm and all.
+description: Builds the page that reads a Tisty Share link into web/dist, wasm and all.
+
+inputs:
+  checked:
+    description: Also typecheck, lint and test the page between its wasm and its build.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -15,15 +21,20 @@ runs:
       with:
         node-version: 22
         package-manager-cache: false
-    # The packages have no install of their own; they borrow the app's through a link.
     - shell: bash
-      working-directory: app
       run: npm ci --ignore-scripts
     - shell: bash
-      run: node scripts/packages-link.mjs
-    - shell: bash
-      working-directory: packages/tisty-share-web
+      working-directory: web
+      run: npm run wasm
+    - if: inputs.checked == 'true'
+      shell: bash
+      working-directory: web
       run: |
-        npm run wasm
+        npm run typecheck
+        npm run lint
+        npm test
+    - shell: bash
+      working-directory: web
+      run: |
         npm run build
         npm run budget
