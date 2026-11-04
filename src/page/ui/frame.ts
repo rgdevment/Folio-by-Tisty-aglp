@@ -56,15 +56,15 @@ const paperOf = (held: Document): Paper => {
 const drawPaperPanel = (host: HTMLElement, held: Document): void => {
   const paper = element<HTMLSelectElement>("paper");
   const sheets = element<HTMLInputElement>("sheets");
-  const orientation = element<HTMLSelectElement>("orientation");
+  const landscape = element<HTMLInputElement>("landscape");
   const apply = (): void => {
-    orientation.disabled = !sheets.checked;
-    withLayout(host, sheets.checked, paper.value as Paper, orientation.value as Orientation);
+    landscape.disabled = !sheets.checked;
+    withLayout(host, sheets.checked, paper.value as Paper, landscape.checked ? "landscape" : "portrait");
   };
   paper.value = paperOf(held);
   sheets.checked = held.sheet?.on === true;
-  orientation.value = held.sheet?.orientation === "landscape" ? "landscape" : "portrait";
-  for (const control of [paper, sheets, orientation]) control.addEventListener("change", apply);
+  landscape.checked = held.sheet?.orientation === "landscape";
+  for (const control of [paper, sheets, landscape]) control.addEventListener("change", apply);
   apply();
 };
 
@@ -113,9 +113,6 @@ const drawSeal = (held: Document, { verdict, fingerprint, diesOn }: Seal): void 
   seal.hidden = false;
   seal.dataset.tone = tone;
   element("seal-text").textContent = text;
-  const shown = element("verdict");
-  shown.dataset.tone = tone;
-  shown.textContent = text;
   element("signer").textContent = held.signed_as ?? "Sin nombre";
   element("fingerprint").textContent = fingerprint;
   element("dies-on").textContent = diesOn;

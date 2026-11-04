@@ -51,6 +51,33 @@ describe("what the page loads", () => {
   });
 });
 
+describe("the panels", () => {
+  it("say the verdict once, in the bar, outside the document", () => {
+    expect(HTML).toContain('id="seal-text"');
+    expect(HTML).not.toContain('id="verdict"');
+  });
+
+  it("scroll with the page, with no second scrollbar of their own", () => {
+    const panels = read("src/page/ui/frame.css").match(/\.panels \{[^}]*\}/g) ?? [];
+    expect(panels.length).toBeGreaterThan(0);
+    for (const rule of panels) expect(rule).not.toMatch(/overflow|max-height: calc/);
+  });
+
+  it("put the index right after the actions", () => {
+    const at = (id: string) => HTML.indexOf(id);
+    expect(at("panel-actions")).toBeLessThan(at('id="panel-index"'));
+    expect(at('id="panel-index"')).toBeLessThan(at('id="panel-paper"'));
+    expect(at('id="panel-paper"')).toBeLessThan(at('id="panel-details"'));
+  });
+
+  it("keep who signed it and how to check it in the details", () => {
+    const details = HTML.slice(HTML.indexOf('id="panel-details"'), HTML.indexOf('class="foot"'));
+    expect(details).toContain('id="signer"');
+    expect(details).toContain('id="fingerprint"');
+    expect(details).toContain("Cómo comprobarla");
+  });
+});
+
 describe("the assets in the Worker", () => {
   it("do not wake it: only the API runs it first, so a visit to the page costs no request", () => {
     expect(WRANGLER).toContain('run_worker_first = ["/api/*"]');

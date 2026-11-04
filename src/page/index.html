@@ -47,48 +47,38 @@
           </button>
         </section>
 
-        <section class="panel" id="panel-signature" aria-labelledby="title-signature">
-          <h2 id="title-signature">Firma</h2>
-          <p class="verdict" id="verdict"></p>
-          <p class="signer"><bdi id="signer"></bdi></p>
-          <p class="fingerprint" id="fingerprint"></p>
-          <details class="explain">
-            <summary>Cómo comprobarla</summary>
-            <p>Pídele la huella a quien te lo mandó, por otro canal, y compárala. La firma dice quién lo escribió, no que el contenido sea seguro.</p>
-          </details>
-        </section>
-
-        <section class="panel" id="panel-paper" aria-labelledby="title-paper">
-          <h2 id="title-paper">Papel</h2>
-          <label class="field">
-            <span>Tamaño</span>
-            <select id="paper">
-              <option value="a4">A4</option>
-              <option value="letter">Carta</option>
-              <option value="folio">Oficio</option>
-            </select>
-          </label>
-          <label class="field field-check">
-            <span>Ver por hojas</span>
-            <input id="sheets" type="checkbox" />
-          </label>
-          <label class="field">
-            <span>Orientación</span>
-            <select id="orientation">
-              <option value="portrait">Vertical</option>
-              <option value="landscape">Horizontal</option>
-            </select>
-          </label>
-        </section>
-
         <section class="panel" id="panel-index" aria-labelledby="title-index">
           <h2 id="title-index">Índice</h2>
           <ol class="index" id="index"></ol>
         </section>
 
+        <section class="panel paper" id="panel-paper" aria-label="Papel">
+          <select id="paper" aria-label="Tamaño del papel">
+            <option value="a4">A4</option>
+            <option value="letter">Carta</option>
+            <option value="folio">Oficio</option>
+          </select>
+          <label class="chip">
+            <input id="sheets" type="checkbox" />
+            <span>Hojas</span>
+          </label>
+          <label class="chip">
+            <input id="landscape" type="checkbox" />
+            <span>Horizontal</span>
+          </label>
+        </section>
+
         <section class="panel" id="panel-details" aria-labelledby="title-details">
           <h2 id="title-details">Detalles</h2>
           <dl class="facts" id="details"></dl>
+          <dl class="facts signed">
+            <div><dt>Firmado por</dt><dd><bdi id="signer"></bdi></dd></div>
+            <div><dt>Huella</dt><dd class="fingerprint" id="fingerprint"></dd></div>
+          </dl>
+          <details class="explain">
+            <summary>Cómo comprobarla</summary>
+            <p>Pídele la huella a quien te lo mandó, por otro canal, y compárala. La firma dice quién lo escribió, no que el contenido sea seguro.</p>
+          </details>
         </section>
 
         <section class="foot">
@@ -102,9 +92,8 @@
     </main>
 
     <nav class="dock" id="dock" aria-label="Paneles" hidden>
-      <button type="button" data-panel="panel-signature">Firma</button>
-      <button type="button" data-panel="panel-paper">Papel</button>
       <button type="button" data-panel="panel-index">Índice</button>
+      <button type="button" data-panel="panel-paper">Papel</button>
       <button type="button" data-panel="panel-details">Detalles</button>
     </nav>
   </body>
