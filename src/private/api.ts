@@ -10,7 +10,7 @@ const PREFIX = "/api/v1/";
 const DOC_PATH = /^docs\/([A-Za-z0-9]{8})(?:\/(report|admin|pause|resume|appeal))?$/;
 const REPORT_BYTES_AT_MOST = 16 * 1024;
 
-const STATUS: Record<Refused["refused"], number> = {
+export const STATUS: Record<Refused["refused"], number> = {
   missing: 404,
   paused: 403,
   blocked: 403,

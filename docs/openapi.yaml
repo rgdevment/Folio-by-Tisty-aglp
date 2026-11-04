@@ -1,0 +1,352 @@
+# Written by hand (decision 111). test/api.cloud.test.ts holds it to what the Worker answers, route by route.
+openapi: 3.1.0
+info:
+  title: Folio by Tisty, what is private
+  version: 0.1.0
+  summary: Keeps sealed documents and hands them to whoever has the link. It never opens one.
+  description: |
+    The rules here are Folio's, not part of the contract with Tisty, and the server is the one that
+    enforces them. Uploading is not here yet: it comes with the contract.
+
+    **A network** is a whole IPv4 or the /48 of an IPv6. It is kept as a keyed digest, never in clear.
+
+    **Refusals** answer JSON with `refused`, and `Retry-After` in seconds when `until` is there.
+
+    **A proof of work:** `refused: proof` gives a `salt` and `bits`. Find a number whose
+    SHA-256 of `salt|number`, in UTF-8, starts with that many zero bits, and send the same request again
+    with it in `Folio-Proof`. A salt lasts until the end of the next hour, and only for that action,
+    document and network.
+
+    **The admin link:** `Folio-Admin` carries the token whose SHA-256 is the document's `admin_hash`. A
+    wrong token answers as a document that does not exist.
+  license:
+    name: AGPL-3.0-only
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+servers:
+  - url: https://tisty.cl/api/v1
+tags:
+  - name: Reading
+  - name: Reporting
+  - name: Administering
+security: []
+paths:
+  /start:
+    post:
+      tags: [Reading]
+      operationId: start
+      summary: Asks for the id and the salt of a document about to be shared.
+      description: Nothing is kept for a start, so an unused one costs nothing.
+      responses:
+        "200":
+          description: An id nobody else was given.
+          headers: { $ref: "#/components/x-api-headers" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Start" }
+        "429": { $ref: "#/components/responses/Slow" }
+  /docs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Reading]
+      operationId: read
+      summary: Gives the sealed bytes of a document's latest version.
+      description: |
+        Past the free new readers of the day of an owner, a new reader answers a proof of work.
+        A reader who already read that day goes on reading.
+      parameters:
+        - $ref: "#/components/parameters/Proof"
+      responses:
+        "200":
+          description: The envelope as it was uploaded.
+          headers:
+            Folio-Version:
+              description: The number of this version.
+              schema: { type: integer }
+            Folio-Hash:
+              description: The hash of this version.
+              schema: { type: string }
+            Folio-Arrived:
+              description: When it arrived, in milliseconds. The server's word, not something signed.
+              schema: { type: integer }
+            Folio-Dies-On:
+              description: The last day it lives, in days since 1970.
+              schema: { type: integer }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "403":
+          description: Paused by its owner, or blocked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PausedOrBlocked" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "429":
+          description: Going too fast, or a proof of work is asked for.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Slow"
+                  - $ref: "#/components/schemas/Proof"
+    delete:
+      tags: [Administering]
+      operationId: stopSharing
+      summary: Stops sharing a document.
+      description: |
+        It stops being served at once, and it is forgotten on the next sweep. A document that has to stay
+        is kept unread, and to its owner it looks the same.
+      parameters:
+        - $ref: "#/components/parameters/Admin"
+      responses:
+        "200": { $ref: "#/components/responses/Done" }
+        "403": { $ref: "#/components/responses/Blocked" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "429": { $ref: "#/components/responses/Slow" }
+  /docs/{id}/report:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [Reporting]
+      operationId: report
+      summary: Reports a document.
+      description: |
+        One report per document and network counts. It answers the same whether or not the document exists.
+        Copyright is not reported here: its holder asks, and it comes down. If telling the operator fails
+        the answer is an error, the report stays, and sending it again tells again.
+      parameters:
+        - $ref: "#/components/parameters/Proof"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Report" }
+      responses:
+        "202":
+          description: Received.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Received" }
+        "400":
+          description: Not a report this service takes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BadReport" }
+        "413":
+          description: The body is too long.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TooBig" }
+        "429":
+          description: A proof of work is asked for, or the network used up its reports of the hour.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Proof"
+                  - $ref: "#/components/schemas/Quota"
+  /docs/{id}/admin:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Administering]
+      operationId: status
+      summary: Shows a document's state and how many times it was read.
+      parameters:
+        - $ref: "#/components/parameters/Admin"
+      responses:
+        "200":
+          description: Its state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "429": { $ref: "#/components/responses/Slow" }
+  /docs/{id}/pause:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [Administering]
+      operationId: pause
+      summary: Stops serving a document, and keeps it for 30 days.
+      parameters:
+        - $ref: "#/components/parameters/Admin"
+      responses:
+        "200": { $ref: "#/components/responses/Done" }
+        "403": { $ref: "#/components/responses/Blocked" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "429": { $ref: "#/components/responses/Slow" }
+  /docs/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [Administering]
+      operationId: resume
+      summary: Serves a paused document again, with its days counted from today.
+      parameters:
+        - $ref: "#/components/parameters/Admin"
+      responses:
+        "200": { $ref: "#/components/responses/Done" }
+        "403": { $ref: "#/components/responses/Blocked" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "429": { $ref: "#/components/responses/Slow" }
+  /docs/{id}/appeal:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [Administering]
+      operationId: appeal
+      summary: Appeals a block, once per block.
+      description: |
+        The operator is told. The block stays until the operator decides. If telling fails the answer
+        is an error, and the appeal can be sent again.
+      parameters:
+        - $ref: "#/components/parameters/Admin"
+      responses:
+        "200": { $ref: "#/components/responses/Done" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "409":
+          description: Nothing is blocked, or this block was already appealed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NothingToAppeal" }
+        "429": { $ref: "#/components/responses/Slow" }
+components:
+  x-api-headers:
+    Folio-Worker:
+      description: The tag of the version that answered, on every answer once deployed.
+      schema: { type: string }
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[A-Za-z0-9]{8}$" }
+    Proof:
+      name: Folio-Proof
+      in: header
+      description: The number that solves the proof of work, when one was asked for.
+      schema: { type: string }
+    Admin:
+      name: Folio-Admin
+      in: header
+      required: true
+      description: The token of the admin link.
+      schema: { type: string }
+  responses:
+    Done:
+      description: Done. Doing it twice changes nothing.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Done" }
+    Missing:
+      description: There is no such document, or the token is wrong.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Missing" }
+    Blocked:
+      description: It is blocked, so it stays as it is.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Blocked" }
+    Slow:
+      description: Going too fast.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Slow" }
+  schemas:
+    Start:
+      type: object
+      required: [id, mac, salt]
+      properties:
+        id: { type: string, pattern: "^[A-Za-z0-9]{8}$" }
+        mac: { type: string, description: What shows this id was given here, this hour or the one before. }
+        salt: { type: string }
+    Received:
+      type: object
+      required: [received]
+      properties:
+        received: { const: true }
+    Done:
+      type: object
+      required: [done]
+      properties:
+        done: { const: true }
+    Report:
+      type: object
+      required: [category]
+      properties:
+        category:
+          type: string
+          enum: [csam, phishing, malware, scam, threat, doxxing, intimate]
+        detail: { type: string, maxLength: 2000 }
+        sealedLink:
+          type: string
+          maxLength: 1024
+          description: The whole link, sealed with the operator's public key. The server cannot open it.
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: object
+          required: [latest, diesOn, pausedAt, blockedAt, appealedAt, readTotal, days]
+          properties:
+            latest: { type: integer, description: The number of its latest version. }
+            diesOn: { type: integer, description: "The last day it lives, in days since 1970." }
+            pausedAt: { type: [integer, "null"] }
+            blockedAt: { type: [integer, "null"] }
+            appealedAt: { type: [integer, "null"] }
+            readTotal: { type: integer, description: "One per day and network." }
+            days:
+              type: object
+              description: "By day: `n`, the readers, and `h`, their hours, once they are enough not to single anyone out."
+    Missing:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: missing }
+    Blocked:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: blocked }
+    PausedOrBlocked:
+      type: object
+      required: [refused]
+      properties:
+        refused: { enum: [paused, blocked] }
+    BadReport:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: bad_report }
+    TooBig:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: too_big }
+    NothingToAppeal:
+      type: object
+      required: [refused]
+      properties:
+        refused: { enum: [not_blocked, appealed] }
+    Slow:
+      type: object
+      required: [refused, until]
+      properties:
+        refused: { const: slow }
+        until: { type: integer, description: "Until when, in milliseconds." }
+    Quota:
+      type: object
+      required: [refused, until]
+      properties:
+        refused: { const: quota }
+        until: { type: integer, description: "Until when, in milliseconds." }
+    Proof:
+      type: object
+      required: [refused, salt, bits]
+      properties:
+        refused: { const: proof }
+        salt: { type: string }
+        bits: { type: integer, maximum: 32 }

@@ -63,10 +63,9 @@ merging code into this repository requires the agreement.
 
 ## Development setup
 
-The service is being written again from scratch in TypeScript, and this
-repository holds only its documents and conventions for now. The earlier code,
-in Rust, stays in the `chore/rust-service-backup` branch. Node 22 is all it asks
-for:
+The service is written in TypeScript and runs on Cloudflare Workers. Its API is
+in [docs/openapi.yaml](docs/openapi.yaml). The earlier code, in Rust, stays in
+the `chore/rust-service-backup` branch. Node 22 is all it asks for:
 
 ```sh
 git clone https://github.com/rgdevment/Folio-by-Tisty.git
@@ -77,6 +76,9 @@ Before opening a pull request, run what CI runs:
 
 ```sh
 npm run lint:md
+npm run typecheck
+npm run lint
+npm test
 ```
 
 ## House style

@@ -3,6 +3,9 @@ main = "src/private/index.ts"
 compatibility_date = "2026-08-01"
 workers_dev = false
 
+# Only the API: what else lives on tisty.cl stays as it is, and the page comes with its own assets (decision 109).
+routes = [{ pattern = "tisty.cl/api/*", zone_name = "tisty.cl" }]
+
 # Beside D1 and R2 in eastern North America, so a read's queries in a row cross the continent once (decision 94 bis).
 [placement]
 region = "aws:us-east-1"
