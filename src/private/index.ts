@@ -1,16 +1,38 @@
+import { CloudSpend, type SpendBindings } from "../cloudflare/spend";
 import { type Bindings, Cloud } from "../cloudflare/store";
 import { dayOf, LEVEL_ONE } from "../core/limits";
 import { DayKeys } from "../core/net";
+import { checkSpend } from "../core/spend";
 import { answer } from "./api";
 
-interface Env extends Bindings {
+interface Env extends Bindings, SpendBindings {
   FOLIO_SECRET: string;
   READS: RateLimit;
+  BILLING_DAY: string;
   HEARTBEAT_URL?: string;
+  SPEND_HEARTBEAT_URL?: string;
+  ALERT_URL?: string;
 }
 
 const WEEKLY = "0 4 * * 0";
+const SPEND = "*/15 * * * *";
 const dayKeys = new DayKeys();
+
+const reviewSpend = async (now: number, env: Env): Promise<void> => {
+  const spend = new CloudSpend(env);
+  const stage = await checkSpend(now, Number(env.BILLING_DAY), {
+    store: new Cloud(env),
+    usageSince: (start, until) => spend.usageSince(start, until),
+    setBlocked: (blocked) => spend.setBlocked(blocked),
+    notify: async (said) => {
+      console.log(JSON.stringify(said));
+      if (env.ALERT_URL) await fetch(env.ALERT_URL, { method: "POST", body: JSON.stringify(said) });
+    },
+  });
+  console.log(JSON.stringify({ stage }));
+  // It stops arriving when the review fails, and that is the alert: without it nothing cuts the bill.
+  if (env.SPEND_HEARTBEAT_URL) await fetch(env.SPEND_HEARTBEAT_URL);
+};
 
 export default {
   async fetch(request, env, context): Promise<Response> {
@@ -32,6 +54,10 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    if (controller.cron === SPEND) {
+      await reviewSpend(controller.scheduledTime, env);
+      return;
+    }
     const store = new Cloud(env);
     if (controller.cron === WEEKLY) {
       console.log(JSON.stringify({ orphans: await store.forgetOrphans(controller.scheduledTime) }));

@@ -23,8 +23,19 @@ name = "READS"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
+# Filled in when the account exists. BILLING_DAY is the plan's renewal day, or 28 if it falls later (decision 118).
+[vars]
+BILLING_DAY = ""
+CF_ACCOUNT_ID = ""
+CF_ZONE_ID = ""
+CF_RULESET_ID = ""
+CF_RULE_ID = ""
+CF_DATABASE_ID = ""
+CF_SCRIPT_NAME = "folio-private"
+CF_BUCKET_NAME = "folio-private-envelopes"
+
 [triggers]
-crons = ["0 * * * *", "0 4 * * 0"]
+crons = ["*/15 * * * *", "0 * * * *", "0 4 * * 0"]
 
 # What the code logs is kept, and the request itself never is (decision 98).
 [observability]
