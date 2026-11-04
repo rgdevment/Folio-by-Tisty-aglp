@@ -1,0 +1,495 @@
+import { DAY_MS, LEVEL_ONE, type Limits } from "../core/limits";
+import type {
+  Admitted,
+  Created,
+  NewDoc,
+  Reading,
+  Report,
+  Store,
+  Swept,
+  Upload,
+  Uploaded,
+  Version,
+} from "../core/store";
+
+export interface Bindings {
+  DB: D1Database;
+  ENVELOPES: R2Bucket;
+}
+
+interface DocRow {
+  edit_hash: string;
+  anchor: string | null;
+  latest: number;
+  versions: string;
+  blocked_at: number | null;
+}
+
+// A document being forgotten: nothing can move it on from here, and the sweep finishes it even after failing halfway.
+const CLAIMED = -1;
+
+// What R2 takes in one delete.
+const KEYS_AT_ONCE = 1000;
+
+const encoder = new TextEncoder();
+
+const seenTable = (day: number): string => {
+  if (!Number.isSafeInteger(day) || day < 0) throw new Error(`not a day: ${day}`);
+  return `seen_${day}`;
+};
+
+const objectKey = (id: string, version: Pick<Version, "n" | "hash">): string => `${id}/${version.n}.${version.hash}`;
+
+const sizeOf = (body: Upload["body"]): number =>
+  typeof body === "string" ? encoder.encode(body).byteLength : body.byteLength;
+
+export class Cloud implements Store {
+  readonly #db: D1Database;
+  readonly #envelopes: R2Bucket;
+  readonly #limits: Limits;
+
+  constructor(bindings: Bindings, limits: Limits = LEVEL_ONE) {
+    this.#db = bindings.DB;
+    this.#envelopes = bindings.ENVELOPES;
+    this.#limits = limits;
+  }
+
+  async create(doc: NewDoc, today: number): Promise<Created> {
+    if (!this.#limits.ttlChoices.includes(doc.ttlDays)) return "bad_ttl";
+    const held = await this.#row(doc.id);
+    if (held) return this.#retried(held, doc);
+    if (!(await this.#takeQuota(doc.net, 1, 0, today))) return "quota";
+    const inserted = await this.#db
+      .prepare(
+        `INSERT OR IGNORE INTO docs (id, owner, anchor, edit_hash, admin_hash, ttl_days, dies_on, active_day)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+         WHERE (?3 IS NOT NULL AND EXISTS (
+           SELECT 1 FROM docs a WHERE a.id = ?3 AND a.owner = ?2 AND a.anchor IS NULL AND a.latest >= 0
+         )) OR (?3 IS NULL AND (
+           SELECT COUNT(*) FROM docs d
+           WHERE d.owner = ?2 AND d.anchor IS NULL AND d.latest >= 0 AND d.blocked_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
+         ) < ?9)`,
+      )
+      .bind(
+        doc.id,
+        doc.owner,
+        doc.anchor ?? null,
+        doc.editHash,
+        doc.adminHash,
+        doc.ttlDays,
+        today + doc.ttlDays,
+        today,
+        this.#limits.sharesAtMost,
+      )
+      .run();
+    if (inserted.meta.changes > 0) return "created";
+    await this.#giveQuotaBack(doc.net, 1, 0, today);
+    const raced = await this.#row(doc.id);
+    if (raced) return this.#retried(raced, doc);
+    return doc.anchor !== undefined ? "no_anchor" : "shares_full";
+  }
+
+  // A lost answer comes back as the same document, and only that is not somebody else's id.
+  #retried(held: DocRow, doc: NewDoc): Created {
+    return held.edit_hash === doc.editHash && held.latest !== CLAIMED ? "same" : "taken";
+  }
+
+  async upload(upload: Upload, today: number): Promise<Uploaded> {
+    const held = await this.#row(upload.id);
+    if (!held || held.latest === CLAIMED) return "missing";
+    if (held.blocked_at !== null) return "blocked";
+    const versions = JSON.parse(held.versions) as Version[];
+    if (held.latest === upload.n && versions.at(-1)?.hash === upload.hash) return "same";
+    if (upload.n !== held.latest + 1) return "behind";
+
+    const bytes = sizeOf(upload.body);
+    if (!(await this.#takeQuota(upload.net, 0, bytes, today))) return "quota";
+    const version: Version = { n: upload.n, hash: upload.hash, bytes, at: upload.at };
+    const key = objectKey(upload.id, version);
+    try {
+      await this.#envelopes.put(key, upload.body);
+    } catch (error) {
+      await this.#giveQuotaBack(upload.net, 0, bytes, today);
+      throw error;
+    }
+
+    const kept = [...versions, version].slice(-this.#limits.versionsKept);
+    const alive = `dies_on = CASE WHEN paused_at IS NULL THEN MAX(dies_on, ?1 + ttl_days) ELSE dies_on END,
+                   active_day = MAX(active_day, ?1)`;
+    const [moved] = await this.#db.batch([
+      this.#db
+        .prepare(
+          `UPDATE docs SET latest = ?2, versions = ?3, bytes = ?4, ${alive}
+           WHERE id = ?5 AND latest = ?6 AND blocked_at IS NULL`,
+        )
+        .bind(
+          today,
+          upload.n,
+          JSON.stringify(kept),
+          kept.reduce((sum, one) => sum + one.bytes, 0),
+          upload.id,
+          upload.n - 1,
+        ),
+      // A new version of a language is activity of the whole group (decisions 50 and 69 bis).
+      ...(held.anchor
+        ? [
+            this.#db
+              .prepare(
+                `UPDATE docs SET ${alive}
+                 WHERE id = ?2 AND latest >= 0 AND EXISTS (SELECT 1 FROM docs l WHERE l.id = ?3 AND l.latest = ?4)`,
+              )
+              .bind(today, held.anchor, upload.id, upload.n),
+          ]
+        : []),
+    ]);
+    if ((moved?.meta.changes ?? 0) === 0) {
+      await this.#giveQuotaBack(upload.net, 0, bytes, today);
+      return this.#lostTheRace(upload, key);
+    }
+
+    const dropped = versions.slice(0, Math.max(0, versions.length + 1 - this.#limits.versionsKept));
+    if (dropped.length > 0) await this.#envelopes.delete(dropped.map((one) => objectKey(upload.id, one)));
+    return "stored";
+  }
+
+  async #lostTheRace(upload: Upload, key: string): Promise<Uploaded> {
+    const now = await this.#row(upload.id);
+    const versions = now ? (JSON.parse(now.versions) as Version[]) : [];
+    // Two sends of the same bytes share one object, so the one that lost must not delete what the other kept.
+    if (versions.some((one) => one.n === upload.n && one.hash === upload.hash)) return "same";
+    await this.#envelopes.delete(key);
+    if (!now || now.latest === CLAIMED) return "missing";
+    return now.blocked_at === null ? "behind" : "blocked";
+  }
+
+  #row(id: string): Promise<DocRow | null> {
+    return this.#db
+      .prepare("SELECT edit_hash, anchor, latest, versions, blocked_at FROM docs WHERE id = ?")
+      .bind(id)
+      .first<DocRow>();
+  }
+
+  async #takeQuota(net: string, docs: number, bytes: number, today: number): Promise<boolean> {
+    if (docs > this.#limits.netDocsADay || bytes > this.#limits.netBytesADay) return false;
+    const taken = await this.#db
+      .prepare(
+        `INSERT INTO net_day (day, net, docs, bytes) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (day, net) DO UPDATE SET docs = docs + excluded.docs, bytes = bytes + excluded.bytes
+         WHERE docs + excluded.docs <= ?5 AND bytes + excluded.bytes <= ?6`,
+      )
+      .bind(today, net, docs, bytes, this.#limits.netDocsADay, this.#limits.netBytesADay)
+      .run();
+    return taken.meta.changes > 0;
+  }
+
+  async #giveQuotaBack(net: string, docs: number, bytes: number, today: number): Promise<void> {
+    await this.#db
+      .prepare("UPDATE net_day SET docs = docs - ?, bytes = bytes - ? WHERE day = ? AND net = ?")
+      .bind(docs, bytes, today, net)
+      .run();
+  }
+
+  async admit(reading: Reading, today: number): Promise<Admitted> {
+    try {
+      return await this.#admit(reading, today);
+    } catch (error) {
+      // The day's table is made by the sweep or by the first note: without it, nobody has read yet today.
+      if (String(error).includes("no such table")) return "new";
+      throw error;
+    }
+  }
+
+  async #admit({ owner, reader, doc, proved }: Reading, today: number): Promise<Admitted> {
+    const table = seenTable(today);
+    const found = await this.#db
+      .prepare(
+        `SELECT (SELECT 1 FROM ${table} WHERE owner = ?1 AND reader = ?2 AND doc = ?3) AS here,
+                (SELECT 1 FROM ${table} WHERE owner = ?1 AND reader = ?2 LIMIT 1) AS known`,
+      )
+      .bind(owner, reader, doc)
+      .first<{ here: number | null; known: number | null }>();
+    if (found?.here) return "here";
+    if (found?.known) return "new";
+    const counted = await this.#db
+      .prepare(`SELECT COUNT(*) AS n FROM (SELECT DISTINCT reader FROM ${table} WHERE owner = ? LIMIT ?)`)
+      .bind(owner, this.#limits.newReadersFree)
+      .first<{ n: number }>();
+    if ((counted?.n ?? 0) < this.#limits.newReadersFree) return "new";
+    // The proof comes first, so without one nobody gets in free past the ceiling or makes it count thousands of rows.
+    if (!proved) return "over";
+    const rows = await this.#db
+      .prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM ${table} WHERE owner = ? LIMIT ?)`)
+      .bind(owner, this.#limits.rowsPerOwnerADay)
+      .first<{ n: number }>();
+    // Past the ceiling it answers without noting, so a farm of readers stops adding to the bill.
+    return (rows?.n ?? 0) >= this.#limits.rowsPerOwnerADay ? "full" : "new";
+  }
+
+  async note(reading: Reading, today: number): Promise<void> {
+    try {
+      await this.#note(reading, today);
+    } catch (error) {
+      if (!String(error).includes("no such table")) throw error;
+      await this.#db.prepare(this.#createSeen(today)).run();
+      await this.#note(reading, today);
+    }
+  }
+
+  async #note({ owner, reader, doc, hour }: Reading, today: number): Promise<void> {
+    await this.#db
+      .prepare(`INSERT OR IGNORE INTO ${seenTable(today)} (owner, reader, doc, hour) VALUES (?, ?, ?, ?)`)
+      .bind(owner, reader, doc, hour)
+      .run();
+  }
+
+  #createSeen(day: number): string {
+    return `CREATE TABLE IF NOT EXISTS ${seenTable(day)} (
+      owner TEXT NOT NULL, reader TEXT NOT NULL, doc TEXT NOT NULL, hour INTEGER NOT NULL,
+      PRIMARY KEY (owner, reader, doc)
+    ) WITHOUT ROWID`;
+  }
+
+  async report(report: Report, today: number): Promise<{ blocked: boolean }> {
+    const [, blocked] = await this.#db.batch([
+      this.#db
+        .prepare(
+          `INSERT INTO reports (doc, net, at, category, detail, sealed_link)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1)
+           ON CONFLICT (doc, net) DO UPDATE
+             SET at = excluded.at, category = excluded.category, detail = excluded.detail,
+                 sealed_link = excluded.sealed_link, cleared = 0
+             WHERE cleared = 1`,
+        )
+        .bind(report.doc, report.net, today, report.category, report.detail ?? null, report.sealedLink ?? null),
+      this.#db
+        .prepare(
+          `UPDATE docs SET blocked_at = ?1, dies_on = ?1 + ?2
+           WHERE id = ?3 AND blocked_at IS NULL
+             AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND r.cleared = 0) >= ?4`,
+        )
+        .bind(today, this.#limits.evidenceDays, report.doc, this.#limits.reportsToBlock),
+    ]);
+    return { blocked: (blocked?.meta.changes ?? 0) > 0 };
+  }
+
+  async appealAccepted(id: string, today: number): Promise<void> {
+    await this.#db.batch([
+      // The reports stay as evidence, but those networks can report again and the count starts over.
+      this.#db
+        .prepare(
+          "UPDATE reports SET cleared = 1 WHERE doc = ?1 AND EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND blocked_at IS NOT NULL)",
+        )
+        .bind(id),
+      this.#db
+        .prepare(
+          `UPDATE docs SET blocked_at = NULL, appealed_at = ?1,
+             dies_on = CASE WHEN paused_at IS NULL THEN ?1 + ttl_days ELSE paused_at + ?2 END
+           WHERE id = ?3 AND blocked_at IS NOT NULL`,
+        )
+        .bind(today, this.#limits.pausedDays, id),
+    ]);
+  }
+
+  async pause(id: string, today: number): Promise<void> {
+    await this.#db
+      .prepare(
+        "UPDATE docs SET paused_at = ?1, dies_on = ?1 + ?2 WHERE id = ?3 AND blocked_at IS NULL AND paused_at IS NULL",
+      )
+      .bind(today, this.#limits.pausedDays, id)
+      .run();
+  }
+
+  async resume(id: string, today: number): Promise<void> {
+    await this.#db
+      .prepare(
+        "UPDATE docs SET paused_at = NULL, dies_on = ?1 + ttl_days WHERE id = ?2 AND blocked_at IS NULL AND paused_at IS NOT NULL",
+      )
+      .bind(today, id)
+      .run();
+  }
+
+  // Adds up first: what expired is only known once every past day has counted (decision 128).
+  async sweep(today: number): Promise<Swept> {
+    await this.#db.batch([this.#db.prepare(this.#createSeen(today)), this.#db.prepare(this.#createSeen(today + 1))]);
+    const { summed, failed: failedDays } = await this.#sumPastDays(today);
+    let forgotten = 0;
+    let failed = failedDays;
+    if (failedDays === 0) {
+      try {
+        forgotten = await this.#forget(await this.#expired(today), today);
+      } catch (error) {
+        failed += 1;
+        console.error("what expired could not be forgotten", String(error));
+      }
+    }
+    try {
+      await this.#db.batch([
+        this.#db.prepare("DELETE FROM net_day WHERE day < ?").bind(today),
+        this.#db.prepare("DELETE FROM guesses WHERE slot < ?").bind(today * this.#limits.guessSlotsADay),
+        this.#db.prepare("DELETE FROM reports WHERE at < ?").bind(today - this.#limits.evidenceDays),
+      ]);
+    } catch (error) {
+      failed += 1;
+      console.error("the old rows could not be cleaned", String(error));
+    }
+    return { summed, forgotten, failed };
+  }
+
+  async #sumPastDays(today: number): Promise<{ summed: number; failed: number }> {
+    const tables = await this.#db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'seen_[0-9]*'")
+      .all<{ name: string }>();
+    const days = tables.results
+      .map((one) => Number(one.name.slice("seen_".length)))
+      .filter((day) => day < today)
+      .sort((a, b) => a - b);
+    let summed = 0;
+    let failed = 0;
+    for (const day of days) {
+      const table = seenTable(day);
+      try {
+        // In one batch, so a day is either counted and gone or still there to count: never lost, never counted twice.
+        await this.#db.batch([
+          this.#addToDocs(table, day),
+          this.#addToService(table, day),
+          this.#db.prepare(`DROP TABLE ${table}`),
+        ]);
+        summed += 1;
+      } catch (error) {
+        failed += 1;
+        console.error("a day could not be added up", day, String(error));
+      }
+    }
+    return { summed, failed };
+  }
+
+  // The day goes in the row this already writes, so its history costs no rows and dies with the document (decision 136).
+  #addToDocs(table: string, day: number): D1PreparedStatement {
+    // A reader who arrives as the day is added opens the table again: only their count is added, not their hour.
+    return this.#db
+      .prepare(
+        `UPDATE docs SET read_total = read_total + t.readers, active_day = MAX(active_day, ?1),
+           dies_on = CASE WHEN paused_at IS NULL AND blocked_at IS NULL
+             THEN MAX(dies_on, ?1 + ttl_days) ELSE dies_on END,
+           days = (
+             SELECT json_group_object(key, json(value)) FROM json_each(
+               CASE WHEN json_type(days, ?4) IS NULL THEN json_set(days, ?4, json(t.entry))
+                 ELSE json_set(days, ?4 || '.n', json_extract(days, ?4 || '.n') + t.readers) END
+             ) WHERE CAST(key AS INTEGER) > ?1 - ?2
+           )
+         FROM (
+           SELECT doc, SUM(n) AS readers,
+             CASE WHEN SUM(n) >= ?3 THEN json_object('n', SUM(n), 'h', json_group_object(hour, n))
+               ELSE json_object('n', SUM(n)) END AS entry
+           FROM (SELECT doc, hour, COUNT(*) AS n FROM ${table} GROUP BY doc, hour) GROUP BY doc
+         ) t
+         WHERE docs.id = t.doc`,
+      )
+      .bind(day, this.#limits.historyDays, this.#limits.hoursFromReaders, `$."${day}"`);
+  }
+
+  #addToService(table: string, day: number): D1PreparedStatement {
+    return this.#db
+      .prepare(
+        `INSERT INTO service_day (day, readers, docs, hours)
+         SELECT ?1, readers, docs, hours FROM (
+           SELECT SUM(n) AS readers, (SELECT COUNT(DISTINCT doc) FROM ${table}) AS docs,
+             json_group_object(hour, n) AS hours
+           FROM (SELECT hour, COUNT(*) AS n FROM ${table} GROUP BY hour)
+         ) WHERE readers IS NOT NULL
+         ON CONFLICT (day) DO UPDATE SET readers = readers + excluded.readers, docs = docs + excluded.docs`,
+      )
+      .bind(day);
+  }
+
+  async #expired(today: number): Promise<string[]> {
+    const expired = await this.#db
+      .prepare(
+        `SELECT d.id FROM docs d
+         WHERE d.latest = ${CLAIMED} OR (
+           d.dies_on < ?1
+           AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
+           AND (d.anchor IS NULL OR d.blocked_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM docs a WHERE a.id = d.anchor))
+           AND NOT EXISTS (
+             SELECT 1 FROM docs l WHERE l.owner = d.owner AND l.anchor = d.id
+               AND ((l.blocked_at IS NOT NULL AND l.dies_on >= ?1)
+                 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = l.id))
+           )
+         )
+         ORDER BY d.latest = ${CLAIMED} DESC, d.dies_on LIMIT ?2`,
+      )
+      .bind(today, this.#limits.sweptAtOnce)
+      .all<{ id: string }>();
+    return expired.results.map((one) => one.id);
+  }
+
+  // All at once, since D1 takes 1,000 queries per invocation. It claims the rows before touching R2, so an upload or a
+  // hold that arrived after the list saves the document, and what an upload left halfway goes with the orphans.
+  async #forget(expired: string[], today: number): Promise<number> {
+    if (expired.length === 0) return 0;
+    const listed = JSON.stringify(expired);
+    await this.#db
+      .prepare(
+        `UPDATE docs SET latest = ${CLAIMED}
+         WHERE id IN (SELECT value FROM json_each(?1)) AND (latest = ${CLAIMED} OR (
+           dies_on < ?2 AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = docs.id)
+         ))`,
+      )
+      .bind(listed, today)
+      .run();
+    await this.#db
+      .prepare(
+        `UPDATE docs SET latest = ${CLAIMED}
+         WHERE latest <> ${CLAIMED} AND (owner, anchor) IN (
+           SELECT a.owner, a.id FROM docs a WHERE a.latest = ${CLAIMED} AND a.id IN (SELECT value FROM json_each(?1))
+         )`,
+      )
+      .bind(listed)
+      .run();
+    const claimed = await this.#db
+      .prepare(`SELECT id, versions FROM docs WHERE latest = ${CLAIMED}`)
+      .all<{ id: string; versions: string }>();
+    if (claimed.results.length === 0) return 0;
+
+    const keys = claimed.results.flatMap(({ id, versions }) =>
+      (JSON.parse(versions) as Version[]).map((one) => objectKey(id, one)),
+    );
+    for (let from = 0; from < keys.length; from += KEYS_AT_ONCE) {
+      await this.#envelopes.delete(keys.slice(from, from + KEYS_AT_ONCE));
+    }
+    const ids = JSON.stringify(claimed.results.map((one) => one.id));
+    const [, deleted] = await this.#db.batch([
+      this.#db
+        .prepare(
+          `DELETE FROM holds WHERE holder IN (SELECT value FROM json_each(?1))
+             OR held IN (SELECT value FROM json_each(?1))`,
+        )
+        .bind(ids),
+      this.#db.prepare("DELETE FROM docs WHERE id IN (SELECT value FROM json_each(?))").bind(ids),
+    ]);
+    return deleted?.meta.changes ?? 0;
+  }
+
+  // After D1 goes back in time, what came later stays in R2 with no row, paying for storage where nothing lists it.
+  async forgetOrphans(now: number): Promise<number> {
+    let forgotten = 0;
+    let cursor: string | undefined;
+    do {
+      const page = await this.#envelopes.list({ cursor });
+      const idOf = (key: string): string => key.split("/", 1)[0] ?? key;
+      const ids = [...new Set(page.objects.map((one) => idOf(one.key)))];
+      const held = await this.#db
+        .prepare("SELECT id FROM docs WHERE id IN (SELECT value FROM json_each(?))")
+        .bind(JSON.stringify(ids))
+        .all<{ id: string }>();
+      const known = new Set(held.results.map((one) => one.id));
+      const old = now - DAY_MS;
+      const orphans = page.objects.filter((one) => !known.has(idOf(one.key)) && one.uploaded.getTime() < old);
+      if (orphans.length > 0) await this.#envelopes.delete(orphans.map((one) => one.key));
+      forgotten += orphans.length;
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+    return forgotten;
+  }
+}

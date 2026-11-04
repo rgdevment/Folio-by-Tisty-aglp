@@ -42,7 +42,9 @@ no listado firmar es opcional por eso.
 
 **Sobre las lecturas:** se cuentan sin guardar quién leyó. Para no contar dos
 veces a la misma persona el mismo día se usa un resumen temporal, que se
-descarta al terminar el día.
+descarta al terminar el día. Su llave cambia cada día y no se guarda. La base de
+datos conserva su propia copia hasta por 30 días, para recuperarse de una falla,
+y el resumen sigue ahí hasta entonces; nunca entra en los respaldos.
 
 ## Cloudflare
 
