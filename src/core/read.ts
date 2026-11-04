@@ -1,6 +1,5 @@
-import { DAY_MS, dayOf, type Limits } from "./limits";
+import { dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
-import { passwordHolds } from "./password";
 import { proofIsFresh, saltFor } from "./start";
 import type { Reading, Shown, Store, Version } from "./store";
 
@@ -8,7 +7,6 @@ export interface Asked {
   id: string;
   ip: string;
   now: number;
-  password?: string;
   proof?: string;
 }
 
@@ -25,7 +23,7 @@ export interface ReadTools {
 }
 
 export type Refused =
-  | { refused: "missing" | "paused" | "blocked" | "password" | "wrong" }
+  | { refused: "missing" | "paused" | "blocked" }
   | { refused: "slow"; until: number }
   | { refused: "proof"; salt: string; bits: number };
 
@@ -49,40 +47,7 @@ const refusalOfState = (shown: Shown | null): Refused | null => {
   return shown.alive ? null : { refused: "missing" };
 };
 
-const proofAsked = async (secret: string, scope: string, bits: number, now: number): Promise<Refused> => ({
-  refused: "proof",
-  salt: await saltFor(secret, scope, Math.floor(now / HOUR_MS)),
-  bits,
-});
-
-const refusalOfPassword = async (
-  { id, password, proof, now }: Asked,
-  shown: Shown,
-  net: string,
-  { store, limits, secret }: ReadTools,
-): Promise<Refused | null> => {
-  if (shown.password === null) return null;
-  if (password === undefined) return { refused: "password" };
-
-  const slotMs = DAY_MS / limits.guessSlotsADay;
-  const slot = Math.floor(now / slotMs);
-  if ((await store.wrongGuesses(id, net, slot)) >= limits.guessesPerSlot) {
-    return { refused: "slow", until: (slot + 1) * slotMs };
-  }
-  const today = dayOf(now);
-  if (shown.guessDay === today && shown.guessCount >= limits.guessesBeforeProof) {
-    const scope = `guess|${id}|${net}`;
-    const holds = proof !== undefined && (await proofIsFresh(secret, scope, proof, limits.proofBits, now));
-    if (!holds) return proofAsked(secret, scope, limits.proofBits, now);
-  }
-  // Noted before answering, unlike a reader: otherwise guesses sent all at once would all pass the count.
-  if (await passwordHolds(shown.password, password)) return null;
-  await store.noteWrongGuess(id, net, slot, today);
-  return { refused: "wrong" };
-};
-
-export const readDoc = async (asked: Asked, tools: ReadTools): Promise<Served | Refused> => {
-  const { id, ip, now, proof } = asked;
+export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): Promise<Served | Refused> => {
   const { store, limiter, limits, secret, dayKey } = tools;
   const today = dayOf(now);
   const net = await netDigest(await dayKey(today), ip);
@@ -91,8 +56,6 @@ export const readDoc = async (asked: Asked, tools: ReadTools): Promise<Served | 
   const shown = await store.shown(id, today);
   const refused = refusalOfState(shown);
   if (refused || !shown?.version) return refused ?? { refused: "missing" };
-  const byPassword = await refusalOfPassword(asked, shown, net, tools);
-  if (byPassword) return byPassword;
 
   const scope = `read|${id}|${net}`;
   const proved = proof !== undefined && (await proofIsFresh(secret, scope, proof, limits.proofBits, now));
@@ -104,7 +67,13 @@ export const readDoc = async (asked: Asked, tools: ReadTools): Promise<Served | 
     proved,
   };
   const admitted = await store.admit(reading, today);
-  if (admitted === "over") return proofAsked(secret, scope, limits.proofBits, now);
+  if (admitted === "over") {
+    return {
+      refused: "proof",
+      salt: await saltFor(secret, scope, Math.floor(now / HOUR_MS)),
+      bits: limits.proofBits,
+    };
+  }
 
   const body = await store.envelope(id, shown.version);
   if (!body) return { refused: "missing" };

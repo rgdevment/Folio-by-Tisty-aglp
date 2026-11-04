@@ -44,9 +44,6 @@ export interface Report {
 // What a read needs of a document, in one row.
 export interface Shown {
   owner: string;
-  password: string | null;
-  guessDay: number | null;
-  guessCount: number;
   version: Version | null;
   diesOn: number;
   alive: boolean;
@@ -73,8 +70,6 @@ export interface Store {
   note(reading: Reading, today: number): Promise<void>;
   shown(id: string, today: number): Promise<Shown | null>;
   envelope(id: string, version: Version): Promise<ReadableStream | null>;
-  wrongGuesses(id: string, net: string, slot: number): Promise<number>;
-  noteWrongGuess(id: string, net: string, slot: number, today: number): Promise<void>;
   dayKey(today: number): Promise<string>;
   report(report: Report, today: number): Promise<{ blocked: boolean }>;
   appealAccepted(id: string, today: number): Promise<void>;

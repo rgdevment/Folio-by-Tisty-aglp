@@ -9,8 +9,6 @@ const STATUS: Record<Refused["refused"], number> = {
   missing: 404,
   paused: 403,
   blocked: 403,
-  password: 401,
-  wrong: 401,
   slow: 429,
   proof: 429,
 };
@@ -46,7 +44,6 @@ const answerRead = async (request: Request, id: string, { tools, waitUntil, now 
     id,
     now,
     ip: request.headers.get("CF-Connecting-IP") ?? "",
-    ...optional("password", request.headers.get("Folio-Password")),
     ...optional("proof", request.headers.get("Folio-Proof")),
   };
   const answer = await readDoc(asked, tools);

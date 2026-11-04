@@ -272,7 +272,7 @@ export class Cloud implements Store {
   async shown(id: string, today: number): Promise<Shown | null> {
     const row = await this.#db
       .prepare(
-        `SELECT d.owner, d.password, d.guess_day, d.guess_count, d.latest, d.versions, d.dies_on, d.paused_at, d.blocked_at,
+        `SELECT d.owner, d.latest, d.versions, d.dies_on, d.paused_at, d.blocked_at,
            d.dies_on >= ?2 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
              OR (d.anchor IS NOT NULL AND EXISTS (SELECT 1 FROM docs a WHERE a.id = d.anchor AND a.latest <> ${CLAIMED})) AS alive
          FROM docs d WHERE d.id = ?1`,
@@ -280,9 +280,6 @@ export class Cloud implements Store {
       .bind(id, today)
       .first<{
         owner: string;
-        password: string | null;
-        guess_day: number | null;
-        guess_count: number;
         latest: number;
         versions: string;
         dies_on: number;
@@ -294,9 +291,6 @@ export class Cloud implements Store {
     const versions = JSON.parse(row.versions) as Version[];
     return {
       owner: row.owner,
-      password: row.password,
-      guessDay: row.guess_day,
-      guessCount: row.guess_count,
       version: (row.latest > 0 && versions.at(-1)) || null,
       diesOn: row.dies_on,
       alive: row.alive === 1,
@@ -307,31 +301,6 @@ export class Cloud implements Store {
 
   async envelope(id: string, version: Version): Promise<ReadableStream | null> {
     return (await this.#envelopes.get(objectKey(id, version)))?.body ?? null;
-  }
-
-  async wrongGuesses(id: string, net: string, slot: number): Promise<number> {
-    const row = await this.#db
-      .prepare("SELECT wrong FROM guesses WHERE slot = ? AND net = ? AND doc = ?")
-      .bind(slot, net, id)
-      .first<{ wrong: number }>();
-    return row?.wrong ?? 0;
-  }
-
-  async noteWrongGuess(id: string, net: string, slot: number, today: number): Promise<void> {
-    await this.#db.batch([
-      this.#db
-        .prepare(
-          `INSERT INTO guesses (slot, net, doc, wrong) VALUES (?, ?, ?, 1)
-           ON CONFLICT (slot, net, doc) DO UPDATE SET wrong = wrong + 1`,
-        )
-        .bind(slot, net, id),
-      this.#db
-        .prepare(
-          `UPDATE docs SET guess_count = CASE WHEN guess_day = ?1 THEN guess_count + 1 ELSE 1 END, guess_day = ?1
-           WHERE id = ?2`,
-        )
-        .bind(today, id),
-    ]);
   }
 
   // The first to ask each day replaces it, and only one can win, so yesterday's key is gone for good.
@@ -455,7 +424,6 @@ export class Cloud implements Store {
     try {
       await this.#db.batch([
         this.#db.prepare("DELETE FROM net_day WHERE day < ?").bind(today),
-        this.#db.prepare("DELETE FROM guesses WHERE slot < ?").bind(today * this.#limits.guessSlotsADay),
         this.#db.prepare("DELETE FROM false_reporters WHERE at < ?").bind(today - this.#limits.evidenceDays),
         this.#db
           .prepare(

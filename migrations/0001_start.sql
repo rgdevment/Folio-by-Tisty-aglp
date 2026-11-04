@@ -7,9 +7,6 @@ CREATE TABLE docs (
   anchor TEXT,
   edit_hash TEXT NOT NULL,
   admin_hash TEXT NOT NULL,
-  password TEXT,
-  guess_day INTEGER,
-  guess_count INTEGER NOT NULL DEFAULT 0,
   latest INTEGER NOT NULL DEFAULT 0,
   versions TEXT NOT NULL DEFAULT '[]',
   bytes INTEGER NOT NULL DEFAULT 0,
@@ -41,14 +38,6 @@ CREATE TABLE net_day (
   docs INTEGER NOT NULL,
   bytes INTEGER NOT NULL,
   PRIMARY KEY (day, net)
-) WITHOUT ROWID;
-
-CREATE TABLE guesses (
-  slot INTEGER NOT NULL,
-  net TEXT NOT NULL,
-  doc TEXT NOT NULL,
-  wrong INTEGER NOT NULL,
-  PRIMARY KEY (slot, net, doc)
 ) WITHOUT ROWID;
 
 CREATE TABLE reports (

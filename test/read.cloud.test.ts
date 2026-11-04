@@ -4,7 +4,6 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
 import { DAY_MS, dayOf, LEVEL_ONE } from "../src/core/limits";
 import { netDigest, netOf } from "../src/core/net";
-import { hashPassword, passwordHolds } from "../src/core/password";
 import { type Limiter, type ReadTools, readDoc } from "../src/core/read";
 import { startHolds } from "../src/core/start";
 import worker from "../src/private/index";
@@ -20,17 +19,7 @@ const NOW = Date.now();
 const TODAY = dayOf(NOW);
 const ID = "AbCdEfGh";
 const API = `https://tisty.cl/api/v1/docs/${ID}`;
-const TABLES = [
-  "docs",
-  "service_day",
-  "service_stage",
-  "net_day",
-  "guesses",
-  "reports",
-  "revocations",
-  "holds",
-  "openings",
-];
+const TABLES = ["docs", "service_day", "service_stage", "net_day", "reports", "revocations", "holds", "openings"];
 
 const open: Limiter = { allows: async () => true };
 
@@ -221,66 +210,6 @@ describe("what a read refuses", () => {
     const served = await read({ proof: nonce }, using);
     expect(served).toHaveProperty("served", true);
     expect(served).not.toHaveProperty("note");
-  });
-});
-
-describe("a password", () => {
-  const read = (over = {}, using = tools()) => readDoc({ id: ID, ip: "203.0.113.7", now: NOW, ...over }, using);
-  const locked = async () => {
-    await share();
-    await testEnv.DB.prepare(`UPDATE docs SET password = ? WHERE id = '${ID}'`)
-      .bind(await hashPassword("right"))
-      .run();
-  };
-
-  it("is asked for, refused when wrong and served when right", async () => {
-    await locked();
-    expect(await read()).toEqual({ refused: "password" });
-    expect(await read({ password: "no" })).toEqual({ refused: "wrong" });
-    expect(await read({ password: "right" })).toHaveProperty("served", true);
-  });
-
-  it("asks through a header, never the URL", async () => {
-    await locked();
-    expect((await get()).status).toBe(401);
-    expect((await get({ headers: { "Folio-Password": "right" } })).status).toBe(200);
-  });
-
-  it("makes wait only who is wrong too often, and only there", async () => {
-    await locked();
-    for (let n = 0; n < LEVEL_ONE.guessesPerSlot; n += 1) await read({ password: "no" });
-    expect(await read({ password: "no" })).toMatchObject({ refused: "slow" });
-    expect(await read({ password: "right" })).toMatchObject({ refused: "slow" });
-    expect(await read({ password: "right", ip: "198.51.100.1" })).toHaveProperty("served", true);
-  });
-
-  it("does not compute a hash for who already has to wait", async () => {
-    await locked();
-    for (let n = 0; n < LEVEL_ONE.guessesPerSlot; n += 1) await read({ password: "no" });
-    const row = await testEnv.DB.prepare(`SELECT guess_count FROM docs WHERE id = '${ID}'`).first<{
-      guess_count: number;
-    }>();
-    await read({ password: "no" });
-    const after = await testEnv.DB.prepare(`SELECT guess_count FROM docs WHERE id = '${ID}'`).first<{
-      guess_count: number;
-    }>();
-    expect(after?.guess_count).toBe(row?.guess_count);
-  });
-
-  it("asks everyone for a proof once the day has too many errors, and starts over the next day", async () => {
-    await locked();
-    await testEnv.DB.prepare(`UPDATE docs SET guess_day = ?, guess_count = ? WHERE id = '${ID}'`)
-      .bind(TODAY, LEVEL_ONE.guessesBeforeProof)
-      .run();
-    expect(await read({ password: "right" })).toMatchObject({ refused: "proof" });
-    expect(await read({ password: "right", now: NOW + DAY_MS })).toHaveProperty("served", true);
-  });
-
-  it("holds its cost beside the hash, and refuses what it cannot read", async () => {
-    const hash = await hashPassword("right");
-    expect(hash.split("$")[1]).toBe("40000");
-    expect(await passwordHolds(hash, "right")).toBe(true);
-    expect(await passwordHolds("nonsense", "right")).toBe(false);
   });
 });
 

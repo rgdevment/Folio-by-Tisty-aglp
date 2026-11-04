@@ -20,7 +20,7 @@ export const macOf = async (secret: string, said: string): Promise<string> => {
   return toBase64Url(await crypto.subtle.sign("HMAC", key, encoder.encode(said)));
 };
 
-export const sameText = (one: string, other: string): boolean => {
+const sameText = (one: string, other: string): boolean => {
   if (one.length !== other.length) return false;
   let differs = 0;
   for (let at = 0; at < one.length; at += 1) differs |= one.charCodeAt(at) ^ other.charCodeAt(at);
