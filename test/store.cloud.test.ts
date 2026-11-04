@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
 import { DAY_MS, LEVEL_ONE, type Limits } from "../src/core/limits";
-import type { NewDoc } from "../src/core/store";
+import type { NewDoc, Reading } from "../src/core/store";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -12,18 +12,7 @@ const testEnv = env as unknown as {
 };
 const store = new Cloud(testEnv);
 const DAY = 20_000;
-const TABLES = [
-  "docs",
-  "service_day",
-  "net_day",
-  "guesses",
-  "reports",
-  "revocations",
-  "holds",
-  "owners",
-  "blocked",
-  "openings",
-];
+const TABLES = ["docs", "service_day", "net_day", "guesses", "reports", "revocations", "holds", "openings"];
 
 const newDoc = (id: string, over: Partial<NewDoc> = {}): NewDoc => ({
   id,
@@ -35,7 +24,14 @@ const newDoc = (id: string, over: Partial<NewDoc> = {}): NewDoc => ({
   ...over,
 });
 
-const upload = (id: string, n: number, hash = `h${n}`, net = "n1") => ({ id, n, hash, body: "x".repeat(10), net });
+const upload = (id: string, n: number, hash = `h${n}`, net = "n1") => ({
+  id,
+  n,
+  hash,
+  body: "x".repeat(10),
+  net,
+  at: 1_000 + n,
+});
 const reading = (reader: string, doc = "d1", over = {}) => ({
   owner: "o1",
   reader,
@@ -44,6 +40,14 @@ const reading = (reader: string, doc = "d1", over = {}) => ({
   proved: false,
   ...over,
 });
+
+// What the Worker does around a read: it decides first and notes after answering.
+const noted = async (cloud: Cloud, one: Reading, day: number) => {
+  const admitted = await cloud.admit(one, day);
+  if (admitted !== "new") return admitted;
+  await cloud.note(one, day);
+  return "noted";
+};
 
 const row = (id: string) =>
   testEnv.DB.prepare("SELECT * FROM docs WHERE id = ?").bind(id).first<{
@@ -135,12 +139,12 @@ const counting = () => {
 };
 
 // Fails the R2 steps it is told to, leaving the rest real.
-const failing = (fail: { put?: boolean; list?: boolean }) =>
+const failing = (fail: { put?: boolean; delete?: boolean }) =>
   new Cloud({
     DB: testEnv.DB,
     ENVELOPES: new Proxy(testEnv.ENVELOPES, {
       get(target, key) {
-        if ((key === "put" && fail.put) || (key === "list" && fail.list)) {
+        if ((key === "put" && fail.put) || (key === "delete" && fail.delete)) {
           return () => Promise.reject(new Error("R2 fails"));
         }
         const value = Reflect.get(target, key);
@@ -168,9 +172,9 @@ beforeEach(async () => {
 describe("adding up the days", () => {
   it("counts every day it missed, and keeps the last activity", async () => {
     await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
-    await store.noteReader(reading("r1"), DAY);
-    await store.noteReader(reading("r2"), DAY + 1);
-    await store.noteReader(reading("r3"), DAY + 2);
+    await noted(store, reading("r1"), DAY);
+    await noted(store, reading("r2"), DAY + 1);
+    await noted(store, reading("r3"), DAY + 2);
     const swept = await store.sweep(DAY + 4);
     expect(swept.summed).toBe(3);
     const after = await row("d1");
@@ -181,7 +185,7 @@ describe("adding up the days", () => {
 
   it("never moves the activity back when an older day is added last", async () => {
     await store.create(newDoc("d1", { ttlDays: 7 }), DAY + 5);
-    await store.noteReader(reading("r1"), DAY);
+    await noted(store, reading("r1"), DAY);
     await store.sweep(DAY + 6);
     const after = await row("d1");
     expect(after?.active_day).toBe(DAY + 5);
@@ -190,7 +194,7 @@ describe("adding up the days", () => {
 
   it("does not add twice when it runs again", async () => {
     await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
-    await store.noteReader(reading("r1"), DAY);
+    await noted(store, reading("r1"), DAY);
     await store.sweep(DAY + 1);
     await store.sweep(DAY + 1);
     expect((await row("d1"))?.read_total).toBe(1);
@@ -198,17 +202,17 @@ describe("adding up the days", () => {
 
   it("does not count today, nor forget it", async () => {
     await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
-    await store.noteReader(reading("r1"), DAY);
+    await noted(store, reading("r1"), DAY);
     await store.sweep(DAY);
     expect((await row("d1"))?.read_total).toBe(0);
-    expect(await store.noteReader(reading("r1"), DAY)).toBe("here");
+    expect(await noted(store, reading("r1"), DAY)).toBe("here");
   });
 
   it("keeps a day it cannot add, adds the rest, and forgets nothing meanwhile", async () => {
     await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
     await store.create(newDoc("gone", { owner: "o2" }), DAY);
     await testEnv.DB.prepare(`CREATE TABLE seen_${DAY} (broken TEXT PRIMARY KEY) WITHOUT ROWID`).run();
-    await store.noteReader(reading("r1"), DAY + 1);
+    await noted(store, reading("r1"), DAY + 1);
     const swept = await store.sweep(DAY + 2);
     expect(swept).toMatchObject({ summed: 1, failed: 1, forgotten: 0 });
     expect((await row("d1"))?.read_total).toBe(1);
@@ -218,7 +222,7 @@ describe("adding up the days", () => {
 
   it("prepares today and tomorrow, and drops what it added", async () => {
     await store.create(newDoc("d1"), DAY);
-    await store.noteReader(reading("r1"), DAY);
+    await noted(store, reading("r1"), DAY);
     await store.sweep(DAY + 1);
     expect(await seenTables()).toEqual([`seen_${DAY + 1}`, `seen_${DAY + 2}`]);
   });
@@ -227,9 +231,7 @@ describe("adding up the days", () => {
 describe("the history of each day", () => {
   const days = async (id = "d1") => JSON.parse((await row(id))?.days ?? "{}");
   const readers = (count: number, hour: number, from = 0) =>
-    Promise.all(
-      Array.from({ length: count }, (_, i) => store.noteReader(reading(`r${from + i}`, "d1", { hour }), DAY)),
-    );
+    Promise.all(Array.from({ length: count }, (_, i) => noted(store, reading(`r${from + i}`, "d1", { hour }), DAY)));
 
   it("keeps the readers and hours of a day with enough readers", async () => {
     await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
@@ -250,7 +252,7 @@ describe("the history of each day", () => {
     await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
     await readers(5, 9);
     await store.sweep(DAY + 1);
-    await store.noteReader(reading("late", "d1", { hour: 23 }), DAY);
+    await noted(store, reading("late", "d1", { hour: 23 }), DAY);
     await store.sweep(DAY + 1);
     expect(await days()).toEqual({ [DAY]: { n: 6, h: { 9: 5 } } });
     expect((await row("d1"))?.read_total).toBe(6);
@@ -262,10 +264,10 @@ describe("the history of each day", () => {
 
   it("lets go of what is past its days and keeps the total", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
-    await store.noteReader(reading("r1"), DAY);
+    await noted(store, reading("r1"), DAY);
     await store.sweep(DAY + 1);
     const later = DAY + LEVEL_ONE.historyDays;
-    await store.noteReader(reading("r2"), later);
+    await noted(store, reading("r2"), later);
     await store.sweep(later + 1);
     expect(Object.keys(await days())).toEqual([String(later)]);
     expect((await row("d1"))?.read_total).toBe(2);
@@ -273,9 +275,9 @@ describe("the history of each day", () => {
 
   it("keeps each day for the service for good, even when the document is gone", async () => {
     await store.create(newDoc("d1"), DAY);
-    await store.noteReader(reading("r1", "d1", { hour: 9 }), DAY);
-    await store.noteReader(reading("r2", "d1", { hour: 14 }), DAY);
-    await store.noteReader(reading("r2", "d2", { owner: "o2", hour: 14 }), DAY);
+    await noted(store, reading("r1", "d1", { hour: 9 }), DAY);
+    await noted(store, reading("r2", "d1", { hour: 14 }), DAY);
+    await noted(store, reading("r2", "d2", { owner: "o2", hour: 14 }), DAY);
     await store.sweep(DAY + 30);
     expect(await row("d1")).toBeNull();
     const kept = await testEnv.DB.prepare("SELECT * FROM service_day WHERE day = ?").bind(DAY).first<{
@@ -309,7 +311,7 @@ describe("expiring", () => {
     await store.create(newDoc("gone"), DAY);
     await store.upload(upload("gone", 1), DAY);
     await store.create(newDoc("read", { owner: "o2" }), DAY);
-    await store.noteReader(reading("r1", "read", { owner: "o2" }), DAY + 1);
+    await noted(store, reading("r1", "read", { owner: "o2" }), DAY + 1);
     await store.sweep(DAY + 2);
     expect(await row("gone")).toBeNull();
     expect(await objects("gone")).toEqual([]);
@@ -327,7 +329,7 @@ describe("expiring", () => {
   it("does not let a late reader stretch a paused document, and ends it after its 30 days", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
     await store.pause("d1", DAY);
-    await store.noteReader(reading("r1"), DAY + 29);
+    await noted(store, reading("r1"), DAY + 29);
     await store.sweep(DAY + 30);
     expect((await row("d1"))?.dies_on).toBe(DAY + LEVEL_ONE.pausedDays);
     await store.sweep(DAY + 31);
@@ -360,7 +362,7 @@ describe("expiring", () => {
   it("keeps a blocked document as evidence for 90 days, even if read late", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
     for (const net of ["a", "b", "c"]) await store.report({ doc: "d1", net, category: "phishing" }, DAY);
-    await store.noteReader(reading("r1"), DAY + 85);
+    await noted(store, reading("r1"), DAY + 85);
     await store.sweep(DAY + 90);
     expect((await row("d1"))?.dies_on).toBe(DAY + LEVEL_ONE.evidenceDays);
     await store.sweep(DAY + 91);
@@ -422,18 +424,61 @@ describe("expiring", () => {
     expect(await row("anchor")).not.toBeNull();
   });
 
-  it("forgets an object an upload left behind", async () => {
+  it("leaves what an upload left behind for the orphans, without listing R2", async () => {
     await store.create(newDoc("d1"), DAY);
     await testEnv.ENVELOPES.put("d1/9.orphan", "left behind");
+    await store.sweep(DAY + 2);
+    expect(await row("d1")).toBeNull();
+    expect(await store.forgetOrphans(Date.now() + 2 * DAY_MS)).toBe(1);
+    expect(await objects("d1")).toEqual([]);
+  });
+
+  it("forgets more objects than R2 deletes at once", async () => {
+    await store.create(newDoc("d1"), DAY);
+    const versions = Array.from({ length: 1005 }, (_, n) => ({ n, hash: "x", bytes: 1, at: 1 }));
+    await testEnv.DB.prepare("UPDATE docs SET latest = 1004, versions = ? WHERE id = 'd1'")
+      .bind(JSON.stringify(versions))
+      .run();
+    await Promise.all(versions.map(({ n }) => testEnv.ENVELOPES.put(`d1/${n}.x`, "x")));
     await store.sweep(DAY + 2);
     expect(await objects("d1")).toEqual([]);
   });
 
-  it("forgets more objects than one page of the list holds", async () => {
+  it("forgets the most it may at once in a few queries, far under what D1 takes", async () => {
+    for (let n = 0; n < 40; n += 1) await store.create(newDoc(`d${n}`, { owner: `o${n}` }), DAY);
+    let queries = 0;
+    const counted = new Cloud({
+      DB: new Proxy(testEnv.DB, {
+        get(target, key) {
+          const value = Reflect.get(target, key);
+          if (key === "prepare") {
+            return (sql: string) => {
+              queries += 1;
+              return target.prepare(sql);
+            };
+          }
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      ENVELOPES: testEnv.ENVELOPES,
+    });
+    expect((await counted.sweep(DAY + 2)).forgotten).toBe(40);
+    expect(queries).toBeLessThan(20);
+  });
+
+  it("forgets a language with its anchor, and lets go of what they held", async () => {
     await store.create(newDoc("d1"), DAY);
-    await Promise.all(Array.from({ length: 1005 }, (_, n) => testEnv.ENVELOPES.put(`d1/${n}.x`, "x")));
+    await store.create(newDoc("en", { anchor: "d1" }), DAY);
+    await store.upload(upload("en", 1), DAY);
+    await store.create(newDoc("cited", { ttlDays: 15 }), DAY);
+    await testEnv.DB.prepare("INSERT INTO holds (held, holder) VALUES ('cited', 'en')").run();
     await store.sweep(DAY + 2);
-    expect(await objects("d1")).toEqual([]);
+    expect(await row("d1")).toBeNull();
+    expect(await row("en")).toBeNull();
+    expect(await objects("en")).toEqual([]);
+    const held = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM holds").first<{ n: number }>();
+    expect(held?.n).toBe(0);
+    expect(await row("cited")).not.toBeNull();
   });
 
   it("forgets at most what it is allowed to at once", async () => {
@@ -443,13 +488,14 @@ describe("expiring", () => {
     expect((await few.sweep(DAY + 2)).forgotten).toBe(2);
   });
 
-  it("does not let one document that fails stop the rest, or the cleaning", async () => {
+  it("does not let R2 failing stop the cleaning", async () => {
     await store.create(newDoc("d1"), DAY);
+    await store.upload(upload("d1", 1), DAY);
     await testEnv.DB.prepare("INSERT INTO net_day VALUES (?, 'old', 1, 1)").bind(DAY).run();
     await testEnv.DB.prepare("INSERT INTO guesses VALUES (?, 'n', 'd', 1)")
       .bind(DAY * 96)
       .run();
-    const swept = await failing({ list: true }).sweep(DAY + 2);
+    const swept = await failing({ delete: true }).sweep(DAY + 2);
     expect(swept).toMatchObject({ failed: 1, forgotten: 0 });
     expect(await quota("old")).toBeNull();
     const guesses = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM guesses").first<{ n: number }>();
@@ -459,7 +505,7 @@ describe("expiring", () => {
   it("finishes a document it claimed before failing, and refuses uploads to it meanwhile", async () => {
     await store.create(newDoc("d1"), DAY);
     await store.upload(upload("d1", 1), DAY);
-    await failing({ list: true }).sweep(DAY + 2);
+    await failing({ delete: true }).sweep(DAY + 2);
     expect((await row("d1"))?.latest).toBe(-1);
     expect(await store.upload(upload("d1", 2), DAY + 2)).toBe("missing");
     expect(await store.create(newDoc("d1"), DAY + 2)).toBe("taken");
@@ -522,7 +568,7 @@ describe("orphans", () => {
 
 describe("readers", () => {
   const fill = async (count: number, doc = "d1") => {
-    await store.noteReader(reading("first", doc), DAY);
+    await noted(store, reading("first", doc), DAY);
     await testEnv.DB.prepare(
       `INSERT OR IGNORE INTO seen_${DAY} WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
        SELECT 'o1', 'r' || i, '${doc}', 9 FROM n`,
@@ -532,42 +578,58 @@ describe("readers", () => {
   };
 
   it("writes one row for a new reader and none for one who came back", async () => {
-    await store.noteReader(reading("r0"), DAY);
+    await noted(store, reading("r0"), DAY);
     const { spent, cloud } = counting();
-    await cloud.noteReader(reading("r1"), DAY);
+    await noted(cloud, reading("r1"), DAY);
     expect(spent.written).toBe(1);
-    await cloud.noteReader(reading("r1"), DAY);
+    await noted(cloud, reading("r1"), DAY);
     expect(spent.written).toBe(1);
   });
 
   it("creates the day's table if nothing did", async () => {
-    expect(await store.noteReader(reading("r1"), DAY)).toBe("noted");
-    expect(await store.noteReader(reading("r1"), DAY)).toBe("here");
+    expect(await noted(store, reading("r1"), DAY)).toBe("noted");
+    expect(await noted(store, reading("r1"), DAY)).toBe("here");
   });
 
   it("asks for a proof past the free readers", async () => {
     await fill(LEVEL_ONE.newReadersFree);
-    expect(await store.noteReader(reading("new"), DAY)).toBe("over");
-    expect(await store.noteReader(reading("new", "d1", { proved: true }), DAY)).toBe("noted");
+    expect(await noted(store, reading("new"), DAY)).toBe("over");
+    expect(await noted(store, reading("new", "d1", { proved: true }), DAY)).toBe("noted");
   });
 
   it("never asks again of one who already read today, on any document", async () => {
     await fill(LEVEL_ONE.newReadersFree);
-    expect(await store.noteReader(reading("first"), DAY)).toBe("here");
-    expect(await store.noteReader(reading("first", "d2"), DAY)).toBe("noted");
+    expect(await noted(store, reading("first"), DAY)).toBe("here");
+    expect(await noted(store, reading("first", "d2"), DAY)).toBe("noted");
   });
 
   it("stops noting at the ceiling, even with a proof", async () => {
     await fill(LEVEL_ONE.rowsPerOwnerADay);
-    expect(await store.noteReader(reading("new", "d1", { proved: true }), DAY)).toBe("full");
+    expect(await noted(store, reading("new", "d1", { proved: true }), DAY)).toBe("full");
     const held = await testEnv.DB.prepare(`SELECT COUNT(*) AS n FROM seen_${DAY}`).first<{ n: number }>();
     expect(held?.n).toBe(LEVEL_ONE.rowsPerOwnerADay);
+  });
+
+  it("deciding writes nothing, and without a table it lets the reader in without making one", async () => {
+    const { spent, cloud } = counting();
+    expect(await cloud.admit(reading("r1"), DAY)).toBe("new");
+    expect(spent.written).toBe(0);
+    expect(await seenTables()).toEqual([]);
+    await cloud.note(reading("r1"), DAY);
+    expect(await cloud.admit(reading("r1"), DAY)).toBe("here");
+  });
+
+  it("asks for the proof before the ceiling, so nobody gets in free or makes it count every row", async () => {
+    await fill(LEVEL_ONE.rowsPerOwnerADay);
+    const { spent, cloud } = counting();
+    expect(await cloud.admit(reading("new"), DAY)).toBe("over");
+    expect(spent.read).toBeLessThanOrEqual(LEVEL_ONE.newReadersFree + 5);
   });
 
   it("reads a few hundred rows at most while readers are free", async () => {
     await fill(LEVEL_ONE.newReadersFree - 1);
     const { spent, cloud } = counting();
-    await cloud.noteReader(reading("new"), DAY);
+    await noted(cloud, reading("new"), DAY);
     expect(spent.read).toBeLessThanOrEqual(LEVEL_ONE.newReadersFree + 5);
   });
 
@@ -575,7 +637,7 @@ describe("readers", () => {
     await fill(LEVEL_ONE.rowsPerOwnerADay);
     await testEnv.DB.prepare(`INSERT INTO seen_${DAY} VALUES ('o1', 'extra', 'd1', 9)`).run();
     const { spent, cloud } = counting();
-    await cloud.noteReader(reading("new"), DAY);
+    await noted(cloud, reading("new", "d1", { proved: true }), DAY);
     expect(spent.read).toBeLessThanOrEqual(LEVEL_ONE.rowsPerOwnerADay + LEVEL_ONE.newReadersFree + 5);
   });
 });
@@ -604,6 +666,13 @@ describe("creating", () => {
     await store.create(newDoc("en", { anchor: "d1" }), DAY);
     await store.create(newDoc("d2"), DAY);
     await testEnv.DB.prepare("INSERT INTO holds (held, holder) VALUES ('d2', 'd1')").run();
+    expect(await store.create(newDoc("d3"), DAY)).toBe("created");
+  });
+
+  it("does not count what is blocked, so three networks cannot leave someone without shares", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.create(newDoc("d2"), DAY);
+    await testEnv.DB.prepare("UPDATE docs SET blocked_at = ? WHERE id = 'd1'").bind(DAY).run();
     expect(await store.create(newDoc("d3"), DAY)).toBe("created");
   });
 
@@ -640,6 +709,13 @@ describe("creating", () => {
 });
 
 describe("uploading", () => {
+  it("keeps when each version arrived (decision 134)", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.upload({ ...upload("d1", 1), at: 12_345 }, DAY);
+    const versions = JSON.parse((await row("d1"))?.versions ?? "[]") as { at: number }[];
+    expect(versions.map((one) => one.at)).toEqual([12_345]);
+  });
+
   it("keeps the versions it says, and their objects", async () => {
     await store.create(newDoc("d1"), DAY);
     for (let n = 1; n <= LEVEL_ONE.versionsKept + 2; n += 1) {

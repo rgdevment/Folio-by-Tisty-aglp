@@ -2,6 +2,7 @@ export interface Version {
   n: number;
   hash: string;
   bytes: number;
+  at: number;
 }
 
 export interface NewDoc {
@@ -20,6 +21,7 @@ export interface Upload {
   hash: string;
   body: ArrayBuffer | Uint8Array | string;
   net: string;
+  at: number;
 }
 
 export interface Reading {
@@ -40,7 +42,7 @@ export interface Report {
 
 export type Created = "created" | "same" | "taken" | "shares_full" | "no_anchor" | "quota" | "bad_ttl";
 export type Uploaded = "stored" | "same" | "behind" | "missing" | "blocked" | "quota";
-export type Noted = "here" | "noted" | "over" | "full";
+export type Admitted = "here" | "new" | "over" | "full";
 
 export interface Swept {
   summed: number;
@@ -52,7 +54,8 @@ export interface Swept {
 export interface Store {
   create(doc: NewDoc, today: number): Promise<Created>;
   upload(upload: Upload, today: number): Promise<Uploaded>;
-  noteReader(reading: Reading, today: number): Promise<Noted>;
+  admit(reading: Reading, today: number): Promise<Admitted>;
+  note(reading: Reading, today: number): Promise<void>;
   report(report: Report, today: number): Promise<{ blocked: boolean }>;
   appealAccepted(id: string, today: number): Promise<void>;
   pause(id: string, today: number): Promise<void>;

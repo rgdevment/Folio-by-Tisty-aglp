@@ -79,19 +79,6 @@ CREATE TABLE holds (
 -- A document that dies has to let go of what it holds, and holds change far less than they are read.
 CREATE INDEX holds_holder ON holds (holder);
 
--- Only the exceptions: a key with no row is at level 1.
-CREATE TABLE owners (
-  root TEXT PRIMARY KEY,
-  level INTEGER NOT NULL DEFAULT 1,
-  blocked_at INTEGER
-) WITHOUT ROWID;
-
-CREATE TABLE blocked (
-  net TEXT PRIMARY KEY,
-  at INTEGER NOT NULL,
-  reason TEXT NOT NULL
-) WITHOUT ROWID;
-
 CREATE TABLE openings (
   doc TEXT NOT NULL,
   at INTEGER NOT NULL,

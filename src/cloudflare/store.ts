@@ -1,5 +1,16 @@
 import { DAY_MS, LEVEL_ONE, type Limits } from "../core/limits";
-import type { Created, NewDoc, Noted, Reading, Report, Store, Swept, Upload, Uploaded, Version } from "../core/store";
+import type {
+  Admitted,
+  Created,
+  NewDoc,
+  Reading,
+  Report,
+  Store,
+  Swept,
+  Upload,
+  Uploaded,
+  Version,
+} from "../core/store";
 
 export interface Bindings {
   DB: D1Database;
@@ -16,6 +27,9 @@ interface DocRow {
 
 // A document being forgotten: nothing can move it on from here, and the sweep finishes it even after failing halfway.
 const CLAIMED = -1;
+
+// What R2 takes in one delete.
+const KEYS_AT_ONCE = 1000;
 
 const encoder = new TextEncoder();
 
@@ -53,7 +67,7 @@ export class Cloud implements Store {
            SELECT 1 FROM docs a WHERE a.id = ?3 AND a.owner = ?2 AND a.anchor IS NULL AND a.latest >= 0
          )) OR (?3 IS NULL AND (
            SELECT COUNT(*) FROM docs d
-           WHERE d.owner = ?2 AND d.anchor IS NULL AND d.latest >= 0
+           WHERE d.owner = ?2 AND d.anchor IS NULL AND d.latest >= 0 AND d.blocked_at IS NULL
              AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
          ) < ?9)`,
       )
@@ -91,7 +105,7 @@ export class Cloud implements Store {
 
     const bytes = sizeOf(upload.body);
     if (!(await this.#takeQuota(upload.net, 0, bytes, today))) return "quota";
-    const version: Version = { n: upload.n, hash: upload.hash, bytes };
+    const version: Version = { n: upload.n, hash: upload.hash, bytes, at: upload.at };
     const key = objectKey(upload.id, version);
     try {
       await this.#envelopes.put(key, upload.body);
@@ -176,17 +190,17 @@ export class Cloud implements Store {
       .run();
   }
 
-  async noteReader(reading: Reading, today: number): Promise<Noted> {
+  async admit(reading: Reading, today: number): Promise<Admitted> {
     try {
-      return await this.#note(reading, today);
+      return await this.#admit(reading, today);
     } catch (error) {
-      if (!String(error).includes("no such table")) throw error;
-      await this.#db.prepare(this.#createSeen(today)).run();
-      return this.#note(reading, today);
+      // The day's table is made by the sweep or by the first note: without it, nobody has read yet today.
+      if (String(error).includes("no such table")) return "new";
+      throw error;
     }
   }
 
-  async #note({ owner, reader, doc, hour, proved }: Reading, today: number): Promise<Noted> {
+  async #admit({ owner, reader, doc, proved }: Reading, today: number): Promise<Admitted> {
     const table = seenTable(today);
     const found = await this.#db
       .prepare(
@@ -196,27 +210,37 @@ export class Cloud implements Store {
       .bind(owner, reader, doc)
       .first<{ here: number | null; known: number | null }>();
     if (found?.here) return "here";
-    if (!found?.known) {
-      const counted = await this.#db
-        .prepare(`SELECT COUNT(*) AS n FROM (SELECT DISTINCT reader FROM ${table} WHERE owner = ? LIMIT ?)`)
-        .bind(owner, this.#limits.newReadersFree)
-        .first<{ n: number }>();
-      if ((counted?.n ?? 0) >= this.#limits.newReadersFree) {
-        // Only past the free readers does it count them all, so the usual reader reads a few hundred rows at most.
-        const rows = await this.#db
-          .prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM ${table} WHERE owner = ? LIMIT ?)`)
-          .bind(owner, this.#limits.rowsPerOwnerADay)
-          .first<{ n: number }>();
-        // Past the ceiling it answers without noting, so a farm of readers stops adding to the bill.
-        if ((rows?.n ?? 0) >= this.#limits.rowsPerOwnerADay) return "full";
-        if (!proved) return "over";
-      }
+    if (found?.known) return "new";
+    const counted = await this.#db
+      .prepare(`SELECT COUNT(*) AS n FROM (SELECT DISTINCT reader FROM ${table} WHERE owner = ? LIMIT ?)`)
+      .bind(owner, this.#limits.newReadersFree)
+      .first<{ n: number }>();
+    if ((counted?.n ?? 0) < this.#limits.newReadersFree) return "new";
+    // The proof comes first, so without one nobody gets in free past the ceiling or makes it count thousands of rows.
+    if (!proved) return "over";
+    const rows = await this.#db
+      .prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM ${table} WHERE owner = ? LIMIT ?)`)
+      .bind(owner, this.#limits.rowsPerOwnerADay)
+      .first<{ n: number }>();
+    // Past the ceiling it answers without noting, so a farm of readers stops adding to the bill.
+    return (rows?.n ?? 0) >= this.#limits.rowsPerOwnerADay ? "full" : "new";
+  }
+
+  async note(reading: Reading, today: number): Promise<void> {
+    try {
+      await this.#note(reading, today);
+    } catch (error) {
+      if (!String(error).includes("no such table")) throw error;
+      await this.#db.prepare(this.#createSeen(today)).run();
+      await this.#note(reading, today);
     }
+  }
+
+  async #note({ owner, reader, doc, hour }: Reading, today: number): Promise<void> {
     await this.#db
-      .prepare(`INSERT OR IGNORE INTO ${table} (owner, reader, doc, hour) VALUES (?, ?, ?, ?)`)
+      .prepare(`INSERT OR IGNORE INTO ${seenTable(today)} (owner, reader, doc, hour) VALUES (?, ?, ?, ?)`)
       .bind(owner, reader, doc, hour)
       .run();
-    return "noted";
   }
 
   #createSeen(day: number): string {
@@ -292,20 +316,23 @@ export class Cloud implements Store {
     let forgotten = 0;
     let failed = failedDays;
     if (failedDays === 0) {
-      for (const one of await this.#expired(today)) {
-        try {
-          if (await this.#forget(one.id, one.owner, today)) forgotten += 1;
-        } catch (error) {
-          failed += 1;
-          console.error("a document could not be forgotten", String(error));
-        }
+      try {
+        forgotten = await this.#forget(await this.#expired(today), today);
+      } catch (error) {
+        failed += 1;
+        console.error("what expired could not be forgotten", String(error));
       }
     }
-    await this.#db.batch([
-      this.#db.prepare("DELETE FROM net_day WHERE day < ?").bind(today),
-      this.#db.prepare("DELETE FROM guesses WHERE slot < ?").bind(today * this.#limits.guessSlotsADay),
-      this.#db.prepare("DELETE FROM reports WHERE at < ?").bind(today - this.#limits.evidenceDays),
-    ]);
+    try {
+      await this.#db.batch([
+        this.#db.prepare("DELETE FROM net_day WHERE day < ?").bind(today),
+        this.#db.prepare("DELETE FROM guesses WHERE slot < ?").bind(today * this.#limits.guessSlotsADay),
+        this.#db.prepare("DELETE FROM reports WHERE at < ?").bind(today - this.#limits.evidenceDays),
+      ]);
+    } catch (error) {
+      failed += 1;
+      console.error("the old rows could not be cleaned", String(error));
+    }
     return { summed, forgotten, failed };
   }
 
@@ -376,10 +403,10 @@ export class Cloud implements Store {
       .bind(day);
   }
 
-  async #expired(today: number): Promise<{ id: string; owner: string }[]> {
+  async #expired(today: number): Promise<string[]> {
     const expired = await this.#db
       .prepare(
-        `SELECT d.id, d.owner FROM docs d
+        `SELECT d.id FROM docs d
          WHERE d.latest = ${CLAIMED} OR (
            d.dies_on < ?1
            AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
@@ -393,51 +420,55 @@ export class Cloud implements Store {
          ORDER BY d.latest = ${CLAIMED} DESC, d.dies_on LIMIT ?2`,
       )
       .bind(today, this.#limits.sweptAtOnce)
-      .all<{ id: string; owner: string }>();
-    return expired.results;
+      .all<{ id: string }>();
+    return expired.results.map((one) => one.id);
   }
 
-  // Claims the row before touching R2, so an upload or a hold that arrived after the list saves the document.
-  async #forget(id: string, owner: string, today: number): Promise<boolean> {
-    const claimed = await this.#db
+  // All at once, since D1 takes 1,000 queries per invocation. It claims the rows before touching R2, so an upload or a
+  // hold that arrived after the list saves the document, and what an upload left halfway goes with the orphans.
+  async #forget(expired: string[], today: number): Promise<number> {
+    if (expired.length === 0) return 0;
+    const listed = JSON.stringify(expired);
+    await this.#db
       .prepare(
         `UPDATE docs SET latest = ${CLAIMED}
-         WHERE id = ?1 AND (latest = ${CLAIMED} OR (
-           dies_on < ?2 AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = ?1)
+         WHERE id IN (SELECT value FROM json_each(?1)) AND (latest = ${CLAIMED} OR (
+           dies_on < ?2 AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = docs.id)
          ))`,
       )
-      .bind(id, today)
+      .bind(listed, today)
       .run();
-    if (claimed.meta.changes === 0) return false;
-    const languages = await this.#db
-      .prepare("SELECT id FROM docs WHERE owner = ? AND anchor = ?")
-      .bind(owner, id)
-      .all<{ id: string }>();
-    const ids = [id, ...languages.results.map((one) => one.id)];
-    if (ids.length > 1) {
-      await this.#db
-        .prepare(`UPDATE docs SET latest = ${CLAIMED} WHERE owner = ? AND anchor = ?`)
-        .bind(owner, id)
-        .run();
-    }
-    for (const one of ids) await this.#deleteObjects(one);
-    await this.#db.batch(
-      ids.flatMap((one) => [
-        this.#db.prepare("DELETE FROM holds WHERE holder = ? OR held = ?").bind(one, one),
-        this.#db.prepare("DELETE FROM docs WHERE id = ?").bind(one),
-      ]),
-    );
-    return true;
-  }
+    await this.#db
+      .prepare(
+        `UPDATE docs SET latest = ${CLAIMED}
+         WHERE latest <> ${CLAIMED} AND (owner, anchor) IN (
+           SELECT a.owner, a.id FROM docs a WHERE a.latest = ${CLAIMED} AND a.id IN (SELECT value FROM json_each(?1))
+         )`,
+      )
+      .bind(listed)
+      .run();
+    const claimed = await this.#db
+      .prepare(`SELECT id, versions FROM docs WHERE latest = ${CLAIMED}`)
+      .all<{ id: string; versions: string }>();
+    if (claimed.results.length === 0) return 0;
 
-  // Lists instead of reading the versions, so an upload that died halfway leaves nothing behind.
-  async #deleteObjects(id: string): Promise<void> {
-    let cursor: string | undefined;
-    do {
-      const page = await this.#envelopes.list({ prefix: `${id}/`, cursor });
-      if (page.objects.length > 0) await this.#envelopes.delete(page.objects.map((one) => one.key));
-      cursor = page.truncated ? page.cursor : undefined;
-    } while (cursor);
+    const keys = claimed.results.flatMap(({ id, versions }) =>
+      (JSON.parse(versions) as Version[]).map((one) => objectKey(id, one)),
+    );
+    for (let from = 0; from < keys.length; from += KEYS_AT_ONCE) {
+      await this.#envelopes.delete(keys.slice(from, from + KEYS_AT_ONCE));
+    }
+    const ids = JSON.stringify(claimed.results.map((one) => one.id));
+    const [, deleted] = await this.#db.batch([
+      this.#db
+        .prepare(
+          `DELETE FROM holds WHERE holder IN (SELECT value FROM json_each(?1))
+             OR held IN (SELECT value FROM json_each(?1))`,
+        )
+        .bind(ids),
+      this.#db.prepare("DELETE FROM docs WHERE id IN (SELECT value FROM json_each(?))").bind(ids),
+    ]);
+    return deleted?.meta.changes ?? 0;
   }
 
   // After D1 goes back in time, what came later stays in R2 with no row, paying for storage where nothing lists it.

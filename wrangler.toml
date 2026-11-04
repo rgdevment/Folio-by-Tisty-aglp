@@ -18,7 +18,7 @@ binding = "ENVELOPES"
 bucket_name = "folio-private-envelopes"
 
 [triggers]
-crons = ["*/15 * * * *", "0 4 * * 0"]
+crons = ["0 * * * *", "0 4 * * 0"]
 
 # What the code logs is kept, and the request itself never is (decision 98).
 [observability]
