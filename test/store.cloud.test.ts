@@ -18,7 +18,6 @@ const TABLES = [
   "service_stage",
   "false_reporters",
   "net_day",
-  "guesses",
   "reports",
   "revocations",
   "holds",
@@ -513,14 +512,9 @@ describe("expiring", () => {
     await store.create(newDoc("d1"), DAY);
     await store.upload(upload("d1", 1), DAY);
     await testEnv.DB.prepare("INSERT INTO net_day VALUES (?, 'old', 1, 1)").bind(DAY).run();
-    await testEnv.DB.prepare("INSERT INTO guesses VALUES (?, 'n', 'd', 1)")
-      .bind(DAY * 96)
-      .run();
     const swept = await failing({ delete: true }).sweep(DAY + 2);
     expect(swept).toMatchObject({ failed: 1, forgotten: 0 });
     expect(await quota("old")).toBeNull();
-    const guesses = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM guesses").first<{ n: number }>();
-    expect(guesses?.n).toBe(0);
   });
 
   it("finishes a document it claimed before failing, and refuses uploads to it meanwhile", async () => {

@@ -3,7 +3,7 @@ import { macOf } from "./start";
 const IPV6_GROUPS = 8;
 const GROUPS_IN_A_NET = 3;
 
-// A whole IPv4, or the /48 of an IPv6, since one home holds many addresses of a /48 (decision 128).
+// A whole IPv4 or the /48 of an IPv6, for everything: a /64 is too cheap to get many of (decision 137).
 export const netOf = (ip: string): string => {
   if (!ip.includes(":")) return ip;
   const [head = "", tail] = ip.toLowerCase().split("::");
