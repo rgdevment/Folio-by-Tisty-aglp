@@ -1,4 +1,5 @@
-import { check, checkHtml, type Document, type Picture, picturesIn, referencesIn } from "@tisty/contracts";
+import type { Document, Picture } from "@tisty/contracts";
+import { check, checkHtml, picturesIn, referencesIn } from "@tisty/contracts/check";
 import { fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
 import { type Asked, asRefusal, jsonIn, type ReadEnvelope, readEnvelope, refuse } from "../rules/envelope";
 

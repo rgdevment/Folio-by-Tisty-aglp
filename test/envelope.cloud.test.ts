@@ -1,12 +1,12 @@
 import { CONTRACTS, check, type EnvelopePart, referencesIn, VERSION } from "@tisty/contracts";
 import VECTORS from "@tisty/contracts/vectors.json";
+import WRITTEN from "@tisty/contracts/written-by-tisty.json";
 import { describe, expect, it } from "vitest";
 import { bigEndian, fromBase64Url, joined, sha256, words } from "../src/core/bytes";
 import { toBase64Url } from "../src/core/start";
 import { documentIn, openEnvelope, openFiles, pictureHolds } from "../src/page/open";
 import { fingerprintOf, verdictOf } from "../src/page/verdict";
 import { EnvelopeRefused, readEnvelope, revocationHolds } from "../src/rules/envelope";
-import WRITTEN from "./fixtures/written-by-tisty.json";
 
 // biome-ignore lint/suspicious/noExplicitAny: these are the contract's own samples, in the shape it writes them.
 const SAMPLES = VECTORS as any;
@@ -194,7 +194,7 @@ describe("what only one rule refuses, on an envelope whose signature holds", () 
 
 describe("the contract in use", () => {
   it("is the version Folio fixed, and these samples are written under it", async () => {
-    expect(VERSION).toBe("1.0.0");
+    expect(VERSION).toBe("1.0.1");
     const { manifest } = await readEnvelope(hex(SAMPLES.main.envelope), MAIN);
     expect(manifest.contract).toBe(VERSION);
   });
