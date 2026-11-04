@@ -2,9 +2,9 @@ import { type AdminAction, administer } from "../core/admin";
 import { dayOf } from "../core/limits";
 import { netDigest } from "../core/net";
 import { type Asked, readDoc } from "../core/read";
-import type { Refused } from "../core/refused";
+import { type Refused, tooFast } from "../core/refused";
 import { type ReportTools, reportDoc, saidOf } from "../core/report";
-import { hourEnds, hourOf, startNow } from "../core/start";
+import { startNow } from "../core/start";
 
 const PREFIX = "/api/v1/";
 const DOC_PATH = /^docs\/([A-Za-z0-9]{8})(?:\/(report|admin|pause|resume|appeal))?$/;
@@ -92,12 +92,27 @@ const jsonOf = (text: string): unknown => {
   }
 };
 
-const answerReport = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
-  if (Number(request.headers.get("Content-Length") ?? 0) > REPORT_BYTES_AT_MOST) {
-    return refusal({ refused: "too_big" }, now);
+// Read in pieces, since a body sent in parts says no length and could be any size.
+const textUpTo = async (request: Request, atMost: number): Promise<string | null> => {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const pieces: Uint8Array[] = [];
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return new Blob(pieces).text();
+    bytes += value.byteLength;
+    if (bytes > atMost) {
+      await reader.cancel();
+      return null;
+    }
+    pieces.push(value);
   }
-  const text = await request.text();
-  if (text.length > REPORT_BYTES_AT_MOST) return refusal({ refused: "too_big" }, now);
+};
+
+const answerReport = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
+  const text = await textUpTo(request, REPORT_BYTES_AT_MOST);
+  if (text === null) return refusal({ refused: "too_big" }, now);
   const said = saidOf(jsonOf(text), tools.limits);
   if (!said) return refusal({ refused: "bad_report" }, now);
 
@@ -122,9 +137,8 @@ const answerAdmin = async (
 
 const answerStart = async (request: Request, { tools, now }: Api): Promise<Response> => {
   const net = await netDigest(await tools.dayKey(dayOf(now)), ipOf(request));
-  if (!(await tools.store.takeHourly(net, "start", hourOf(now), tools.limits.startsAnHour))) {
-    return refusal({ refused: "quota", until: hourEnds(now) }, now);
-  }
+  // The brake and not a count: a start keeps nothing, so it should not write a row either.
+  if (!(await tools.limiter.allows(net))) return refusal(tooFast(now), now);
   return json(200, await startNow(tools.secret, now));
 };
 

@@ -41,10 +41,12 @@ export interface Report {
   sealedLink?: string;
 }
 
+export type Telling = "csam" | "blocked";
+
 export interface Reported {
   blocked: boolean;
-  known: boolean;
-  blockedOn: number | null;
+  // What the operator still has to hear of this document, in the order to say it.
+  pending: Telling[];
 }
 
 // What a read needs of a document, in one row.
@@ -98,6 +100,7 @@ export interface Store {
   report(report: Report, today: number): Promise<Reported>;
   owned(id: string, today: number): Promise<Owned | null>;
   appeal(id: string, today: number): Promise<void>;
+  told(id: string, what: Telling): Promise<void>;
   appealAccepted(id: string, today: number): Promise<void>;
   pause(id: string, today: number): Promise<void>;
   resume(id: string, today: number): Promise<void>;
@@ -105,6 +108,8 @@ export interface Store {
   sweep(today: number): Promise<Swept>;
   forgetOrphans(now: number): Promise<number>;
   stage(): Promise<Stage>;
+  alerted(): Promise<Stage>;
+  setAlerted(stage: Stage): Promise<void>;
   setStage(stage: Stage): Promise<void>;
   liftCut(today: number): Promise<void>;
 }

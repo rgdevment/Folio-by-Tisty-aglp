@@ -1,6 +1,6 @@
 import { dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
-import { askForProof, type Refused } from "./refused";
+import { askForProof, type Refused, tooFast } from "./refused";
 import { proofIsFresh } from "./start";
 import type { Reading, Shown, Store, Version } from "./store";
 
@@ -32,8 +32,6 @@ export interface Served {
   note?: Reading;
 }
 
-const LIMITER_WINDOW_MS = 60_000;
-
 const refusalOfState = (shown: Shown | null): Refused | null => {
   if (!shown?.version) return { refused: "missing" };
   if (shown.blockedAt !== null) return { refused: "blocked" };
@@ -45,7 +43,7 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
   const { store, limiter, limits, secret, dayKey } = tools;
   const today = dayOf(now);
   const net = await netDigest(await dayKey(today), ip);
-  if (!(await limiter.allows(net))) return { refused: "slow", until: now + LIMITER_WINDOW_MS };
+  if (!(await limiter.allows(net))) return tooFast(now);
 
   const shown = await store.shown(id, today);
   const refused = refusalOfState(shown);

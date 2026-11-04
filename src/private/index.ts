@@ -11,7 +11,7 @@ interface Env extends Bindings, SpendBindings {
   BILLING_DAY: string;
   HEARTBEAT_URL?: string;
   SPEND_HEARTBEAT_URL?: string;
-  ALERT_URL?: string;
+  ALERT_URL: string;
 }
 
 const WEEKLY = "0 4 * * 0";
@@ -20,10 +20,8 @@ const dayKeys = new DayKeys();
 const evidenceKeys = new DayKeys();
 
 const sendAlert = async (env: Env, said: unknown): Promise<void> => {
-  if (!env.ALERT_URL) {
-    console.error("an alert with nowhere to go");
-    return;
-  }
+  // Failing is the alert here: a report of CSAM that answers well and tells nobody would be worse.
+  if (!env.ALERT_URL) throw new Error("there is nowhere to send an alert");
   const alert = await fetch(env.ALERT_URL, { method: "POST", body: JSON.stringify(said) });
   if (!alert.ok) throw new Error(`the alert was refused: ${alert.status}`);
 };

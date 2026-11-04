@@ -1,6 +1,6 @@
 import { dayOf } from "./limits";
 import { netDigest } from "./net";
-import type { Refused } from "./refused";
+import { type Refused, tooFast } from "./refused";
 import type { ReportTools } from "./report";
 import { sameText, tokenHash } from "./start";
 import type { DocStatus, Store } from "./store";
@@ -18,8 +18,6 @@ export interface Administering {
 export type AdminTools = Pick<ReportTools, "store" | "limiter" | "dayKey" | "alert">;
 export type AdminAnswer = { done: true } | { status: DocStatus } | Refused;
 
-const LIMITER_WINDOW_MS = 60_000;
-
 const CHANGES: Record<"pause" | "resume" | "stop", (store: Store, id: string, today: number) => Promise<void>> = {
   pause: (store, id, today) => store.pause(id, today),
   resume: (store, id, today) => store.resume(id, today),
@@ -34,7 +32,7 @@ const appeal = async (
   { store, alert }: AdminTools,
 ): Promise<AdminAnswer> => {
   if (blockedAt === null) return { refused: "not_blocked" };
-  if (appealedAt !== null && appealedAt >= blockedAt) return { refused: "appealed" };
+  if (appealedAt !== null) return { refused: "appealed" };
   await alert({ doc: id, reason: "appeal" });
   await store.appeal(id, today);
   return { done: true };
@@ -46,9 +44,7 @@ export const administer = async (
 ): Promise<AdminAnswer> => {
   const { store, limiter, dayKey } = tools;
   const today = dayOf(now);
-  if (!(await limiter.allows(await netDigest(await dayKey(today), ip)))) {
-    return { refused: "slow", until: now + LIMITER_WINDOW_MS };
-  }
+  if (!(await limiter.allows(await netDigest(await dayKey(today), ip)))) return tooFast(now);
   const owned = await store.owned(id, today);
   // A wrong token and a missing document look the same, so the admin link is the only way to learn anything.
   if (!owned || !sameText(await tokenHash(token), owned.adminHash)) return { refused: "missing" };

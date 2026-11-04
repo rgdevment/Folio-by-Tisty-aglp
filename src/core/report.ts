@@ -59,9 +59,11 @@ export const reportDoc = async (
   }
 
   const reporter = await netDigest(await evidenceKey(today), ip);
-  const { known, blockedOn } = await store.report({ doc: id, net: reporter, asn, ...said }, today);
-  // By the day it was blocked, not by this report: a failed alert fails the report, and sending it again alerts again.
-  if (blockedOn === today) await alert({ doc: id, reason: "blocked" });
-  else if (known && said.category === "csam") await alert({ doc: id, reason: "csam" });
+  const { pending } = await store.report({ doc: id, net: reporter, asn, ...said }, today);
+  // Marked once it went, so a failed alert fails the report, and sending it again alerts again (decision 36).
+  for (const reason of pending) {
+    await alert({ doc: id, reason });
+    await store.told(id, reason);
+  }
   return { received: true };
 };
