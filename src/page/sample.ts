@@ -11,6 +11,7 @@ export const SAMPLE: Document = {
   wrote: "2026-11-02T09:30:00Z",
   body: "",
   html: [
+    '<dl class="front"><dt>title</dt><dd>Entorno local con Docker y WSL2, paso a paso</dd><dt>fuente</dt><dd>Apuntes propios</dd></dl>',
     '<h1 id="entorno">Entorno local con Docker y WSL2, paso a paso</h1>',
     "<p>Esta guía junta lo que fui aprendiendo al armar mi entorno en Windows. Sirve tanto si empiezas de cero como si ya tienes WSL instalado y algo no funciona.</p>",
     '<h2 id="antes">Antes de empezar</h2>',

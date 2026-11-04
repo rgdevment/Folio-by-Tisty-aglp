@@ -76,6 +76,16 @@ describe("the panels", () => {
     expect(details).toContain('id="fingerprint"');
     expect(details).toContain("Cómo comprobarla");
   });
+
+  it("say in the details only what the sheet does not already say", () => {
+    expect(FRAME).not.toContain('"Título"');
+    expect(FRAME).not.toContain('"Etiquetas"');
+    expect(HTML.slice(HTML.indexOf('id="panel-details"'))).toContain('id="dies-on"');
+  });
+
+  it("start the index after the title, which is already the first thing on the sheet", () => {
+    expect(FRAME).toContain("headings[0]?.textContent === held.title");
+  });
 });
 
 describe("the assets in the Worker", () => {
@@ -111,6 +121,6 @@ describe("the contract's numbers", () => {
   });
 
   it("offer the papers it says to offer", () => {
-    for (const paper of sheet.offered as string[]) expect(HTML).toContain(`<option value="${paper}">`);
+    for (const paper of sheet.offered as string[]) expect(HTML).toContain(`data-paper="${paper}"`);
   });
 });

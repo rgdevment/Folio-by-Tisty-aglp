@@ -53,25 +53,19 @@
         </section>
 
         <section class="panel paper" id="panel-paper" aria-label="Papel">
-          <select id="paper" aria-label="Tamaño del papel">
-            <option value="a4">A4</option>
-            <option value="letter">Carta</option>
-            <option value="folio">Oficio</option>
-          </select>
-          <label class="chip">
-            <input id="sheets" type="checkbox" />
-            <span>Hojas</span>
-          </label>
-          <label class="chip">
-            <input id="landscape" type="checkbox" />
-            <span>Horizontal</span>
-          </label>
+          <fieldset class="leaves" id="leaves" aria-label="Tamaño del papel">
+            <button class="leaf" type="button" data-paper="a4">A4</button>
+            <button class="leaf" type="button" data-paper="letter">Carta</button>
+            <button class="leaf" type="button" data-paper="folio">Oficio</button>
+            <button class="leaf" type="button" data-paper="tabloid" hidden>Tabloide</button>
+          </fieldset>
+          <button class="tool" id="sheets" type="button" aria-pressed="false" aria-label="Hojas" title="Hojas">⇕</button>
+          <button class="tool" id="landscape" type="button" aria-pressed="false" aria-label="Horizontal" title="Horizontal" hidden>⇔</button>
         </section>
 
         <section class="panel" id="panel-details" aria-labelledby="title-details">
           <h2 id="title-details">Detalles</h2>
-          <dl class="facts" id="details"></dl>
-          <dl class="facts signed">
+          <dl class="facts">
             <div><dt>Firmado por</dt><dd><bdi id="signer"></bdi></dd></div>
             <div><dt>Huella</dt><dd class="fingerprint" id="fingerprint"></dd></div>
           </dl>
@@ -79,13 +73,14 @@
             <summary>Cómo comprobarla</summary>
             <p>Pídele la huella a quien te lo mandó, por otro canal, y compárala. La firma dice quién lo escribió, no que el contenido sea seguro.</p>
           </details>
-        </section>
-
-        <section class="foot">
-          <dl class="facts">
+          <dl class="facts facts-next" id="details"></dl>
+          <dl class="facts facts-next">
             <div><dt>Acceso</dt><dd>Solo con el link</dd></div>
             <div><dt>Caduca</dt><dd id="dies-on"></dd></div>
           </dl>
+        </section>
+
+        <section class="foot">
           <button class="report" id="report" type="button" disabled>Denunciar este documento</button>
         </section>
       </aside>

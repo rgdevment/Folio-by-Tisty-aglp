@@ -254,8 +254,10 @@ select {
   color: var(--brand-ink);
 }
 
-.facts.signed {
-  margin-top: 8px;
+.facts-next {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--tisty-hair);
 }
 
 .facts .fingerprint {
@@ -280,51 +282,55 @@ select {
 
 .paper {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
   padding: 10px 12px;
 }
 
-.paper select,
-.chip {
-  min-height: 36px;
-  padding: 0 10px;
-  background: var(--tisty-sheet);
+.leaves {
+  flex: 1 1 auto;
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 3px;
   border: 1px solid var(--tisty-line);
   border-radius: 8px;
-  font-size: 13.5px;
 }
 
-.chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
+.leaf {
+  padding: 5px 0;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tisty-soft);
+  font-size: 12.5px;
   cursor: pointer;
 }
 
-.chip input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: inherit;
+.leaf[aria-pressed="true"] {
+  background: var(--tisty-hover);
+  box-shadow: inset 0 0 0 1px var(--tisty-hair);
+  color: var(--tisty-ink);
+  font-weight: 600;
 }
 
-.chip:has(input:checked) {
+.tool {
+  flex: none;
+  min-width: 36px;
+  padding: 0 6px;
+  background: none;
+  border: 1px solid var(--tisty-line);
+  border-radius: 8px;
+  color: var(--tisty-soft);
+  cursor: pointer;
+}
+
+.tool[aria-pressed="true"] {
   background: var(--brand-soft);
   border-color: var(--brand);
   color: var(--brand);
-  font-weight: 550;
-}
-
-.chip:has(input:focus-visible) {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
-}
-
-.chip:has(input:disabled) {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .index {

@@ -30,6 +30,11 @@
   }
 }
 
+/* The properties travel in the HTML, hidden on the sheet: the frame shows them in its details. */
+.front {
+  display: none;
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;

@@ -53,24 +53,49 @@ const paperOf = (held: Document): Paper => {
   return said && said in PAPER_MILLIMETRES ? said : "a4";
 };
 
+const pressed = (button: HTMLElement, on: boolean): void => button.setAttribute("aria-pressed", String(on));
+
 const drawPaperPanel = (host: HTMLElement, held: Document): void => {
-  const paper = element<HTMLSelectElement>("paper");
-  const sheets = element<HTMLInputElement>("sheets");
-  const landscape = element<HTMLInputElement>("landscape");
+  const leaves = [...element("leaves").querySelectorAll<HTMLButtonElement>("button")];
+  const sheets = element("sheets");
+  const landscape = element("landscape");
+  let paper = paperOf(held);
+  let inSheets = held.sheet?.on === true;
+  let across = held.sheet?.orientation === "landscape";
   const apply = (): void => {
-    landscape.disabled = !sheets.checked;
-    withLayout(host, sheets.checked, paper.value as Paper, landscape.checked ? "landscape" : "portrait");
+    for (const leaf of leaves) {
+      pressed(leaf, leaf.dataset.paper === paper);
+      // Tabloid is not offered, but a document that asked for it keeps it.
+      if (leaf.dataset.paper === paper) leaf.hidden = false;
+    }
+    pressed(sheets, inSheets);
+    pressed(landscape, across);
+    landscape.hidden = !inSheets;
+    withLayout(host, inSheets, paper, across ? "landscape" : "portrait");
   };
-  paper.value = paperOf(held);
-  sheets.checked = held.sheet?.on === true;
-  landscape.checked = held.sheet?.orientation === "landscape";
-  for (const control of [paper, sheets, landscape]) control.addEventListener("change", apply);
+  for (const leaf of leaves) {
+    leaf.addEventListener("click", () => {
+      paper = leaf.dataset.paper as Paper;
+      apply();
+    });
+  }
+  sheets.addEventListener("click", () => {
+    inSheets = !inSheets;
+    apply();
+  });
+  landscape.addEventListener("click", () => {
+    across = !across;
+    apply();
+  });
   apply();
 };
 
-const drawIndex = (root: ShadowRoot): void => {
+const drawIndex = (root: ShadowRoot, held: Document): void => {
   const list = element("index");
-  for (const heading of root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")) {
+  const headings = [...root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")];
+  // The title is already the first thing on the sheet, so the index starts after it.
+  const shown = headings[0]?.textContent === held.title ? headings.slice(1) : headings;
+  for (const heading of shown) {
     const item = document.createElement("li");
     item.dataset.level = heading.tagName.slice(1);
     const button = document.createElement("button");
@@ -99,12 +124,20 @@ const fact = (list: HTMLElement, name: string, value: string): void => {
 
 const dayOf = (moment: string): string => new Date(moment).toLocaleDateString(undefined, { dateStyle: "medium" });
 
-const drawDetails = (held: Document): void => {
+// What the sheet does not already say: the title and tags are on it, and the paper is in its own panel.
+const SAID_ELSEWHERE = new Set(["title", "tags", "tag", "paper", "sheets", "orientation", "lang"]);
+
+const drawDetails = (root: ShadowRoot, held: Document): void => {
   const list = element("details");
-  if (held.title) fact(list, "Título", held.title);
-  if (held.tags?.length) fact(list, "Etiquetas", held.tags.map((one) => `#${one}`).join(" "));
   if (held.made) fact(list, "Creado", dayOf(held.made));
   if (held.wrote) fact(list, "Editado", dayOf(held.wrote));
+  // The properties travel hidden in the HTML, and a reader shows them here (contract, «text»).
+  for (const name of root.querySelectorAll("dl.front > dt")) {
+    const key = name.textContent ?? "";
+    const value = name.nextElementSibling;
+    if (!SAID_ELSEWHERE.has(key.toLowerCase()) && value?.tagName === "DD") fact(list, key, value.textContent ?? "");
+  }
+  list.hidden = list.childElementCount === 0;
 };
 
 const drawSeal = (held: Document, { verdict, fingerprint, diesOn }: Seal): void => {
@@ -192,8 +225,8 @@ export const drawFrame = (held: Document, words: DocumentFragment, seal: Seal): 
   const root = drawSheet(host, held, words);
   document.title = held.title ? `${held.title} · Folio` : "Folio by Tisty";
   drawPaperPanel(host, held);
-  drawIndex(root);
-  drawDetails(held);
+  drawIndex(root, held);
+  drawDetails(root, held);
   drawSeal(held, seal);
   drawActions();
   drawDock();
