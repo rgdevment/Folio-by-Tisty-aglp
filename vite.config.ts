@@ -31,5 +31,6 @@ export default defineConfig({
     outDir: "../../dist/page",
     emptyOutDir: true,
     target: "es2022",
+    modulePreload: { polyfill: false },
   },
 });

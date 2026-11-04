@@ -361,6 +361,17 @@ select {
   color: var(--tisty-ink);
 }
 
+.pages:not(:empty) {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--tisty-line);
+}
+
+.index [aria-current="page"] {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
 .index [data-level="2"] button {
   padding-left: 16px;
 }

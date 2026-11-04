@@ -2,7 +2,7 @@ import { CONTRACTS, check, type EnvelopePart, referencesIn, VERSION } from "@tis
 import VECTORS from "@tisty/contracts/vectors.json";
 import WRITTEN from "@tisty/contracts/written-by-tisty.json";
 import { describe, expect, it } from "vitest";
-import { bigEndian, fromBase64Url, joined, sha256, words } from "../src/core/bytes";
+import { type Bytes, bigEndian, fromBase64Url, joined, sha256, words } from "../src/core/bytes";
 import { toBase64Url } from "../src/core/start";
 import { documentIn, openEnvelope, openFiles, pictureHolds } from "../src/page/open";
 import { fingerprintOf, verdictOf } from "../src/page/verdict";
@@ -11,8 +11,8 @@ import { EnvelopeRefused, readEnvelope, revocationHolds } from "../src/rules/env
 // biome-ignore lint/suspicious/noExplicitAny: these are the contract's own samples, in the shape it writes them.
 const SAMPLES = VECTORS as any;
 
-const hex = (said: string): Uint8Array => Uint8Array.from(said.match(/../g) ?? [], (one) => Number.parseInt(one, 16));
-const hexOf = (bytes: Uint8Array): string => [...bytes].map((one) => one.toString(16).padStart(2, "0")).join("");
+const hex = (said: string): Bytes => Uint8Array.from(said.match(/../g) ?? [], (one) => Number.parseInt(one, 16));
+const hexOf = (bytes: Bytes): string => [...bytes].map((one) => one.toString(16).padStart(2, "0")).join("");
 
 const LINK_KEY = fromBase64Url(SAMPLES.link_key);
 const MAIN = { id: "k7Qm2xPa", kind: "main" } as const;
@@ -20,7 +20,7 @@ const FILES = { id: "k7Qm2xPa", kind: "files" } as const;
 const PUBLIC = { id: "wordsOnly", kind: "main" } as const;
 const HOSTILE = { id: "hostile", kind: "main" } as const;
 
-const reading = async (bytes: Uint8Array, asked: typeof MAIN | typeof PUBLIC | typeof HOSTILE, key?: Uint8Array) => {
+const reading = async (bytes: Bytes, asked: typeof MAIN | typeof PUBLIC | typeof HOSTILE, key?: Bytes) => {
   const main = await openEnvelope(bytes, asked, key);
   return { main, held: await documentIn(main) };
 };
@@ -34,12 +34,12 @@ const refusal = async (work: Promise<unknown>): Promise<string> => {
   return (error as EnvelopeRefused).refusal;
 };
 
-const squeezed = async (bytes: Uint8Array): Promise<Uint8Array> =>
+const squeezed = async (bytes: Bytes): Promise<Bytes> =>
   new Uint8Array(
     await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer(),
   );
 
-const lengthOf = (size: number): Uint8Array => {
+const lengthOf = (size: number): Bytes => {
   const out = new Uint8Array(4);
   new DataView(out.buffer).setUint32(0, size);
   return out;
@@ -47,17 +47,17 @@ const lengthOf = (size: number): Uint8Array => {
 
 const signing = async () => (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
 const raw = async (key: CryptoKey) => new Uint8Array((await crypto.subtle.exportKey("raw", key)) as ArrayBuffer);
-const signedBy = async (key: CryptoKey, ...pieces: Uint8Array[]) =>
+const signedBy = async (key: CryptoKey, ...pieces: Bytes[]) =>
   new Uint8Array(await crypto.subtle.sign("Ed25519", key, joined(...pieces)));
 
-type TravellingPart = EnvelopePart & { bytes: Uint8Array };
+type TravellingPart = EnvelopePart & { bytes: Bytes };
 
 interface Building {
   saysOpen?: (open: number) => number;
   order?: (parts: TravellingPart[]) => TravellingPart[];
   manifestPadding?: number;
   signaturePadding?: number;
-  rest?: Uint8Array;
+  rest?: Bytes;
 }
 
 const BUILT = { id: "builtHere", kind: "main" } as const;
@@ -304,7 +304,7 @@ describe("the samples a reader opens", () => {
     expect(held).toEqual(SAMPLES.main.document);
     expect(main.opened.slice(2).map(hexOf)).toEqual(SAMPLES.main.pictures);
     for (const [at, one] of (held.pictures ?? []).entries()) {
-      expect(pictureHolds(main.opened[at + 2] as Uint8Array, one)).toBe(true);
+      expect(pictureHolds(main.opened[at + 2] as Bytes, one)).toBe(true);
     }
   });
 

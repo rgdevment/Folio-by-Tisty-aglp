@@ -51,6 +51,21 @@ describe("what the page loads", () => {
   });
 });
 
+describe("opening a link", () => {
+  const main = read("src/page/ui/main.ts");
+
+  it("asks for the envelope before loading the code that reads it", () => {
+    expect(main).toContain('import { askFor } from "./ask"');
+    expect(main).not.toMatch(/from "\.\/(frame|show|clean)"/);
+    expect(main.indexOf("askFor(id)")).toBeLessThan(main.indexOf('import("./show")'));
+  });
+
+  it("never moves the address by itself, since what follows its # is the key", () => {
+    expect(FRAME).not.toMatch(/location\.hash\s*=/);
+    expect(FRAME).toContain("event.preventDefault()");
+  });
+});
+
 describe("the panels", () => {
   it("say the verdict once, in the bar, outside the document", () => {
     expect(HTML).toContain('id="seal-text"');

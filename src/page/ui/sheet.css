@@ -115,6 +115,26 @@ figure {
   margin: 12px 0;
 }
 
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* A diagram travels drawn twice, and the reader shows the one of its theme (decision 129). */
+svg[data-theme="dark"] {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  svg[data-theme="light"] {
+    display: none;
+  }
+
+  svg[data-theme="dark"] {
+    display: inline;
+  }
+}
+
 code {
   font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.88em;
