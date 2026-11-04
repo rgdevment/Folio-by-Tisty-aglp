@@ -5,7 +5,7 @@ const ID_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
 const encoder = new TextEncoder();
 
-const toBase64Url = (bytes: ArrayBuffer | Uint8Array): string => {
+export const toBase64Url = (bytes: ArrayBuffer | Uint8Array): string => {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   return btoa(String.fromCharCode(...view))
     .replaceAll("+", "-")
@@ -13,14 +13,14 @@ const toBase64Url = (bytes: ArrayBuffer | Uint8Array): string => {
     .replaceAll("=", "");
 };
 
-const macOf = async (secret: string, said: string): Promise<string> => {
+export const macOf = async (secret: string, said: string): Promise<string> => {
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
     "sign",
   ]);
   return toBase64Url(await crypto.subtle.sign("HMAC", key, encoder.encode(said)));
 };
 
-const sameText = (one: string, other: string): boolean => {
+export const sameText = (one: string, other: string): boolean => {
   if (one.length !== other.length) return false;
   let differs = 0;
   for (let at = 0; at < one.length; at += 1) differs |= one.charCodeAt(at) ^ other.charCodeAt(at);
@@ -75,4 +75,19 @@ export const proofHolds = async (salt: string, action: string, nonce: string, bi
     left -= needed;
   }
   return left <= 0;
+};
+
+// The hour before counts too, as with a start: a proof solved at the end of an hour still holds a minute later.
+export const proofIsFresh = async (
+  secret: string,
+  scope: string,
+  nonce: string,
+  bits: number,
+  now: number,
+): Promise<boolean> => {
+  const hour = hourOf(now);
+  for (const one of [hour, hour - 1]) {
+    if (await proofHolds(await saltFor(secret, scope, one), scope, nonce, bits)) return true;
+  }
+  return false;
 };

@@ -1,10 +1,12 @@
 import { DAY_MS, LEVEL_ONE, type Limits } from "../core/limits";
+import { toBase64Url } from "../core/start";
 import type {
   Admitted,
   Created,
   NewDoc,
   Reading,
   Report,
+  Shown,
   Store,
   Swept,
   Upload,
@@ -27,6 +29,11 @@ interface DocRow {
 
 // A document being forgotten: nothing can move it on from here, and the sweep finishes it even after failing halfway.
 const CLAIMED = -1;
+
+// Not an id, since ids have no such letter. It lives beside the envelopes so that D1, its copies and its backups never
+// hold both the digests and the key that made them (decision 128).
+const DAY_KEY_OBJECT = "~day-key";
+const DAY_KEY_BYTES = 32;
 
 // What R2 takes in one delete.
 const KEYS_AT_ONCE = 1000;
@@ -241,6 +248,85 @@ export class Cloud implements Store {
       .prepare(`INSERT OR IGNORE INTO ${seenTable(today)} (owner, reader, doc, hour) VALUES (?, ?, ?, ?)`)
       .bind(owner, reader, doc, hour)
       .run();
+  }
+
+  async shown(id: string, today: number): Promise<Shown | null> {
+    const row = await this.#db
+      .prepare(
+        `SELECT d.owner, d.password, d.guess_day, d.guess_count, d.latest, d.versions, d.dies_on, d.paused_at, d.blocked_at,
+           d.dies_on >= ?2 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
+             OR (d.anchor IS NOT NULL AND EXISTS (SELECT 1 FROM docs a WHERE a.id = d.anchor AND a.latest <> ${CLAIMED})) AS alive
+         FROM docs d WHERE d.id = ?1`,
+      )
+      .bind(id, today)
+      .first<{
+        owner: string;
+        password: string | null;
+        guess_day: number | null;
+        guess_count: number;
+        latest: number;
+        versions: string;
+        dies_on: number;
+        paused_at: number | null;
+        blocked_at: number | null;
+        alive: number;
+      }>();
+    if (!row) return null;
+    const versions = JSON.parse(row.versions) as Version[];
+    return {
+      owner: row.owner,
+      password: row.password,
+      guessDay: row.guess_day,
+      guessCount: row.guess_count,
+      version: (row.latest > 0 && versions.at(-1)) || null,
+      diesOn: row.dies_on,
+      alive: row.alive === 1,
+      pausedAt: row.paused_at,
+      blockedAt: row.blocked_at,
+    };
+  }
+
+  async envelope(id: string, version: Version): Promise<ReadableStream | null> {
+    return (await this.#envelopes.get(objectKey(id, version)))?.body ?? null;
+  }
+
+  async wrongGuesses(id: string, net: string, slot: number): Promise<number> {
+    const row = await this.#db
+      .prepare("SELECT wrong FROM guesses WHERE slot = ? AND net = ? AND doc = ?")
+      .bind(slot, net, id)
+      .first<{ wrong: number }>();
+    return row?.wrong ?? 0;
+  }
+
+  async noteWrongGuess(id: string, net: string, slot: number, today: number): Promise<void> {
+    await this.#db.batch([
+      this.#db
+        .prepare(
+          `INSERT INTO guesses (slot, net, doc, wrong) VALUES (?, ?, ?, 1)
+           ON CONFLICT (slot, net, doc) DO UPDATE SET wrong = wrong + 1`,
+        )
+        .bind(slot, net, id),
+      this.#db
+        .prepare(
+          `UPDATE docs SET guess_count = CASE WHEN guess_day = ?1 THEN guess_count + 1 ELSE 1 END, guess_day = ?1
+           WHERE id = ?2`,
+        )
+        .bind(today, id),
+    ]);
+  }
+
+  // The first to ask each day replaces it, and only one can win, so yesterday's key is gone for good.
+  async dayKey(today: number): Promise<string> {
+    for (;;) {
+      const held = await this.#envelopes.get(DAY_KEY_OBJECT);
+      const said = held ? (JSON.parse(await held.text()) as { day: number; key: string }) : null;
+      if (said?.day === today) return said.key;
+      const key = toBase64Url(crypto.getRandomValues(new Uint8Array(DAY_KEY_BYTES)));
+      const put = await this.#envelopes.put(DAY_KEY_OBJECT, JSON.stringify({ day: today, key }), {
+        onlyIf: held ? { etagMatches: held.etag } : { etagDoesNotMatch: "*" },
+      });
+      if (put) return key;
+    }
   }
 
   #createSeen(day: number): string {
@@ -485,7 +571,9 @@ export class Cloud implements Store {
         .all<{ id: string }>();
       const known = new Set(held.results.map((one) => one.id));
       const old = now - DAY_MS;
-      const orphans = page.objects.filter((one) => !known.has(idOf(one.key)) && one.uploaded.getTime() < old);
+      const orphans = page.objects.filter(
+        (one) => one.key !== DAY_KEY_OBJECT && !known.has(idOf(one.key)) && one.uploaded.getTime() < old,
+      );
       if (orphans.length > 0) await this.#envelopes.delete(orphans.map((one) => one.key));
       forgotten += orphans.length;
       cursor = page.truncated ? page.cursor : undefined;

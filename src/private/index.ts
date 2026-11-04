@@ -1,15 +1,34 @@
 import { type Bindings, Cloud } from "../cloudflare/store";
-import { dayOf } from "../core/limits";
+import { dayOf, LEVEL_ONE } from "../core/limits";
+import { DayKeys } from "../core/net";
+import { answer } from "./api";
 
 interface Env extends Bindings {
+  FOLIO_SECRET: string;
+  READS: RateLimit;
   HEARTBEAT_URL?: string;
 }
 
 const WEEKLY = "0 4 * * 0";
+const dayKeys = new DayKeys();
 
 export default {
-  async fetch(): Promise<Response> {
-    return new Response(null, { status: 404 });
+  async fetch(request, env, context): Promise<Response> {
+    const store = new Cloud(env);
+    const started = Date.now();
+    const response = await answer(request, {
+      now: started,
+      waitUntil: (work) => context.waitUntil(work),
+      tools: {
+        store,
+        limits: LEVEL_ONE,
+        secret: env.FOLIO_SECRET,
+        limiter: { allows: async (key) => (await env.READS.limit({ key })).success },
+        dayKey: (today) => dayKeys.of(today, (day) => store.dayKey(day)),
+      },
+    });
+    response.headers.set("Server-Timing", `total;dur=${Date.now() - started}`);
+    return response;
   },
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
