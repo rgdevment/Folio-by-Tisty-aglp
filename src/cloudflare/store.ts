@@ -39,9 +39,12 @@ const DAY_KEY_BYTES = 32;
 // What R2 takes in one delete.
 const KEYS_AT_ONCE = 1000;
 
+// A report that weighs: not cleared by an appeal, and not from who reported falsely before (decision 41).
+const COUNTED_REPORT = "r.cleared = 0 AND r.net NOT IN (SELECT net FROM false_reporters)";
+
 // What keeps a document past its days, not served and not deleted (decision 42). Reports leave once their days pass.
 const HELD_AS_EVIDENCE = (doc: string, today: string): string =>
-  `(COALESCE(${doc}.legal_until, 0) >= ${today} OR EXISTS (SELECT 1 FROM reports r WHERE r.doc = ${doc}.id AND r.cleared = 0))`;
+  `(COALESCE(${doc}.legal_until, 0) >= ${today} OR EXISTS (SELECT 1 FROM reports r WHERE r.doc = ${doc}.id AND ${COUNTED_REPORT}))`;
 
 const encoder = new TextEncoder();
 
@@ -357,28 +360,50 @@ export class Cloud implements Store {
     const [, blocked] = await this.#db.batch([
       this.#db
         .prepare(
-          `INSERT INTO reports (doc, net, at, category, detail, sealed_link)
-           SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1)
+          `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1)
            ON CONFLICT (doc, net) DO UPDATE
              SET at = excluded.at, category = excluded.category, detail = excluded.detail,
-                 sealed_link = excluded.sealed_link, cleared = 0
+                 sealed_link = excluded.sealed_link, asn = excluded.asn, cleared = 0
              WHERE cleared = 1`,
         )
-        .bind(report.doc, report.net, today, report.category, report.detail ?? null, report.sealedLink ?? null),
+        .bind(
+          report.doc,
+          report.net,
+          today,
+          report.category,
+          report.detail ?? null,
+          report.sealedLink ?? null,
+          report.asn,
+        ),
       this.#db
         .prepare(
           `UPDATE docs SET blocked_at = ?1, dies_on = ?1 + ?2
            WHERE id = ?3 AND blocked_at IS NULL
-             AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND r.cleared = 0) >= ?4`,
+             AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND ${COUNTED_REPORT}) >= ?4
+             AND (SELECT COUNT(DISTINCT r.asn) FROM reports r WHERE r.doc = ?3 AND ${COUNTED_REPORT}) >= ?5`,
         )
-        .bind(today, this.#limits.evidenceDays, report.doc, this.#limits.reportsToBlock),
+        .bind(
+          today,
+          this.#limits.evidenceDays,
+          report.doc,
+          this.#limits.reportsToBlock,
+          this.#limits.reportOperatorsToBlock,
+        ),
     ]);
     return { blocked: (blocked?.meta.changes ?? 0) > 0 };
   }
 
   async appealAccepted(id: string, today: number): Promise<void> {
     await this.#db.batch([
-      // The reports stay as evidence, but those networks can report again and the count starts over.
+      // Who reported it stops counting for a while, and the reports stay as a record.
+      this.#db
+        .prepare(
+          `INSERT OR IGNORE INTO false_reporters (net, at)
+           SELECT net, ?2 FROM reports
+           WHERE doc = ?1 AND cleared = 0 AND EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND blocked_at IS NOT NULL)`,
+        )
+        .bind(id, today),
       this.#db
         .prepare(
           "UPDATE reports SET cleared = 1 WHERE doc = ?1 AND EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND blocked_at IS NOT NULL)",
@@ -431,6 +456,7 @@ export class Cloud implements Store {
       await this.#db.batch([
         this.#db.prepare("DELETE FROM net_day WHERE day < ?").bind(today),
         this.#db.prepare("DELETE FROM guesses WHERE slot < ?").bind(today * this.#limits.guessSlotsADay),
+        this.#db.prepare("DELETE FROM false_reporters WHERE at < ?").bind(today - this.#limits.evidenceDays),
         this.#db
           .prepare(
             `DELETE FROM reports WHERE at < ?1

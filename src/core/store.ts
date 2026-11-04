@@ -36,6 +36,7 @@ export interface Report {
   doc: string;
   net: string;
   category: string;
+  asn: number;
   detail?: string;
   sealedLink?: string;
 }

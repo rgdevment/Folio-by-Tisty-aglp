@@ -16,6 +16,7 @@ const TABLES = [
   "docs",
   "service_day",
   "service_stage",
+  "false_reporters",
   "net_day",
   "guesses",
   "reports",
@@ -58,6 +59,8 @@ const noted = async (cloud: Cloud, one: Reading, day: number) => {
   await cloud.note(one, day);
   return "noted";
 };
+
+const asnOf = (net: string): number => net.charCodeAt(0);
 
 const row = (id: string) =>
   testEnv.DB.prepare("SELECT * FROM docs WHERE id = ?").bind(id).first<{
@@ -371,7 +374,8 @@ describe("expiring", () => {
 
   it("keeps a blocked document as evidence for its days, even if read late", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
-    for (const net of ["a", "b", "c"]) await store.report({ doc: "d1", net, category: "phishing" }, DAY);
+    for (const net of ["a", "b", "c"])
+      await store.report({ doc: "d1", net, category: "phishing", asn: asnOf(net) }, DAY);
     const lastDay = DAY + LEVEL_ONE.evidenceDays;
     await noted(store, reading("r1"), lastDay - 5);
     await store.sweep(lastDay);
@@ -384,7 +388,8 @@ describe("expiring", () => {
 
   it("does not let a pause or a resume touch a blocked document", async () => {
     await store.create(newDoc("d1"), DAY);
-    for (const net of ["a", "b", "c"]) await store.report({ doc: "d1", net, category: "phishing" }, DAY);
+    for (const net of ["a", "b", "c"])
+      await store.report({ doc: "d1", net, category: "phishing", asn: asnOf(net) }, DAY);
     await store.pause("d1", DAY + 1);
     await store.resume("d1", DAY + 1);
     const after = await row("d1");
@@ -419,7 +424,8 @@ describe("expiring", () => {
   it("keeps an anchor while a language of it is evidence, and lets both go after", async () => {
     await store.create(newDoc("anchor"), DAY);
     await store.create(newDoc("en", { anchor: "anchor" }), DAY);
-    for (const net of ["a", "b", "c"]) await store.report({ doc: "en", net, category: "phishing" }, DAY);
+    for (const net of ["a", "b", "c"])
+      await store.report({ doc: "en", net, category: "phishing", asn: asnOf(net) }, DAY);
     await store.sweep(DAY + 3);
     expect(await row("anchor")).not.toBeNull();
     expect(await row("en")).not.toBeNull();
@@ -792,7 +798,8 @@ describe("uploading", () => {
     await store.upload(upload("d1", 1), DAY + 1);
     expect((await row("d1"))?.dies_on).toBe(DAY + 2);
     expect(await store.upload(upload("nobody", 1), DAY)).toBe("missing");
-    for (const net of ["a", "b", "c"]) await store.report({ doc: "d1", net, category: "malware" }, DAY);
+    for (const net of ["a", "b", "c"])
+      await store.report({ doc: "d1", net, category: "malware", asn: asnOf(net) }, DAY);
     expect(await store.upload(upload("d1", 2), DAY)).toBe("blocked");
   });
 
@@ -834,7 +841,8 @@ describe("uploading", () => {
 });
 
 describe("reports", () => {
-  const report = (net: string, doc = "d1", day = DAY) => store.report({ doc, net, category: "phishing" }, day);
+  const report = (net: string, doc = "d1", day = DAY) =>
+    store.report({ doc, net, category: "phishing", asn: asnOf(net) }, day);
 
   it("blocks at three networks, once", async () => {
     await store.create(newDoc("d1"), DAY);
@@ -862,14 +870,69 @@ describe("reports", () => {
     expect(held?.n).toBe(0);
   });
 
-  it("asks for three after an appeal, and those networks can report again, the same day too", async () => {
+  it("does not block with three networks of one operator, and does with a second", async () => {
+    await store.create(newDoc("d1"), DAY);
+    const from = (net: string, asn: number) => store.report({ doc: "d1", net, category: "phishing", asn }, DAY);
+    expect((await from("a", 7)).blocked).toBe(false);
+    expect((await from("b", 7)).blocked).toBe(false);
+    expect((await from("c", 7)).blocked).toBe(false);
+    expect((await from("d", 7)).blocked).toBe(false);
+    expect((await from("e", 8)).blocked).toBe(true);
+  });
+
+  it("does not block with two operators and only two networks", async () => {
+    await store.create(newDoc("d1"), DAY);
+    expect((await report("a")).blocked).toBe(false);
+    expect((await report("b")).blocked).toBe(false);
+  });
+
+  it("stops counting who reported something whose appeal was accepted, and asks others for three", async () => {
     await store.create(newDoc("d1"), DAY);
     for (const net of ["a", "b", "c"]) await report(net);
     await store.appealAccepted("d1", DAY);
     expect((await row("d1"))?.blocked_at).toBeNull();
-    expect((await report("a")).blocked).toBe(false);
-    expect((await report("b")).blocked).toBe(false);
-    expect((await report("c")).blocked).toBe(true);
+    for (const net of ["a", "b", "c"]) expect((await report(net)).blocked).toBe(false);
+    expect((await report("d")).blocked).toBe(false);
+    expect((await report("e")).blocked).toBe(false);
+    expect((await report("f")).blocked).toBe(true);
+  });
+
+  it("carries that to other documents, and does not let them hold one past its days", async () => {
+    await store.create(newDoc("d1"), DAY);
+    for (const net of ["a", "b", "c"]) await report(net);
+    await store.appealAccepted("d1", DAY);
+    await store.create(newDoc("d2", { owner: "o2" }), DAY);
+    for (const net of ["a", "b", "c"]) expect((await report(net, "d2")).blocked).toBe(false);
+    await store.sweep(DAY + 5);
+    expect(await row("d2")).toBeNull();
+  });
+
+  it("keeps their reports as a record", async () => {
+    await store.create(newDoc("d1"), DAY);
+    for (const net of ["a", "b", "c"]) await report(net);
+    await store.appealAccepted("d1", DAY);
+    const held = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM reports").first<{ n: number }>();
+    expect(held?.n).toBe(3);
+  });
+
+  it("counts them again once the evidence days pass", async () => {
+    await store.create(newDoc("d1"), DAY);
+    for (const net of ["a", "b", "c"]) await report(net);
+    await store.appealAccepted("d1", DAY);
+    const flagged = () => testEnv.DB.prepare("SELECT COUNT(*) AS n FROM false_reporters").first<{ n: number }>();
+    expect((await flagged())?.n).toBe(3);
+    await store.sweep(DAY + LEVEL_ONE.evidenceDays);
+    expect((await flagged())?.n).toBe(3);
+    await store.sweep(DAY + LEVEL_ONE.evidenceDays + 1);
+    expect((await flagged())?.n).toBe(0);
+  });
+
+  it("marks nobody when the appeal finds nothing blocked", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await report("a");
+    await store.appealAccepted("d1", DAY);
+    const flagged = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM false_reporters").first<{ n: number }>();
+    expect(flagged?.n).toBe(0);
   });
 
   it("keeps a paused document's days through an appeal, and does nothing if it was not blocked", async () => {
@@ -898,7 +961,8 @@ describe("reports", () => {
 });
 
 describe("what was reported", () => {
-  const report = (doc = "d1", category = "phishing", net = "a", day = DAY) => store.report({ doc, net, category }, day);
+  const report = (doc = "d1", category = "phishing", net = "a", day = DAY) =>
+    store.report({ doc, net, category, asn: asnOf(net) }, day);
   const sealedRows = () => testEnv.DB.prepare("SELECT COUNT(*) AS n FROM reports").first<{ n: number }>();
 
   it("outlives its days until the evidence runs out, and then goes", async () => {
@@ -1021,7 +1085,7 @@ describe("an order", () => {
 
   it("keeps the document and its reports for as long as it says, and not a day more", async () => {
     await store.create(newDoc("d1"), DAY);
-    await store.report({ doc: "d1", net: "a", category: "csam" }, DAY);
+    await store.report({ doc: "d1", net: "a", category: "csam", asn: 1 }, DAY);
     const until = DAY + LEVEL_ONE.evidenceDays + 50;
     await order(until);
     await store.sweep(DAY + LEVEL_ONE.evidenceDays + 10);
@@ -1063,9 +1127,9 @@ describe("what each event writes, from start to end", () => {
   it("a report and a rejected report write one row and none", async () => {
     await store.create(newDoc("d1"), DAY);
     const { spent, cloud } = counting();
-    await cloud.report({ doc: "d1", net: "a", category: "phishing" }, DAY);
+    await cloud.report({ doc: "d1", net: "a", category: "phishing", asn: 1 }, DAY);
     expect(spent.written).toBe(1);
-    await cloud.report({ doc: "d1", net: "a", category: "phishing" }, DAY);
+    await cloud.report({ doc: "d1", net: "a", category: "phishing", asn: 1 }, DAY);
     expect(spent.written).toBe(1);
   });
 

@@ -9,6 +9,7 @@ export interface Limits {
   pausedDays: number;
   evidenceDays: number;
   reportsToBlock: number;
+  reportOperatorsToBlock: number;
   sweptAtOnce: number;
   guessSlotsADay: number;
   historyDays: number;
@@ -18,7 +19,7 @@ export interface Limits {
   proofBits: number;
 }
 
-// Level 1 (decisions 42, 49, 76, 93 bis, 97, 116, 128 and 136). They move to the signed file with the rules (decision 120).
+// Level 1 (decisions 36, 41, 42, 49, 76, 93 bis, 97, 116, 128 and 136). They move to the signed file with the rules (decision 120).
 export const LEVEL_ONE: Limits = {
   ttlChoices: [1, 3, 7, 15],
   sharesAtMost: 2,
@@ -30,6 +31,7 @@ export const LEVEL_ONE: Limits = {
   pausedDays: 30,
   evidenceDays: 180,
   reportsToBlock: 3,
+  reportOperatorsToBlock: 2,
   sweptAtOnce: 500,
   guessSlotsADay: 96,
   historyDays: 90,
