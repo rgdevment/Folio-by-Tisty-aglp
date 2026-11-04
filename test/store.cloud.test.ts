@@ -12,7 +12,17 @@ const testEnv = env as unknown as {
 };
 const store = new Cloud(testEnv);
 const DAY = 20_000;
-const TABLES = ["docs", "service_day", "net_day", "guesses", "reports", "revocations", "holds", "openings"];
+const TABLES = [
+  "docs",
+  "service_day",
+  "service_stage",
+  "net_day",
+  "guesses",
+  "reports",
+  "revocations",
+  "holds",
+  "openings",
+];
 
 const newDoc = (id: string, over: Partial<NewDoc> = {}): NewDoc => ({
   id,

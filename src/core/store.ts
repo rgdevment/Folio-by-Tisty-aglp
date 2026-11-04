@@ -56,6 +56,7 @@ export interface Shown {
 export type Created = "created" | "same" | "taken" | "shares_full" | "no_anchor" | "quota" | "bad_ttl";
 export type Uploaded = "stored" | "same" | "behind" | "missing" | "blocked" | "quota";
 export type Admitted = "here" | "new" | "over" | "full";
+export type Stage = "open" | "warned" | "no_uploads" | "blocked";
 
 export interface Swept {
   summed: number;
@@ -80,4 +81,7 @@ export interface Store {
   resume(id: string, today: number): Promise<void>;
   sweep(today: number): Promise<Swept>;
   forgetOrphans(now: number): Promise<number>;
+  stage(): Promise<Stage>;
+  setStage(stage: Stage): Promise<void>;
+  liftCut(today: number): Promise<void>;
 }

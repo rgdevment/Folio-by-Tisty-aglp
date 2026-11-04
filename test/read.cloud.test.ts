@@ -20,7 +20,17 @@ const NOW = Date.now();
 const TODAY = dayOf(NOW);
 const ID = "AbCdEfGh";
 const API = `https://tisty.cl/api/v1/docs/${ID}`;
-const TABLES = ["docs", "service_day", "net_day", "guesses", "reports", "revocations", "holds", "openings"];
+const TABLES = [
+  "docs",
+  "service_day",
+  "service_stage",
+  "net_day",
+  "guesses",
+  "reports",
+  "revocations",
+  "holds",
+  "openings",
+];
 
 const open: Limiter = { allows: async () => true };
 

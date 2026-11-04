@@ -7,6 +7,7 @@ import type {
   Reading,
   Report,
   Shown,
+  Stage,
   Store,
   Swept,
   Upload,
@@ -401,7 +402,8 @@ export class Cloud implements Store {
     const { summed, failed: failedDays } = await this.#sumPastDays(today);
     let forgotten = 0;
     let failed = failedDays;
-    if (failedDays === 0) {
+    // A block stops the reads that keep documents alive, so an attack must not be able to erase them (decision 118).
+    if (failedDays === 0 && (await this.stage()) !== "blocked") {
       try {
         forgotten = await this.#forget(await this.#expired(today), today);
       } catch (error) {
@@ -555,6 +557,29 @@ export class Cloud implements Store {
       this.#db.prepare("DELETE FROM docs WHERE id IN (SELECT value FROM json_each(?))").bind(ids),
     ]);
     return deleted?.meta.changes ?? 0;
+  }
+
+  async stage(): Promise<Stage> {
+    const row = await this.#db.prepare("SELECT stage FROM service_stage WHERE id = 1").first<{ stage: Stage }>();
+    return row?.stage ?? "open";
+  }
+
+  async setStage(stage: Stage): Promise<void> {
+    await this.#db
+      .prepare("INSERT INTO service_stage (id, stage) VALUES (1, ?1) ON CONFLICT (id) DO UPDATE SET stage = ?1")
+      .bind(stage)
+      .run();
+  }
+
+  // Only what was about to die, so a block that comes back every day writes few rows.
+  async liftCut(today: number): Promise<void> {
+    await this.#db
+      .prepare(
+        `UPDATE docs SET dies_on = ?1 + ttl_days
+         WHERE dies_on <= ?1 AND latest >= 0 AND paused_at IS NULL AND blocked_at IS NULL`,
+      )
+      .bind(today)
+      .run();
   }
 
   // After D1 goes back in time, what came later stays in R2 with no row, paying for storage where nothing lists it.
