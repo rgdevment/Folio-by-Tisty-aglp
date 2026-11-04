@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex" />
+    <title>Folio by Tisty</title>
+    <script type="module" src="./ui/main.ts"></script>
+  </head>
+  <body data-state="loading">
+    <header class="bar">
+      <a class="brand" href="https://www.tisty.app/" rel="noopener noreferrer">
+        <span class="brand-mark" aria-hidden="true">F</span>
+        <span>Folio <span class="brand-by">by Tisty</span></span>
+      </a>
+      <p class="seal" id="seal" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z" /><path d="m9 12 2 2 4-4" /></svg>
+        <span id="seal-text"></span>
+      </p>
+    </header>
+
+    <div class="loading" id="loading" role="status">
+      <svg class="pen" viewBox="0 0 64 64" aria-hidden="true">
+        <path class="pen-line" d="M8 54c8-3 14-3 22 0s14 3 26-1" />
+        <path class="pen-body" d="m42 8 12 12-24 24-15 3 3-15z" />
+        <path class="pen-body" d="m36 14 12 12" />
+      </svg>
+      <span id="loading-text">Abriendo el documento…</span>
+    </div>
+
+    <main class="desk" id="desk" hidden>
+      <div class="sheet-column">
+        <div class="sheet-host" id="sheet"></div>
+      </div>
+
+      <div class="scrim" id="scrim" hidden></div>
+      <aside class="panels" aria-label="Sobre este documento">
+        <section class="panel panel-actions">
+          <a class="action action-main" id="open-in-tisty" href="tisty://folio">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6" /><path d="M20 4 10 14" /><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>
+            Abrir en Tisty
+          </a>
+          <button class="action" id="copy-link" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg>
+            <span id="copy-link-text">Copiar link</span>
+          </button>
+        </section>
+
+        <section class="panel" id="panel-signature" aria-labelledby="title-signature">
+          <h2 id="title-signature">Firma</h2>
+          <p class="verdict" id="verdict"></p>
+          <p class="signer"><bdi id="signer"></bdi></p>
+          <p class="fingerprint" id="fingerprint"></p>
+          <details class="explain">
+            <summary>Cómo comprobarla</summary>
+            <p>Pídele la huella a quien te lo mandó, por otro canal, y compárala. La firma dice quién lo escribió, no que el contenido sea seguro.</p>
+          </details>
+        </section>
+
+        <section class="panel" id="panel-paper" aria-labelledby="title-paper">
+          <h2 id="title-paper">Papel</h2>
+          <label class="field">
+            <span>Tamaño</span>
+            <select id="paper">
+              <option value="a4">A4</option>
+              <option value="letter">Carta</option>
+              <option value="folio">Oficio</option>
+            </select>
+          </label>
+          <label class="field field-check">
+            <span>Ver por hojas</span>
+            <input id="sheets" type="checkbox" />
+          </label>
+          <label class="field">
+            <span>Orientación</span>
+            <select id="orientation">
+              <option value="portrait">Vertical</option>
+              <option value="landscape">Horizontal</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="panel" id="panel-index" aria-labelledby="title-index">
+          <h2 id="title-index">Índice</h2>
+          <ol class="index" id="index"></ol>
+        </section>
+
+        <section class="panel" id="panel-details" aria-labelledby="title-details">
+          <h2 id="title-details">Detalles</h2>
+          <dl class="facts" id="details"></dl>
+        </section>
+
+        <section class="foot">
+          <dl class="facts">
+            <div><dt>Acceso</dt><dd>Solo con el link</dd></div>
+            <div><dt>Caduca</dt><dd id="dies-on"></dd></div>
+          </dl>
+          <button class="report" id="report" type="button" disabled>Denunciar este documento</button>
+        </section>
+      </aside>
+    </main>
+
+    <nav class="dock" id="dock" aria-label="Paneles" hidden>
+      <button type="button" data-panel="panel-signature">Firma</button>
+      <button type="button" data-panel="panel-paper">Papel</button>
+      <button type="button" data-panel="panel-index">Índice</button>
+      <button type="button" data-panel="panel-details">Detalles</button>
+    </nav>
+  </body>
+</html>
