@@ -23,16 +23,16 @@ amenazas legales.
 ## Qué protege el diseño
 
 - **Lo compartido sigue ilegible para el servicio.** Cada parte del documento se
-  sella en el Tisty de quien comparte con XChaCha20-Poly1305, con una llave que
+  sella en el Tisty de quien comparte con AES-256-GCM, con una llave que
   viaja después del `#` del link y nunca llega al servidor. Un compromiso en el
   sobre lo ata a esa sola llave.
 - **El servidor solo lee el manifiesto:** cuántas partes hay, de qué tipo y
   tamaño, y la versión. Aplica todos los topes sin la llave.
-- **Se puede saber quién lo escribió.** Cada equipo tiene su propia llave,
-  certificada por la llave raíz de la persona. La firma de quien escribe cubre
-  la hoja, su configuración, la lista de lo que cita y el hash del texto y de
-  cada imagen; la de quien sube cubre lo subido, y el servidor rechaza una
-  subida sin ella. Las llaves retiradas se le avisan a cada lector.
+- **Se puede saber quién lo firmó.** Cada equipo tiene su propia llave,
+  certificada por la llave raíz de la persona. Una sola firma cubre el manifiesto
+  y el hash de cada parte, así que responde por todo lo de adentro, y el servidor
+  rechaza una subida sin ella. Dice quién firmó, no qué programa lo hizo. Las
+  llaves retiradas se le avisan a cada lector.
 - **La hoja nunca se cree.** La página de lectura limpia la hoja con una lista
   cerrada de etiquetas y estilos, no corre ningún script que venga en ella, y
   vive detrás de una política de seguridad de contenido que no permite nada de

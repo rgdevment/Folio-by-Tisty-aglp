@@ -23,16 +23,16 @@ be met with legal threats.
 ## What the design protects
 
 - **What is shared stays unreadable to the service.** Each part of a document
-  is sealed in the sharer's Tisty with XChaCha20-Poly1305, under a key that
+  is sealed in the sharer's Tisty with AES-256-GCM, under a key that
   travels after the `#` of the link and never reaches the server. A commitment
   in the envelope binds it to that one key.
 - **The server reads only the manifest:** how many parts, their kinds and sizes,
   and the version. It holds every limit without the key.
-- **Who wrote it can be told.** Each machine has its own key, certified by the
-  person's root key. The writer's signature covers the page, its settings, the
-  list of what it cites and a hash of the words and of every picture; the
-  sender's signature covers what was uploaded, and the server refuses an upload
-  without it. Keys taken back are told to every reader.
+- **Who signed it can be told.** Each machine has its own key, certified by the
+  person's root key. One signature covers the manifest and the hash of every
+  part, so it answers for everything inside, and the server refuses an upload
+  without it. It says who signed, not which program made it. Keys taken back are
+  told to every reader.
 - **The page is never trusted.** The reading page cleans the drawn page with a
   closed list of tags and styles, runs no script from it, and lives behind a
   Content Security Policy that allows nothing from elsewhere.

@@ -5,8 +5,8 @@
 ## En corto
 
 Folio convierte un documento de Tisty en un link para compartirlo.
-No tiene cuentas: el link es el permiso. Lo que compartes va cifrado, y ni
-siquiera quien opera el servicio puede leerlo. Es gratis, sin fines de lucro y
+No tiene cuentas: el link es el permiso. Lo que compartes va cifrado, y el
+servicio lo guarda sin la llave para leerlo. Es gratis, sin fines de lucro y
 sin garantías: puede fallar, cambiar o terminar. Tu documento sigue siempre en
 tu Tisty; el link es una copia que caduca.
 
@@ -66,13 +66,15 @@ responsabilidad. No se permite usar Folio para:
   Fiscalía, y el phishing y el malware además a Google Safe Browsing y a
   Cloudflare. Los reclamos de derechos de autor los hace su titular, con orden
   judicial o con un aviso DMCA a través de Cloudflare.
-- **Nadie abre lo cifrado**, ni siquiera el operador, salvo en tres casos y
-  siempre con el link completo: cuando quien lo compartió lo entrega para
+- **El operador solo abre lo cifrado** en tres casos y siempre con el link
+  completo: cuando quien lo compartió lo entrega para
   demostrar que el bloqueo fue un error, para confirmar phishing o malware
   antes de reportarlo, o por orden de un juez. Cada apertura queda registrada.
   Las imágenes de una denuncia de abuso infantil no se abren nunca: el
   documento se bloquea, se conserva lo mínimo y se avisa a la PDI o a la
-  Fiscalía con el link, para que lo abran ellos.
+  Fiscalía con el link, para que lo abran ellos. En un navegador, el código que
+  descifra viene del mismo servidor; la [política de privacidad](PRIVACIDAD.md)
+  dice de qué no protege eso.
 - **El operador puede retirar** cualquier documento que incumpla estos
   términos, y bloquear el acceso a quien abuse del servicio.
 
