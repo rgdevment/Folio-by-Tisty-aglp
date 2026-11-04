@@ -5,9 +5,9 @@
 ## The short version
 
 Folio turns a Tisty document into a link you can share. There are no
-accounts: the link is the permission. What you share is encrypted, and not even
-whoever runs the service can read it. It is free, non-profit and comes with no
-warranty: it may fail, change or end. Your document always stays in your Tisty;
+accounts: the link is the permission. What you share is encrypted, and the
+service stores it without the key to read it. It is free, non-profit and comes
+with no warranty: it may fail, change or end. Your document always stays in your Tisty;
 the link is a copy that expires.
 
 ## Who runs it
@@ -66,13 +66,14 @@ responsibility. You may not use Folio for:
   investigations police) or the public prosecutor, and phishing and malware
   also to Google Safe Browsing and Cloudflare. Copyright claims are made by the
   rights holder, with a court order or a DMCA notice through Cloudflare.
-- **Nobody opens what is encrypted**, not even the operator, except in three
-  cases and always with the full link: when whoever shared it hands it over to
+- **The operator only opens what is encrypted** in three cases and always with
+  the full link: when whoever shared it hands it over to
   show a block was a mistake, to confirm phishing or malware before reporting
   it, or by a judge's order. Every opening is logged. The pictures in a report
   of child abuse are never opened: the document is blocked, the least needed
   is kept, and the PDI or the prosecutor is told, with the link, so they open
-  it themselves.
+  it themselves. In a browser, the code that decrypts comes from the same
+  server; the [privacy policy](PRIVACY.md) says what that does not protect.
 - **The operator may remove** any document that breaks these terms, and block
   access to anyone who abuses the service.
 
