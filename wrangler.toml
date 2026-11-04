@@ -1,0 +1,28 @@
+name = "folio-private"
+main = "src/private/index.ts"
+compatibility_date = "2026-08-01"
+workers_dev = false
+
+# Beside D1 and R2 in eastern North America, so a read's queries in a row cross the continent once (decision 94 bis).
+[placement]
+region = "aws:us-east-1"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "folio-private"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ENVELOPES"
+bucket_name = "folio-private-envelopes"
+
+[triggers]
+crons = ["*/15 * * * *", "0 4 * * 0"]
+
+# What the code logs is kept, and the request itself never is (decision 98).
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false

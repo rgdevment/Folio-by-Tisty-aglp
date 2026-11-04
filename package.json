@@ -1,14 +1,28 @@
 {
   "name": "folio",
   "private": true,
+  "type": "module",
   "homepage": "https://www.tisty.app/",
   "license": "AGPL-3.0-only",
   "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@cloudflare/workers-types": "5.20261103.1",
+    "@types/node": "^26.6.6",
+    "@vitest/runner": "^4.1.0",
+    "@vitest/snapshot": "^4.1.0",
     "js-yaml": "^5.5.0",
-    "markdownlint-cli2": "^0.24.0"
+    "markdownlint-cli2": "^0.24.0",
+    "typescript": "~7.0.2",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.157.0"
   },
   "scripts": {
     "prepare": "git config --get core.hooksPath || git config core.hooksPath hooks || echo the hooks are not set: this is not a git clone",
+    "test": "vitest run",
+    "typecheck": "tsc",
+    "lint": "biome check .",
+    "format": "biome check . --write",
     "lint:md": "markdownlint-cli2",
     "format:md": "markdownlint-cli2 --fix"
   }

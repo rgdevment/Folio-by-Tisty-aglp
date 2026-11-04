@@ -42,7 +42,9 @@ That is why signing is optional for unlisted documents.
 
 **About reads:** they are counted without keeping who read. Not to count the
 same person twice on one day, a short-lived digest is used and thrown away when
-the day ends.
+the day ends. Its key changes every day and is not kept. The database keeps its
+own copy for up to 30 days, to recover from a failure, and the digest stays
+there until then; it never goes into the backups.
 
 ## Cloudflare
 
