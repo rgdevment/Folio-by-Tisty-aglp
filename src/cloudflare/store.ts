@@ -4,12 +4,15 @@ import type {
   Admitted,
   Created,
   NewDoc,
+  Owned,
   Reading,
   Report,
+  Reported,
   Shown,
   Stage,
   Store,
   Swept,
+  Telling,
   Upload,
   Uploaded,
   Version,
@@ -32,8 +35,10 @@ interface DocRow {
 const CLAIMED = -1;
 
 // Beside the envelopes, so D1 and its backups never hold both the digests and their key (decision 128).
-const DAY_KEY_OBJECT = "~day-key";
-const DAY_KEY_BYTES = 32;
+const KEY_OBJECTS = "~";
+const DAY_KEY_OBJECT = `${KEY_OBJECTS}day-key`;
+const EVIDENCE_KEY_OBJECT = `${KEY_OBJECTS}evidence-key`;
+const KEY_BYTES = 32;
 
 // What R2 takes in one delete.
 const KEYS_AT_ONCE = 1000;
@@ -44,6 +49,10 @@ const COUNTED_REPORT = "r.cleared = 0 AND r.net NOT IN (SELECT net FROM false_re
 // What keeps a document past its days, not served and not deleted (decision 42). Reports leave once their days pass.
 const HELD_AS_EVIDENCE = (doc: string, today: string): string =>
   `(COALESCE(${doc}.legal_until, 0) >= ${today} OR EXISTS (SELECT 1 FROM reports r WHERE r.doc = ${doc}.id AND ${COUNTED_REPORT}))`;
+
+const TOLD_COLUMN: Record<Telling, string> = { csam: "told_csam", blocked: "told_blocked" };
+
+const HOURS_IN_A_DAY = 24;
 
 const encoder = new TextEncoder();
 
@@ -273,9 +282,10 @@ export class Cloud implements Store {
     const row = await this.#db
       .prepare(
         `SELECT d.owner, d.latest, d.versions, d.dies_on, d.paused_at, d.blocked_at,
-           EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id) OR CASE WHEN a.id IS NULL THEN d.dies_on >= ?2
-             ELSE a.latest <> ${CLAIMED} AND a.blocked_at IS NULL AND a.paused_at IS NULL
-               AND (a.dies_on >= ?2 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = a.id)) END AS alive
+           CASE WHEN d.paused_at IS NOT NULL AND d.dies_on < ?2 THEN 0
+             ELSE EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id) OR CASE WHEN a.id IS NULL THEN d.dies_on >= ?2
+               ELSE a.latest <> ${CLAIMED} AND a.blocked_at IS NULL AND a.paused_at IS NULL
+                 AND (a.dies_on >= ?2 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = a.id)) END END AS alive
          FROM docs d LEFT JOIN docs a ON a.id = d.anchor WHERE d.id = ?1`,
       )
       .bind(id, today)
@@ -305,17 +315,39 @@ export class Cloud implements Store {
   }
 
   // The first to ask each day replaces it, and only one can win, so yesterday's key is gone for good.
-  async dayKey(today: number): Promise<string> {
+  dayKey(today: number): Promise<string> {
+    return this.#keyOf(DAY_KEY_OBJECT, today);
+  }
+
+  // Replaced each evidence period: after it, who reported falsely counts again sooner (decision 41).
+  evidenceKey(today: number): Promise<string> {
+    return this.#keyOf(EVIDENCE_KEY_OBJECT, Math.floor(today / this.#limits.evidenceDays));
+  }
+
+  async #keyOf(object: string, period: number): Promise<string> {
     for (;;) {
-      const held = await this.#envelopes.get(DAY_KEY_OBJECT);
-      const said = held ? (JSON.parse(await held.text()) as { day: number; key: string }) : null;
-      if (said && said.day >= today) return said.key;
-      const key = toBase64Url(crypto.getRandomValues(new Uint8Array(DAY_KEY_BYTES)));
-      const put = await this.#envelopes.put(DAY_KEY_OBJECT, JSON.stringify({ day: today, key }), {
+      const held = await this.#envelopes.get(object);
+      const said = held ? (JSON.parse(await held.text()) as { period: number; key: string }) : null;
+      if (said && said.period >= period) return said.key;
+      const key = toBase64Url(crypto.getRandomValues(new Uint8Array(KEY_BYTES)));
+      const put = await this.#envelopes.put(object, JSON.stringify({ period, key }), {
         onlyIf: held ? { etagMatches: held.etag } : { etagDoesNotMatch: "*" },
       });
       if (put) return key;
     }
+  }
+
+  async takeHourly(net: string, action: string, hour: number, atMost: number): Promise<boolean> {
+    const taken = await this.#db
+      .prepare(
+        `INSERT INTO net_hour (net, action, hour, n) VALUES (?1, ?2, ?3, 1)
+         ON CONFLICT (net, action) DO UPDATE
+           SET n = CASE WHEN hour = excluded.hour THEN n + 1 ELSE 1 END, hour = excluded.hour
+           WHERE hour <> excluded.hour OR n < ?4`,
+      )
+      .bind(net, action, hour, atMost)
+      .run();
+    return taken.meta.changes > 0;
   }
 
   #createSeen(day: number): string {
@@ -325,9 +357,9 @@ export class Cloud implements Store {
     ) WITHOUT ROWID`;
   }
 
-  async report(report: Report, today: number): Promise<{ blocked: boolean }> {
-    if (!GRAVE_REPORTS.includes(report.category)) return { blocked: false };
-    const [, blocked] = await this.#db.batch([
+  async report(report: Report, today: number): Promise<Reported> {
+    if (!GRAVE_REPORTS.includes(report.category)) return { blocked: false, pending: [] };
+    const [, blocked, told] = await this.#db.batch([
       this.#db
         .prepare(
           `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn)
@@ -360,8 +392,62 @@ export class Cloud implements Store {
           this.#limits.reportsToBlock,
           this.#limits.reportOperatorsToBlock,
         ),
+      this.#db.prepare("SELECT blocked_at, told_csam, told_blocked FROM docs WHERE id = ?").bind(report.doc),
     ]);
-    return { blocked: (blocked?.meta.changes ?? 0) > 0 };
+    const [doc] = (told?.results ?? []) as { blocked_at: number | null; told_csam: number; told_blocked: number }[];
+    const pending: Telling[] = [];
+    if (doc && report.category === "csam" && doc.told_csam === 0) pending.push("csam");
+    if (doc && doc.blocked_at !== null && doc.told_blocked === 0) pending.push("blocked");
+    return { blocked: (blocked?.meta.changes ?? 0) > 0, pending };
+  }
+
+  async told(id: string, what: Telling): Promise<void> {
+    await this.#db.prepare(`UPDATE docs SET ${TOLD_COLUMN[what]} = 1 WHERE id = ?`).bind(id).run();
+  }
+
+  // Past its days and not blocked, it looks gone, or the admin link would give away an order that keeps it (decision 42).
+  async owned(id: string, today: number): Promise<Owned | null> {
+    const row = await this.#db
+      .prepare(
+        `SELECT d.admin_hash, d.latest, d.dies_on, d.paused_at, d.blocked_at, d.appealed_at, d.read_total, d.days
+         FROM docs d LEFT JOIN docs a ON a.id = d.anchor
+         WHERE d.id = ?1 AND d.latest <> ${CLAIMED} AND (d.blocked_at IS NOT NULL OR d.dies_on >= ?2
+           OR (d.paused_at IS NULL AND a.latest <> ${CLAIMED} AND a.dies_on >= ?2))`,
+      )
+      .bind(id, today)
+      .first<{
+        admin_hash: string;
+        latest: number;
+        dies_on: number;
+        paused_at: number | null;
+        blocked_at: number | null;
+        appealed_at: number | null;
+        read_total: number;
+        days: string;
+      }>();
+    if (!row) return null;
+    return {
+      adminHash: row.admin_hash,
+      status: {
+        latest: row.latest,
+        diesOn: row.dies_on,
+        pausedAt: row.paused_at,
+        blockedAt: row.blocked_at,
+        appealedAt: row.appealed_at,
+        readTotal: row.read_total,
+        days: JSON.parse(row.days),
+      },
+    };
+  }
+
+  async appeal(id: string, today: number): Promise<void> {
+    await this.#db
+      .prepare(
+        `UPDATE docs SET appealed_at = ?2
+         WHERE id = ?1 AND blocked_at IS NOT NULL AND appealed_at IS NULL`,
+      )
+      .bind(id, today)
+      .run();
   }
 
   async appealAccepted(id: string, today: number): Promise<void> {
@@ -382,7 +468,7 @@ export class Cloud implements Store {
         .bind(id),
       this.#db
         .prepare(
-          `UPDATE docs SET blocked_at = NULL, appealed_at = ?1,
+          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL, told_blocked = 0,
              dies_on = CASE WHEN paused_at IS NULL THEN ?1 + ttl_days ELSE paused_at + ?2 END
            WHERE id = ?3 AND blocked_at IS NOT NULL`,
         )
@@ -408,6 +494,17 @@ export class Cloud implements Store {
       .run();
   }
 
+  // Only past its days: the sweep decides what goes, so a report that arrives before it still keeps it (decision 42).
+  async stop(id: string, today: number): Promise<void> {
+    await this.#db
+      .prepare(
+        `UPDATE docs SET paused_at = COALESCE(paused_at, ?2), dies_on = ?2 - 1
+         WHERE id = ?1 AND latest >= 0 AND blocked_at IS NULL`,
+      )
+      .bind(id, today)
+      .run();
+  }
+
   // Adds up first: what expired is only known once every past day has counted (decision 128).
   async sweep(today: number): Promise<Swept> {
     await this.#db.batch([this.#db.prepare(this.#createSeen(today)), this.#db.prepare(this.#createSeen(today + 1))]);
@@ -426,6 +523,7 @@ export class Cloud implements Store {
     try {
       await this.#db.batch([
         this.#db.prepare("DELETE FROM net_day WHERE day < ?").bind(today),
+        this.#db.prepare("DELETE FROM net_hour WHERE hour < ?").bind(today * HOURS_IN_A_DAY),
         this.#db.prepare("DELETE FROM false_reporters WHERE at < ?").bind(today - this.#limits.evidenceDays),
         this.#db
           .prepare(
@@ -516,7 +614,8 @@ export class Cloud implements Store {
            d.dies_on < ?1
            AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
            AND NOT ${HELD_AS_EVIDENCE("d", "?1")}
-           AND (d.anchor IS NULL OR d.blocked_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM docs a WHERE a.id = d.anchor))
+           AND (d.anchor IS NULL OR d.blocked_at IS NOT NULL OR d.paused_at IS NOT NULL
+             OR NOT EXISTS (SELECT 1 FROM docs a WHERE a.id = d.anchor))
            AND NOT EXISTS (
              SELECT 1 FROM docs l WHERE l.owner = d.owner AND l.anchor = d.id
                AND ((l.blocked_at IS NOT NULL AND l.dies_on >= ?1)
@@ -555,7 +654,8 @@ export class Cloud implements Store {
       .bind(listed)
       .run();
     const claimed = await this.#db
-      .prepare(`SELECT id, versions FROM docs WHERE latest = ${CLAIMED}`)
+      .prepare(`SELECT id, versions FROM docs WHERE latest = ${CLAIMED} LIMIT ?`)
+      .bind(this.#limits.sweptAtOnce)
       .all<{ id: string; versions: string }>();
     if (claimed.results.length === 0) return 0;
 
@@ -581,6 +681,16 @@ export class Cloud implements Store {
   async stage(): Promise<Stage> {
     const row = await this.#db.prepare("SELECT stage FROM service_stage WHERE id = 1").first<{ stage: Stage }>();
     return row?.stage ?? "open";
+  }
+
+  async alerted(): Promise<Stage> {
+    const row = await this.#db.prepare("SELECT alerted FROM service_stage WHERE id = 1").first<{ alerted: Stage }>();
+    return row?.alerted ?? "open";
+  }
+
+  // The stage is written first, so by now there is a row.
+  async setAlerted(stage: Stage): Promise<void> {
+    await this.#db.prepare("UPDATE service_stage SET alerted = ? WHERE id = 1").bind(stage).run();
   }
 
   async setStage(stage: Stage): Promise<void> {
@@ -617,7 +727,7 @@ export class Cloud implements Store {
       const known = new Set(held.results.map((one) => one.id));
       const old = now - DAY_MS;
       const orphans = page.objects.filter(
-        (one) => one.key !== DAY_KEY_OBJECT && !known.has(idOf(one.key)) && one.uploaded.getTime() < old,
+        (one) => !one.key.startsWith(KEY_OBJECTS) && !known.has(idOf(one.key)) && one.uploaded.getTime() < old,
       );
       if (orphans.length > 0) await this.#envelopes.delete(orphans.map((one) => one.key));
       forgotten += orphans.length;

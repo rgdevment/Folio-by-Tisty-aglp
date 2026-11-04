@@ -67,24 +67,28 @@ export const stageOf = (usage: Usage, cycle: Cycle): Stage => {
 };
 
 export interface SpendTools {
-  store: Pick<Store, "stage" | "setStage" | "liftCut">;
+  store: Pick<Store, "stage" | "setStage" | "liftCut" | "alerted" | "setAlerted">;
   usageSince: (start: number, now: number) => Promise<Usage>;
   setBlocked: (blocked: boolean) => Promise<void>;
   notify: (said: { stage: Stage; was: Stage; bill: number; line: number }) => Promise<void>;
 }
 
-// The stage goes last, so a step that fails, the alert too, is done again on the next round.
+// The alert has its own mark, so one that fails goes again and never holds back the stage the sweep reads.
 export const checkSpend = async (now: number, renewalDay: number, tools: SpendTools): Promise<Stage> => {
   const { store, usageSince, setBlocked, notify } = tools;
   const cycle = cycleOf(now, renewalDay);
   const usage = await usageSince(cycle.start, now);
   const stage = stageOf(usage, cycle);
   const was = await store.stage();
-  if (stage === was) return stage;
-
-  if ((stage === "blocked") !== (was === "blocked")) await setBlocked(stage === "blocked");
-  if (was === "blocked") await store.liftCut(dayOf(now));
-  await notify({ stage, was, bill: billOf(usage), line: lineOf(cycle) });
-  await store.setStage(stage);
+  if (stage !== was) {
+    if ((stage === "blocked") !== (was === "blocked")) await setBlocked(stage === "blocked");
+    if (was === "blocked") await store.liftCut(dayOf(now));
+    await store.setStage(stage);
+  }
+  const alerted = await store.alerted();
+  if (stage !== alerted) {
+    await notify({ stage, was: alerted, bill: billOf(usage), line: lineOf(cycle) });
+    await store.setAlerted(stage);
+  }
   return stage;
 };

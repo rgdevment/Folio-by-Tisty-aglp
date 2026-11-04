@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { proofHolds, saltFor, startHolds, startNow } from "../src/core/start";
+import { hourOf, proofHolds, proofIsFresh, saltFor, startHolds, startNow } from "../src/core/start";
 
 const SECRET = "09".repeat(32);
 const HOUR = 3_600_000;
@@ -50,20 +50,28 @@ describe("start", () => {
 describe("proof of work", () => {
   it("asks for exactly the bits it says, odd counts included", async () => {
     for (let nonce = 0; nonce < 400; nonce += 1) {
-      const zeros = await zeroBits(`s|a|${nonce}`);
-      expect(await proofHolds("s", "a", String(nonce), zeros)).toBe(true);
-      expect(await proofHolds("s", "a", String(nonce), zeros + 1)).toBe(false);
+      const zeros = await zeroBits(`s|${nonce}`);
+      expect(await proofHolds("s", String(nonce), zeros)).toBe(true);
+      expect(await proofHolds("s", String(nonce), zeros + 1)).toBe(false);
     }
   });
 
-  it("covers the salt, the action and the nonce", async () => {
+  it("covers the salt and the nonce, which is all a client is told", async () => {
     let nonce = 0;
-    while ((await zeroBits(`s|a|${nonce}`)) < 12) nonce += 1;
-    expect(await proofHolds("s", "a", String(nonce), 12)).toBe(true);
-    expect((await zeroBits(`other|a|${nonce}`)) >= 12).toBe(false);
-    expect(await proofHolds("other", "a", String(nonce), 12)).toBe(false);
-    expect(await proofHolds("s", "other", String(nonce), 12)).toBe(false);
-    expect(await proofHolds("s", "a", String(nonce + 1), 12)).toBe(false);
+    while ((await zeroBits(`s|${nonce}`)) < 12) nonce += 1;
+    expect(await proofHolds("s", String(nonce), 12)).toBe(true);
+    expect(await proofHolds("other", String(nonce), 12)).toBe(false);
+    expect(await proofHolds("s", String(nonce + 1), 12)).toBe(false);
+  });
+
+  it("is bound to what is being done by its salt", async () => {
+    const salt = await saltFor(SECRET, "doc", hourOf(NOW));
+    let nonce = 0;
+    while (!(await proofHolds(salt, String(nonce), 8))) nonce += 1;
+    expect(await proofIsFresh(SECRET, "doc", String(nonce), 8, NOW)).toBe(true);
+    expect(await proofIsFresh(SECRET, "doc", String(nonce), 8, NOW + 2 * HOUR)).toBe(false);
+    const other = await saltFor(SECRET, "other", hourOf(NOW));
+    expect(await proofHolds(other, String(nonce), 8)).toBe(false);
   });
 
   it("changes salt with the hour and the scope, so proofs cannot pile up", async () => {

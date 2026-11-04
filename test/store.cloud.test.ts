@@ -18,6 +18,7 @@ const TABLES = [
   "service_stage",
   "false_reporters",
   "net_day",
+  "net_hour",
   "reports",
   "revocations",
   "holds",
@@ -657,6 +658,32 @@ describe("readers", () => {
   });
 });
 
+describe("what was claimed", () => {
+  it("goes a round at a time, however much there is", async () => {
+    const few = withLimits({ sweptAtOnce: 1 });
+    for (const id of ["d1", "d2", "d3"]) await store.create(newDoc(id, { owner: id }), DAY);
+    await testEnv.DB.prepare("UPDATE docs SET latest = -1").run();
+    expect((await few.sweep(DAY)).forgotten).toBe(1);
+    expect((await few.sweep(DAY)).forgotten).toBe(1);
+    expect((await few.sweep(DAY)).forgotten).toBe(1);
+  });
+});
+
+describe("what the hour's count writes", () => {
+  it("writes one row while it counts, and none past the ceiling", async () => {
+    const { spent, cloud } = counting();
+    expect(await cloud.takeHourly("n", "report", 1, 2)).toBe(true);
+    expect(await cloud.takeHourly("n", "report", 1, 2)).toBe(true);
+    expect(spent.written).toBe(2);
+    expect(await cloud.takeHourly("n", "report", 1, 2)).toBe(false);
+    expect(spent.written).toBe(2);
+    expect(await cloud.takeHourly("n", "report", 2, 2)).toBe(true);
+    expect(spent.written).toBe(3);
+    expect(await cloud.takeHourly("n", "report", 2, 2)).toBe(true);
+    expect(await cloud.takeHourly("n", "report", 2, 2)).toBe(false);
+  });
+});
+
 describe("creating", () => {
   it("stops at the owner's shares", async () => {
     expect(await store.create(newDoc("d1"), DAY)).toBe("created");
@@ -1083,7 +1110,7 @@ describe("what was reported", () => {
 
   it("does not hold anything for what anyone cannot report", async () => {
     await store.create(newDoc("d1"), DAY);
-    expect(await report("d1", "copyright")).toEqual({ blocked: false });
+    expect((await report("d1", "copyright")).blocked).toBe(false);
     expect((await sealedRows())?.n).toBe(0);
     await store.sweep(DAY + 5);
     expect(await row("d1")).toBeNull();

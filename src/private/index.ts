@@ -11,12 +11,20 @@ interface Env extends Bindings, SpendBindings {
   BILLING_DAY: string;
   HEARTBEAT_URL?: string;
   SPEND_HEARTBEAT_URL?: string;
-  ALERT_URL?: string;
+  ALERT_URL: string;
 }
 
 const WEEKLY = "0 4 * * 0";
 const SPEND = "*/15 * * * *";
 const dayKeys = new DayKeys();
+const evidenceKeys = new DayKeys();
+
+const sendAlert = async (env: Env, said: unknown): Promise<void> => {
+  // Failing is the alert here: a report of CSAM that answers well and tells nobody would be worse.
+  if (!env.ALERT_URL) throw new Error("there is nowhere to send an alert");
+  const alert = await fetch(env.ALERT_URL, { method: "POST", body: JSON.stringify(said) });
+  if (!alert.ok) throw new Error(`the alert was refused: ${alert.status}`);
+};
 
 const reviewSpend = async (now: number, env: Env): Promise<void> => {
   const spend = new CloudSpend(env);
@@ -26,9 +34,7 @@ const reviewSpend = async (now: number, env: Env): Promise<void> => {
     setBlocked: (blocked) => spend.setBlocked(blocked),
     notify: async (said) => {
       console.log(JSON.stringify(said));
-      if (!env.ALERT_URL) return;
-      const alert = await fetch(env.ALERT_URL, { method: "POST", body: JSON.stringify(said) });
-      if (!alert.ok) throw new Error(`the alert was refused: ${alert.status}`);
+      await sendAlert(env, said);
     },
   });
   console.log(JSON.stringify({ stage }));
@@ -49,6 +55,8 @@ export default {
         secret: env.FOLIO_SECRET,
         limiter: { allows: async (key) => (await env.READS.limit({ key })).success },
         dayKey: (today) => dayKeys.of(today, (day) => store.dayKey(day)),
+        evidenceKey: (today) => evidenceKeys.of(today, (day) => store.evidenceKey(day)),
+        alert: (said) => sendAlert(env, said),
       },
     });
     response.headers.set("Server-Timing", `total;dur=${Date.now() - started}`);

@@ -20,7 +20,7 @@ export const macOf = async (secret: string, said: string): Promise<string> => {
   return toBase64Url(await crypto.subtle.sign("HMAC", key, encoder.encode(said)));
 };
 
-const sameText = (one: string, other: string): boolean => {
+export const sameText = (one: string, other: string): boolean => {
   if (one.length !== other.length) return false;
   let differs = 0;
   for (let at = 0; at < one.length; at += 1) differs |= one.charCodeAt(at) ^ other.charCodeAt(at);
@@ -28,6 +28,11 @@ const sameText = (one: string, other: string): boolean => {
 };
 
 export const hourOf = (ms: number): number => Math.floor(ms / HOUR_MS);
+
+export const hourEnds = (ms: number): number => (hourOf(ms) + 1) * HOUR_MS;
+
+export const tokenHash = async (token: string): Promise<string> =>
+  toBase64Url(await crypto.subtle.digest("SHA-256", encoder.encode(token)));
 
 const newId = (): string => {
   // Rejecting the top of the range keeps every letter equally likely.
@@ -65,8 +70,9 @@ export const startHolds = async (secret: string, id: string, mac: string, now: n
   return false;
 };
 
-export const proofHolds = async (salt: string, action: string, nonce: string, bits: number): Promise<boolean> => {
-  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(`${salt}|${action}|${nonce}`)));
+// Only the salt and the nonce: the salt is bound to what is being done, and it is all that whoever solves it is told.
+export const proofHolds = async (salt: string, nonce: string, bits: number): Promise<boolean> => {
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(`${salt}|${nonce}`)));
   let left = bits;
   for (const byte of hash) {
     if (left <= 0) return true;
@@ -87,7 +93,7 @@ export const proofIsFresh = async (
 ): Promise<boolean> => {
   const hour = hourOf(now);
   for (const one of [hour, hour - 1]) {
-    if (await proofHolds(await saltFor(secret, scope, one), scope, nonce, bits)) return true;
+    if (await proofHolds(await saltFor(secret, scope, one), nonce, bits)) return true;
   }
   return false;
 };
