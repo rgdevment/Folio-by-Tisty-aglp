@@ -18,7 +18,7 @@ export interface Limits {
   proofBits: number;
 }
 
-// Level 1 (decisions 49, 76, 93 bis, 97, 116, 128 and 136). They move to the signed file with the rules (decision 120).
+// Level 1 (decisions 42, 49, 76, 93 bis, 97, 116, 128 and 136). They move to the signed file with the rules (decision 120).
 export const LEVEL_ONE: Limits = {
   ttlChoices: [1, 3, 7, 15],
   sharesAtMost: 2,
@@ -28,7 +28,7 @@ export const LEVEL_ONE: Limits = {
   netDocsADay: 50,
   netBytesADay: 200 * 1000 * 1000,
   pausedDays: 30,
-  evidenceDays: 90,
+  evidenceDays: 180,
   reportsToBlock: 3,
   sweptAtOnce: 500,
   guessSlotsADay: 96,
@@ -38,6 +38,9 @@ export const LEVEL_ONE: Limits = {
   guessesBeforeProof: 50,
   proofBits: 16,
 };
+
+// What anyone can report (decisions 38 and 42). Copyright is not here: its holder asks, and it comes down with no evidence.
+export const GRAVE_REPORTS = ["csam", "phishing", "malware", "scam", "threat", "doxxing", "intimate"];
 
 export const DAY_MS = 86_400_000;
 
