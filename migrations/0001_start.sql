@@ -20,11 +20,20 @@ CREATE TABLE docs (
   paused_at INTEGER,
   blocked_at INTEGER,
   appealed_at INTEGER,
-  read_total INTEGER NOT NULL DEFAULT 0
+  read_total INTEGER NOT NULL DEFAULT 0,
+  days TEXT NOT NULL DEFAULT '{}'
 ) WITHOUT ROWID;
 
 -- Written only when a document is created, since nothing else changes the owner.
 CREATE INDEX docs_owner ON docs (owner, anchor);
+
+-- What stays of each day for good, with no document in it.
+CREATE TABLE service_day (
+  day INTEGER PRIMARY KEY,
+  readers INTEGER NOT NULL,
+  docs INTEGER NOT NULL,
+  hours TEXT NOT NULL
+) WITHOUT ROWID;
 
 CREATE TABLE net_day (
   day INTEGER NOT NULL,

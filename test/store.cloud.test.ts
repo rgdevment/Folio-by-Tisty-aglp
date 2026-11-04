@@ -12,7 +12,18 @@ const testEnv = env as unknown as {
 };
 const store = new Cloud(testEnv);
 const DAY = 20_000;
-const TABLES = ["docs", "net_day", "guesses", "reports", "revocations", "holds", "owners", "blocked", "openings"];
+const TABLES = [
+  "docs",
+  "service_day",
+  "net_day",
+  "guesses",
+  "reports",
+  "revocations",
+  "holds",
+  "owners",
+  "blocked",
+  "openings",
+];
 
 const newDoc = (id: string, over: Partial<NewDoc> = {}): NewDoc => ({
   id,
@@ -25,7 +36,14 @@ const newDoc = (id: string, over: Partial<NewDoc> = {}): NewDoc => ({
 });
 
 const upload = (id: string, n: number, hash = `h${n}`, net = "n1") => ({ id, n, hash, body: "x".repeat(10), net });
-const reading = (reader: string, doc = "d1", over = {}) => ({ owner: "o1", reader, doc, proved: false, ...over });
+const reading = (reader: string, doc = "d1", over = {}) => ({
+  owner: "o1",
+  reader,
+  doc,
+  hour: 9,
+  proved: false,
+  ...over,
+});
 
 const row = (id: string) =>
   testEnv.DB.prepare("SELECT * FROM docs WHERE id = ?").bind(id).first<{
@@ -37,6 +55,7 @@ const row = (id: string) =>
     bytes: number;
     blocked_at: number | null;
     paused_at: number | null;
+    days: string;
   }>();
 
 const objects = async (id: string) =>
@@ -205,12 +224,92 @@ describe("adding up the days", () => {
   });
 });
 
+describe("the history of each day", () => {
+  const days = async (id = "d1") => JSON.parse((await row(id))?.days ?? "{}");
+  const readers = (count: number, hour: number, from = 0) =>
+    Promise.all(
+      Array.from({ length: count }, (_, i) => store.noteReader(reading(`r${from + i}`, "d1", { hour }), DAY)),
+    );
+
+  it("keeps the readers and hours of a day with enough readers", async () => {
+    await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
+    await readers(3, 9);
+    await readers(2, 14, 3);
+    await store.sweep(DAY + 1);
+    expect(await days()).toEqual({ [DAY]: { n: 5, h: { 9: 3, 14: 2 } } });
+  });
+
+  it("keeps no hours below the least, so a link sent to one person is no read receipt", async () => {
+    await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
+    await readers(LEVEL_ONE.hoursFromReaders - 1, 9);
+    await store.sweep(DAY + 1);
+    expect(await days()).toEqual({ [DAY]: { n: LEVEL_ONE.hoursFromReaders - 1 } });
+  });
+
+  it("adds a reader who arrives once the day was added, without losing what was there", async () => {
+    await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
+    await readers(5, 9);
+    await store.sweep(DAY + 1);
+    await store.noteReader(reading("late", "d1", { hour: 23 }), DAY);
+    await store.sweep(DAY + 1);
+    expect(await days()).toEqual({ [DAY]: { n: 6, h: { 9: 5 } } });
+    expect((await row("d1"))?.read_total).toBe(6);
+    const kept = await testEnv.DB.prepare("SELECT readers FROM service_day WHERE day = ?")
+      .bind(DAY)
+      .first<{ readers: number }>();
+    expect(kept?.readers).toBe(6);
+  });
+
+  it("lets go of what is past its days and keeps the total", async () => {
+    await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
+    await store.noteReader(reading("r1"), DAY);
+    await store.sweep(DAY + 1);
+    const later = DAY + LEVEL_ONE.historyDays;
+    await store.noteReader(reading("r2"), later);
+    await store.sweep(later + 1);
+    expect(Object.keys(await days())).toEqual([String(later)]);
+    expect((await row("d1"))?.read_total).toBe(2);
+  });
+
+  it("keeps each day for the service for good, even when the document is gone", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.noteReader(reading("r1", "d1", { hour: 9 }), DAY);
+    await store.noteReader(reading("r2", "d1", { hour: 14 }), DAY);
+    await store.noteReader(reading("r2", "d2", { owner: "o2", hour: 14 }), DAY);
+    await store.sweep(DAY + 30);
+    expect(await row("d1")).toBeNull();
+    const kept = await testEnv.DB.prepare("SELECT * FROM service_day WHERE day = ?").bind(DAY).first<{
+      readers: number;
+      docs: number;
+      hours: string;
+    }>();
+    expect(kept).toMatchObject({ readers: 3, docs: 2 });
+    expect(JSON.parse(kept?.hours ?? "{}")).toEqual({ 9: 1, 14: 2 });
+  });
+
+  it("writes one row for the document and one for the service, however many read it", async () => {
+    await store.create(newDoc("d1", { ttlDays: 3 }), DAY);
+    await store.sweep(DAY + 1);
+    await readers(5, 9);
+    const { spent, cloud } = counting();
+    await cloud.sweep(DAY + 1);
+    expect(spent.written).toBe(2);
+  });
+
+  it("adds nothing to the service on a day nobody read", async () => {
+    await store.sweep(DAY);
+    await store.sweep(DAY + 1);
+    const kept = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM service_day").first<{ n: number }>();
+    expect(kept?.n).toBe(0);
+  });
+});
+
 describe("expiring", () => {
   it("forgets what ran out, with its objects, and spares a document read in time", async () => {
     await store.create(newDoc("gone"), DAY);
     await store.upload(upload("gone", 1), DAY);
     await store.create(newDoc("read", { owner: "o2" }), DAY);
-    await store.noteReader({ owner: "o2", reader: "r1", doc: "read", proved: false }, DAY + 1);
+    await store.noteReader(reading("r1", "read", { owner: "o2" }), DAY + 1);
     await store.sweep(DAY + 2);
     expect(await row("gone")).toBeNull();
     expect(await objects("gone")).toEqual([]);
@@ -426,7 +525,7 @@ describe("readers", () => {
     await store.noteReader(reading("first", doc), DAY);
     await testEnv.DB.prepare(
       `INSERT OR IGNORE INTO seen_${DAY} WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
-       SELECT 'o1', 'r' || i, '${doc}' FROM n`,
+       SELECT 'o1', 'r' || i, '${doc}', 9 FROM n`,
     )
       .bind(count - 1)
       .run();
@@ -474,7 +573,7 @@ describe("readers", () => {
 
   it("reads at most its ceiling and its free readers however many there are", async () => {
     await fill(LEVEL_ONE.rowsPerOwnerADay);
-    await testEnv.DB.prepare(`INSERT INTO seen_${DAY} VALUES ('o1', 'extra', 'd1')`).run();
+    await testEnv.DB.prepare(`INSERT INTO seen_${DAY} VALUES ('o1', 'extra', 'd1', 9)`).run();
     const { spent, cloud } = counting();
     await cloud.noteReader(reading("new"), DAY);
     expect(spent.read).toBeLessThanOrEqual(LEVEL_ONE.rowsPerOwnerADay + LEVEL_ONE.newReadersFree + 5);

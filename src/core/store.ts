@@ -26,6 +26,7 @@ export interface Reading {
   owner: string;
   reader: string;
   doc: string;
+  hour: number;
   proved: boolean;
 }
 

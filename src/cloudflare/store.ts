@@ -186,7 +186,7 @@ export class Cloud implements Store {
     }
   }
 
-  async #note({ owner, reader, doc, proved }: Reading, today: number): Promise<Noted> {
+  async #note({ owner, reader, doc, hour, proved }: Reading, today: number): Promise<Noted> {
     const table = seenTable(today);
     const found = await this.#db
       .prepare(
@@ -213,15 +213,16 @@ export class Cloud implements Store {
       }
     }
     await this.#db
-      .prepare(`INSERT OR IGNORE INTO ${table} (owner, reader, doc) VALUES (?, ?, ?)`)
-      .bind(owner, reader, doc)
+      .prepare(`INSERT OR IGNORE INTO ${table} (owner, reader, doc, hour) VALUES (?, ?, ?, ?)`)
+      .bind(owner, reader, doc, hour)
       .run();
     return "noted";
   }
 
   #createSeen(day: number): string {
     return `CREATE TABLE IF NOT EXISTS ${seenTable(day)} (
-      owner TEXT NOT NULL, reader TEXT NOT NULL, doc TEXT NOT NULL, PRIMARY KEY (owner, reader, doc)
+      owner TEXT NOT NULL, reader TEXT NOT NULL, doc TEXT NOT NULL, hour INTEGER NOT NULL,
+      PRIMARY KEY (owner, reader, doc)
     ) WITHOUT ROWID`;
   }
 
@@ -323,15 +324,8 @@ export class Cloud implements Store {
       try {
         // In one batch, so a day is either counted and gone or still there to count: never lost, never counted twice.
         await this.#db.batch([
-          this.#db
-            .prepare(
-              `UPDATE docs SET read_total = read_total + t.readers, active_day = MAX(active_day, ?1),
-                 dies_on = CASE WHEN paused_at IS NULL AND blocked_at IS NULL
-                   THEN MAX(dies_on, ?1 + ttl_days) ELSE dies_on END
-               FROM (SELECT doc, COUNT(*) AS readers FROM ${table} GROUP BY doc) t
-               WHERE docs.id = t.doc`,
-            )
-            .bind(day),
+          this.#addToDocs(table, day),
+          this.#addToService(table, day),
           this.#db.prepare(`DROP TABLE ${table}`),
         ]);
         summed += 1;
@@ -341,6 +335,45 @@ export class Cloud implements Store {
       }
     }
     return { summed, failed };
+  }
+
+  // The day goes in the row this already writes, so its history costs no rows and dies with the document (decision 136).
+  #addToDocs(table: string, day: number): D1PreparedStatement {
+    // A reader who arrives as the day is added opens the table again: only their count is added, not their hour.
+    return this.#db
+      .prepare(
+        `UPDATE docs SET read_total = read_total + t.readers, active_day = MAX(active_day, ?1),
+           dies_on = CASE WHEN paused_at IS NULL AND blocked_at IS NULL
+             THEN MAX(dies_on, ?1 + ttl_days) ELSE dies_on END,
+           days = (
+             SELECT json_group_object(key, json(value)) FROM json_each(
+               CASE WHEN json_type(days, ?4) IS NULL THEN json_set(days, ?4, json(t.entry))
+                 ELSE json_set(days, ?4 || '.n', json_extract(days, ?4 || '.n') + t.readers) END
+             ) WHERE CAST(key AS INTEGER) > ?1 - ?2
+           )
+         FROM (
+           SELECT doc, SUM(n) AS readers,
+             CASE WHEN SUM(n) >= ?3 THEN json_object('n', SUM(n), 'h', json_group_object(hour, n))
+               ELSE json_object('n', SUM(n)) END AS entry
+           FROM (SELECT doc, hour, COUNT(*) AS n FROM ${table} GROUP BY doc, hour) GROUP BY doc
+         ) t
+         WHERE docs.id = t.doc`,
+      )
+      .bind(day, this.#limits.historyDays, this.#limits.hoursFromReaders, `$."${day}"`);
+  }
+
+  #addToService(table: string, day: number): D1PreparedStatement {
+    return this.#db
+      .prepare(
+        `INSERT INTO service_day (day, readers, docs, hours)
+         SELECT ?1, readers, docs, hours FROM (
+           SELECT SUM(n) AS readers, (SELECT COUNT(DISTINCT doc) FROM ${table}) AS docs,
+             json_group_object(hour, n) AS hours
+           FROM (SELECT hour, COUNT(*) AS n FROM ${table} GROUP BY hour)
+         ) WHERE readers IS NOT NULL
+         ON CONFLICT (day) DO UPDATE SET readers = readers + excluded.readers, docs = docs + excluded.docs`,
+      )
+      .bind(day);
   }
 
   async #expired(today: number): Promise<{ id: string; owner: string }[]> {
