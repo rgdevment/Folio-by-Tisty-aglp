@@ -31,8 +31,7 @@ interface DocRow {
 // A document being forgotten: nothing can move it on from here, and the sweep finishes it even after failing halfway.
 const CLAIMED = -1;
 
-// Not an id, since ids have no such letter. It lives beside the envelopes so that D1, its copies and its backups never
-// hold both the digests and the key that made them (decision 128).
+// Beside the envelopes, so D1 and its backups never hold both the digests and their key (decision 128).
 const DAY_KEY_OBJECT = "~day-key";
 const DAY_KEY_BYTES = 32;
 
@@ -84,6 +83,7 @@ export class Cloud implements Store {
            SELECT COUNT(*) FROM docs d
            WHERE d.owner = ?2 AND d.anchor IS NULL AND d.latest >= 0 AND d.blocked_at IS NULL
              AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
+             AND d.dies_on >= ?8
          ) < ?9)`,
       )
       .bind(
@@ -273,9 +273,10 @@ export class Cloud implements Store {
     const row = await this.#db
       .prepare(
         `SELECT d.owner, d.latest, d.versions, d.dies_on, d.paused_at, d.blocked_at,
-           d.dies_on >= ?2 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
-             OR (d.anchor IS NOT NULL AND EXISTS (SELECT 1 FROM docs a WHERE a.id = d.anchor AND a.latest <> ${CLAIMED})) AS alive
-         FROM docs d WHERE d.id = ?1`,
+           EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id) OR CASE WHEN a.id IS NULL THEN d.dies_on >= ?2
+             ELSE a.latest <> ${CLAIMED} AND a.blocked_at IS NULL AND a.paused_at IS NULL
+               AND (a.dies_on >= ?2 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = a.id)) END AS alive
+         FROM docs d LEFT JOIN docs a ON a.id = d.anchor WHERE d.id = ?1`,
       )
       .bind(id, today)
       .first<{
@@ -308,7 +309,7 @@ export class Cloud implements Store {
     for (;;) {
       const held = await this.#envelopes.get(DAY_KEY_OBJECT);
       const said = held ? (JSON.parse(await held.text()) as { day: number; key: string }) : null;
-      if (said?.day === today) return said.key;
+      if (said && said.day >= today) return said.key;
       const key = toBase64Url(crypto.getRandomValues(new Uint8Array(DAY_KEY_BYTES)));
       const put = await this.#envelopes.put(DAY_KEY_OBJECT, JSON.stringify({ day: today, key }), {
         onlyIf: held ? { etagMatches: held.etag } : { etagDoesNotMatch: "*" },
@@ -368,9 +369,10 @@ export class Cloud implements Store {
       // Who reported it stops counting for a while, and the reports stay as a record.
       this.#db
         .prepare(
-          `INSERT OR IGNORE INTO false_reporters (net, at)
+          `INSERT INTO false_reporters (net, at)
            SELECT net, ?2 FROM reports
-           WHERE doc = ?1 AND cleared = 0 AND EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND blocked_at IS NOT NULL)`,
+           WHERE doc = ?1 AND cleared = 0 AND EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND blocked_at IS NOT NULL)
+           ON CONFLICT (net) DO UPDATE SET at = excluded.at`,
         )
         .bind(id, today),
       this.#db
@@ -529,8 +531,7 @@ export class Cloud implements Store {
     return expired.results.map((one) => one.id);
   }
 
-  // All at once, since D1 takes 1,000 queries per invocation. It claims the rows before touching R2, so an upload or a
-  // hold that arrived after the list saves the document, and what an upload left halfway goes with the orphans.
+  // In bulk for D1's 1,000 queries per invocation; claiming before R2 lets a later upload or hold save the document.
   async #forget(expired: string[], today: number): Promise<number> {
     if (expired.length === 0) return 0;
     const listed = JSON.stringify(expired);
@@ -594,7 +595,8 @@ export class Cloud implements Store {
     await this.#db
       .prepare(
         `UPDATE docs SET dies_on = ?1 + ttl_days
-         WHERE dies_on <= ?1 AND latest >= 0 AND paused_at IS NULL AND blocked_at IS NULL`,
+         WHERE dies_on <= ?1 AND latest >= 0 AND paused_at IS NULL AND blocked_at IS NULL
+           AND NOT ${HELD_AS_EVIDENCE("docs", "?1")}`,
       )
       .bind(today)
       .run();

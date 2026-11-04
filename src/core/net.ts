@@ -2,10 +2,13 @@ import { macOf } from "./start";
 
 const IPV6_GROUPS = 8;
 const GROUPS_IN_A_NET = 3;
+const IPV4_MAPPED = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i;
 
 // A whole IPv4 or the /48 of an IPv6, for everything: a /64 is too cheap to get many of (decision 137).
 export const netOf = (ip: string): string => {
   if (!ip.includes(":")) return ip;
+  const mapped = IPV4_MAPPED.exec(ip)?.[1];
+  if (mapped) return mapped;
   const [head = "", tail] = ip.toLowerCase().split("::");
   const front = head ? head.split(":") : [];
   const back = tail ? tail.split(":") : [];
