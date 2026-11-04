@@ -1,4 +1,5 @@
-import { check, type Envelope, type EnvelopeKind, type Opening, type Signature, VERSION } from "@tisty/contracts";
+import type { Envelope, EnvelopeKind, Opening, Signature } from "@tisty/contracts";
+import { check, VERSION } from "@tisty/contracts/check";
 import { bigEndian, fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
 
 export type EnvelopeRefusal = "newer" | "older" | "damaged" | "unsigned" | "key";

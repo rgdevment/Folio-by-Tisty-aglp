@@ -46,6 +46,5 @@ jobs:
           body="Tisty published the contract $newest: https://github.com/$CONTRACT_REPO/releases/tag/contracts-v$newest
 
           - Change the link in \`package.json\` and run \`npm install\`, in a pull request, so its samples run in CI.
-          - Copy \`contracts/vectors/written-by-tisty.json\` from that release's commit to \`test/fixtures\`.
           - A new major version: Folio is deployed first and Tisty after, or the server refuses what Tisty uploads."
           gh issue create --title "$title" --body "$body"
