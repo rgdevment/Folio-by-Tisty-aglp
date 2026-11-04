@@ -3,8 +3,14 @@ main = "src/private/index.ts"
 compatibility_date = "2026-08-01"
 workers_dev = false
 
-# Only the API, and tisty.cl needs a proxied DNS record: the page comes with its own assets (decision 109).
-routes = [{ pattern = "tisty.cl/api/*", zone_name = "tisty.cl" }]
+# tisty.cl needs a proxied DNS record for this route to answer.
+routes = [{ pattern = "tisty.cl/*", zone_name = "tisty.cl" }]
+
+# Free and uncounted (decision 109): only the API wakes the Worker, and any other path gets the page.
+[assets]
+directory = "./dist/page"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
 
 # Beside D1 and R2 in eastern North America, so a read's queries in a row cross the continent once (decision 94 bis).
 [placement]

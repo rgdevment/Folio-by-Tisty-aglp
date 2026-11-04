@@ -16,13 +16,17 @@
     "js-yaml": "^5.5.0",
     "markdownlint-cli2": "^0.24.0",
     "typescript": "~7.0.2",
+    "vite": "^8.3.5",
     "vitest": "^4.1.0",
     "wrangler": "^4.157.0"
   },
   "scripts": {
     "prepare": "git config --get core.hooksPath || git config core.hooksPath hooks || echo the hooks are not set: this is not a git clone",
     "test": "vitest run",
-    "typecheck": "tsc",
+    "typecheck": "tsc && tsc -p tsconfig.page.json",
+    "dev": "vite",
+    "build": "vite build",
+    "budget": "node scripts/budget.mjs",
     "lint": "biome check .",
     "format": "biome check . --write",
     "lint:md": "markdownlint-cli2",

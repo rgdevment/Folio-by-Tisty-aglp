@@ -1,0 +1,515 @@
+/* The frame is Folio's own (decision 113). The sheet inside it follows the contract, in sheet.css. */
+:root {
+  color-scheme: light dark;
+  --brand: #0b6b53;
+  --brand-ink: #ffffff;
+  --brand-soft: rgb(11 107 83 / 0.1);
+  --warn: #a35a00;
+  --bad: #c62f45;
+  --radius: 14px;
+  --panels-width: 300px;
+  --bar-height: 56px;
+  --dock-height: 56px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand: #4fc3a1;
+    --brand-ink: #06291f;
+    --brand-soft: rgb(79 195 161 / 0.14);
+    --warn: #e0a24d;
+    --bad: #ff7a8a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--tisty-desk);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--tisty-desk);
+  color: var(--tisty-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+button,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--bar-height);
+  padding: 0 24px;
+  background: var(--tisty-rail);
+  border-bottom: 1px solid var(--tisty-hair);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--tisty-ink);
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--tisty-ink);
+  color: var(--tisty-rail);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.brand-by {
+  color: var(--tisty-soft);
+  font-weight: 450;
+}
+
+.seal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.seal svg,
+.action svg {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-tone="good"] {
+  color: var(--brand);
+}
+
+[data-tone="warn"] {
+  color: var(--warn);
+}
+
+[data-tone="bad"] {
+  color: var(--bad);
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: calc(100vh - var(--bar-height));
+  padding: 24px;
+  color: var(--tisty-soft);
+  text-align: center;
+}
+
+.pen {
+  width: 56px;
+  height: 56px;
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pen-line {
+  stroke-dasharray: 60;
+  animation: write 1.4s ease-in-out infinite;
+}
+
+[data-state="closed"] .pen-line {
+  animation: none;
+}
+
+@keyframes write {
+  from {
+    stroke-dashoffset: 60;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pen-line {
+    animation: none;
+  }
+}
+
+.desk {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 32px;
+  padding: 32px 24px 64px;
+}
+
+.sheet-column {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sheet-host {
+  display: block;
+  width: var(--page-width, 820px);
+  max-width: 100%;
+}
+
+.panels {
+  position: sticky;
+  top: calc(var(--bar-height) + 32px);
+  flex: 0 0 var(--panels-width);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel {
+  padding: 16px 18px;
+  background: var(--tisty-sheet);
+  border: 1px solid var(--tisty-hair);
+  border-radius: var(--radius);
+}
+
+/* It takes the focus only so a keyboard lands inside it, and the panel itself is no control. */
+.panel:focus {
+  outline: none;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  font-weight: 620;
+}
+
+.panel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  background: transparent;
+  border: 1px solid var(--tisty-line);
+  border-radius: 10px;
+  color: var(--tisty-ink);
+  font-weight: 550;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--tisty-hover);
+}
+
+.action-main,
+.action-main:hover {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+}
+
+.facts-next {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--tisty-hair);
+}
+
+.facts .fingerprint {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.explain {
+  margin-top: 10px;
+  color: var(--tisty-soft);
+  font-size: 13px;
+}
+
+.explain summary {
+  cursor: pointer;
+}
+
+.explain p {
+  margin: 6px 0 0;
+}
+
+.paper {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.leaves {
+  flex: 1 1 auto;
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--tisty-line);
+  border-radius: 8px;
+}
+
+.leaf {
+  padding: 5px 0;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tisty-soft);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.leaf[aria-pressed="true"] {
+  background: var(--tisty-hover);
+  box-shadow: inset 0 0 0 1px var(--tisty-hair);
+  color: var(--tisty-ink);
+  font-weight: 600;
+}
+
+.tool {
+  flex: none;
+  min-width: 36px;
+  padding: 0 6px;
+  background: none;
+  border: 1px solid var(--tisty-line);
+  border-radius: 8px;
+  color: var(--tisty-soft);
+  cursor: pointer;
+}
+
+.tool[aria-pressed="true"] {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.index {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.index button {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tisty-soft);
+  font-size: 13.5px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.index button:hover {
+  background: var(--tisty-hover);
+  color: var(--tisty-ink);
+}
+
+.index [data-level="2"] button {
+  padding-left: 16px;
+}
+
+.index [data-level="3"] button,
+.index [data-level="4"] button,
+.index [data-level="5"] button,
+.index [data-level="6"] button {
+  padding-left: 26px;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.facts dt {
+  flex: none;
+  color: var(--tisty-soft);
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 500;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.foot {
+  padding: 2px 4px 8px;
+}
+
+.report {
+  margin-top: 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--tisty-soft);
+  font-size: 13.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.report:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.scrim,
+.dock {
+  display: none;
+}
+
+/* Below this the panels no longer fit beside the sheet, so they rise from below (whitepaper, «Leer en la web»). */
+@media (max-width: 1180px) {
+  .bar {
+    padding: 0 16px;
+  }
+
+  .desk {
+    display: block;
+    padding: 16px 12px calc(var(--dock-height) + 24px);
+  }
+
+  .sheet-host {
+    margin: 0 auto;
+  }
+
+  .panels {
+    position: static;
+    max-width: 820px;
+    max-height: none;
+    margin: 16px auto 0;
+  }
+
+  .panel:not(.panel-actions) {
+    display: none;
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 5;
+    max-height: 72vh;
+    overflow-y: auto;
+    padding: 20px 20px calc(var(--dock-height) + 20px);
+    border-width: 1px 0 0;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -8px 30px var(--tisty-cast);
+  }
+
+  .panel[data-open] {
+    display: block;
+  }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 4;
+    background: rgb(0 0 0 / 0.35);
+  }
+
+  .dock {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 6;
+    height: var(--dock-height);
+    background: var(--tisty-rail);
+    border-top: 1px solid var(--tisty-hair);
+  }
+
+  .dock button {
+    background: transparent;
+    border: 0;
+    color: var(--tisty-soft);
+    font-size: 13.5px;
+    font-weight: 550;
+    cursor: pointer;
+  }
+
+  .dock button:hover {
+    color: var(--tisty-ink);
+  }
+}
+
+@media print {
+  .bar,
+  .panels,
+  .dock,
+  .scrim {
+    display: none;
+  }
+
+  .desk {
+    display: block;
+    padding: 0;
+  }
+}
+
+/* Last and doubled, so no display above can show what the page hid. */
+[hidden][hidden] {
+  display: none;
+}

@@ -78,8 +78,12 @@ Before opening a pull request, run what CI runs:
 npm run lint:md
 npm run typecheck
 npm run lint
+npm run build
+npm run budget
 npm test
 ```
+
+`npm run dev` shows the page with a sample document.
 
 ## House style
 

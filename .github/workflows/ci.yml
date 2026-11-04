@@ -43,4 +43,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run lint
+      # Before the tests, since the Worker they run serves what this leaves.
+      - run: npm run build
+      - run: npm run budget
       - run: npm test

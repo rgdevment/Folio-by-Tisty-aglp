@@ -12,5 +12,6 @@
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types", "node"]
   },
-  "include": ["src", "test", "vitest.config.ts"]
+  "include": ["src", "test", "vitest.config.ts", "vite.config.ts"],
+  "exclude": ["src/page/ui", "src/page/ui.d.ts"]
 }
