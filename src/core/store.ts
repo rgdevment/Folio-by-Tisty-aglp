@@ -40,6 +40,19 @@ export interface Report {
   sealedLink?: string;
 }
 
+// What a read needs of a document, in one row.
+export interface Shown {
+  owner: string;
+  password: string | null;
+  guessDay: number | null;
+  guessCount: number;
+  version: Version | null;
+  diesOn: number;
+  alive: boolean;
+  pausedAt: number | null;
+  blockedAt: number | null;
+}
+
 export type Created = "created" | "same" | "taken" | "shares_full" | "no_anchor" | "quota" | "bad_ttl";
 export type Uploaded = "stored" | "same" | "behind" | "missing" | "blocked" | "quota";
 export type Admitted = "here" | "new" | "over" | "full";
@@ -56,6 +69,11 @@ export interface Store {
   upload(upload: Upload, today: number): Promise<Uploaded>;
   admit(reading: Reading, today: number): Promise<Admitted>;
   note(reading: Reading, today: number): Promise<void>;
+  shown(id: string, today: number): Promise<Shown | null>;
+  envelope(id: string, version: Version): Promise<ReadableStream | null>;
+  wrongGuesses(id: string, net: string, slot: number): Promise<number>;
+  noteWrongGuess(id: string, net: string, slot: number, today: number): Promise<void>;
+  dayKey(today: number): Promise<string>;
   report(report: Report, today: number): Promise<{ blocked: boolean }>;
   appealAccepted(id: string, today: number): Promise<void>;
   pause(id: string, today: number): Promise<void>;

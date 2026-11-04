@@ -12,7 +12,7 @@ export default defineConfig(async () => {
             cloudflareTest({
               main: "src/private/index.ts",
               wrangler: { configPath: "./wrangler.toml" },
-              miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+              miniflare: { bindings: { TEST_MIGRATIONS: migrations, FOLIO_SECRET: "09".repeat(32) } },
             }),
           ],
           test: { name: "cloud", include: ["test/*.cloud.test.ts"] },

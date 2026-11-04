@@ -17,6 +17,12 @@ migrations_dir = "migrations"
 binding = "ENVELOPES"
 bucket_name = "folio-private-envelopes"
 
+# Reads cost no writes here. It counts by location and is only a brake against floods (decision 116).
+[[ratelimits]]
+name = "READS"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
 [triggers]
 crons = ["0 * * * *", "0 4 * * 0"]
 
