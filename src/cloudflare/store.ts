@@ -1,4 +1,4 @@
-import { DAY_MS, LEVEL_ONE, type Limits } from "../core/limits";
+import { DAY_MS, GRAVE_REPORTS, LEVEL_ONE, type Limits } from "../core/limits";
 import { toBase64Url } from "../core/start";
 import type {
   Admitted,
@@ -38,6 +38,13 @@ const DAY_KEY_BYTES = 32;
 
 // What R2 takes in one delete.
 const KEYS_AT_ONCE = 1000;
+
+// A report that weighs: not cleared by an appeal, and not from who reported falsely before (decision 41).
+const COUNTED_REPORT = "r.cleared = 0 AND r.net NOT IN (SELECT net FROM false_reporters)";
+
+// What keeps a document past its days, not served and not deleted (decision 42). Reports leave once their days pass.
+const HELD_AS_EVIDENCE = (doc: string, today: string): string =>
+  `(COALESCE(${doc}.legal_until, 0) >= ${today} OR EXISTS (SELECT 1 FROM reports r WHERE r.doc = ${doc}.id AND ${COUNTED_REPORT}))`;
 
 const encoder = new TextEncoder();
 
@@ -122,7 +129,10 @@ export class Cloud implements Store {
       throw error;
     }
 
-    const kept = [...versions, version].slice(-this.#limits.versionsKept);
+    const overflows = versions.length >= this.#limits.versionsKept;
+    // Five clean uploads must not be a way to erase what was reported.
+    const all = [...versions, version];
+    const kept = overflows && (await this.#isEvidence(upload.id, today)) ? all : all.slice(-this.#limits.versionsKept);
     const alive = `dies_on = CASE WHEN paused_at IS NULL THEN MAX(dies_on, ?1 + ttl_days) ELSE dies_on END,
                    active_day = MAX(active_day, ?1)`;
     const [moved] = await this.#db.batch([
@@ -156,7 +166,7 @@ export class Cloud implements Store {
       return this.#lostTheRace(upload, key);
     }
 
-    const dropped = versions.slice(0, Math.max(0, versions.length + 1 - this.#limits.versionsKept));
+    const dropped = versions.filter((one) => !kept.includes(one));
     if (dropped.length > 0) await this.#envelopes.delete(dropped.map((one) => objectKey(upload.id, one)));
     return "stored";
   }
@@ -169,6 +179,14 @@ export class Cloud implements Store {
     await this.#envelopes.delete(key);
     if (!now || now.latest === CLAIMED) return "missing";
     return now.blocked_at === null ? "behind" : "blocked";
+  }
+
+  async #isEvidence(id: string, today: number): Promise<boolean> {
+    const row = await this.#db
+      .prepare(`SELECT 1 AS held FROM docs d WHERE d.id = ?1 AND ${HELD_AS_EVIDENCE("d", "?2")}`)
+      .bind(id, today)
+      .first<{ held: number }>();
+    return row !== null;
   }
 
   #row(id: string): Promise<DocRow | null> {
@@ -338,31 +356,54 @@ export class Cloud implements Store {
   }
 
   async report(report: Report, today: number): Promise<{ blocked: boolean }> {
+    if (!GRAVE_REPORTS.includes(report.category)) return { blocked: false };
     const [, blocked] = await this.#db.batch([
       this.#db
         .prepare(
-          `INSERT INTO reports (doc, net, at, category, detail, sealed_link)
-           SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1)
+          `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1)
            ON CONFLICT (doc, net) DO UPDATE
              SET at = excluded.at, category = excluded.category, detail = excluded.detail,
-                 sealed_link = excluded.sealed_link, cleared = 0
+                 sealed_link = excluded.sealed_link, asn = excluded.asn, cleared = 0
              WHERE cleared = 1`,
         )
-        .bind(report.doc, report.net, today, report.category, report.detail ?? null, report.sealedLink ?? null),
+        .bind(
+          report.doc,
+          report.net,
+          today,
+          report.category,
+          report.detail ?? null,
+          report.sealedLink ?? null,
+          report.asn,
+        ),
       this.#db
         .prepare(
           `UPDATE docs SET blocked_at = ?1, dies_on = ?1 + ?2
            WHERE id = ?3 AND blocked_at IS NULL
-             AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND r.cleared = 0) >= ?4`,
+             AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND ${COUNTED_REPORT}) >= ?4
+             AND (SELECT COUNT(DISTINCT r.asn) FROM reports r WHERE r.doc = ?3 AND ${COUNTED_REPORT}) >= ?5`,
         )
-        .bind(today, this.#limits.evidenceDays, report.doc, this.#limits.reportsToBlock),
+        .bind(
+          today,
+          this.#limits.evidenceDays,
+          report.doc,
+          this.#limits.reportsToBlock,
+          this.#limits.reportOperatorsToBlock,
+        ),
     ]);
     return { blocked: (blocked?.meta.changes ?? 0) > 0 };
   }
 
   async appealAccepted(id: string, today: number): Promise<void> {
     await this.#db.batch([
-      // The reports stay as evidence, but those networks can report again and the count starts over.
+      // Who reported it stops counting for a while, and the reports stay as a record.
+      this.#db
+        .prepare(
+          `INSERT OR IGNORE INTO false_reporters (net, at)
+           SELECT net, ?2 FROM reports
+           WHERE doc = ?1 AND cleared = 0 AND EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND blocked_at IS NOT NULL)`,
+        )
+        .bind(id, today),
       this.#db
         .prepare(
           "UPDATE reports SET cleared = 1 WHERE doc = ?1 AND EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND blocked_at IS NOT NULL)",
@@ -415,7 +456,13 @@ export class Cloud implements Store {
       await this.#db.batch([
         this.#db.prepare("DELETE FROM net_day WHERE day < ?").bind(today),
         this.#db.prepare("DELETE FROM guesses WHERE slot < ?").bind(today * this.#limits.guessSlotsADay),
-        this.#db.prepare("DELETE FROM reports WHERE at < ?").bind(today - this.#limits.evidenceDays),
+        this.#db.prepare("DELETE FROM false_reporters WHERE at < ?").bind(today - this.#limits.evidenceDays),
+        this.#db
+          .prepare(
+            `DELETE FROM reports WHERE at < ?1
+             AND doc NOT IN (SELECT id FROM docs WHERE legal_until >= ?2)`,
+          )
+          .bind(today - this.#limits.evidenceDays, today),
       ]);
     } catch (error) {
       failed += 1;
@@ -498,11 +545,13 @@ export class Cloud implements Store {
          WHERE d.latest = ${CLAIMED} OR (
            d.dies_on < ?1
            AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id)
+           AND NOT ${HELD_AS_EVIDENCE("d", "?1")}
            AND (d.anchor IS NULL OR d.blocked_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM docs a WHERE a.id = d.anchor))
            AND NOT EXISTS (
              SELECT 1 FROM docs l WHERE l.owner = d.owner AND l.anchor = d.id
                AND ((l.blocked_at IS NOT NULL AND l.dies_on >= ?1)
-                 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = l.id))
+                 OR EXISTS (SELECT 1 FROM holds h WHERE h.held = l.id)
+                 OR ${HELD_AS_EVIDENCE("l", "?1")})
            )
          )
          ORDER BY d.latest = ${CLAIMED} DESC, d.dies_on LIMIT ?2`,
@@ -522,6 +571,7 @@ export class Cloud implements Store {
         `UPDATE docs SET latest = ${CLAIMED}
          WHERE id IN (SELECT value FROM json_each(?1)) AND (latest = ${CLAIMED} OR (
            dies_on < ?2 AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.held = docs.id)
+           AND NOT ${HELD_AS_EVIDENCE("docs", "?2")}
          ))`,
       )
       .bind(listed, today)

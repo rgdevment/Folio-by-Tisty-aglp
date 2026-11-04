@@ -2,7 +2,7 @@ import { applyD1Migrations } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
-import { DAY_MS, LEVEL_ONE, type Limits } from "../src/core/limits";
+import { DAY_MS, GRAVE_REPORTS, LEVEL_ONE, type Limits } from "../src/core/limits";
 import type { NewDoc, Reading } from "../src/core/store";
 
 const testEnv = env as unknown as {
@@ -16,6 +16,7 @@ const TABLES = [
   "docs",
   "service_day",
   "service_stage",
+  "false_reporters",
   "net_day",
   "guesses",
   "reports",
@@ -58,6 +59,8 @@ const noted = async (cloud: Cloud, one: Reading, day: number) => {
   await cloud.note(one, day);
   return "noted";
 };
+
+const asnOf = (net: string): number => net.charCodeAt(0);
 
 const row = (id: string) =>
   testEnv.DB.prepare("SELECT * FROM docs WHERE id = ?").bind(id).first<{
@@ -369,19 +372,24 @@ describe("expiring", () => {
     expect((await row("d1"))?.dies_on).toBe(DAY + 27);
   });
 
-  it("keeps a blocked document as evidence for 90 days, even if read late", async () => {
+  it("keeps a blocked document as evidence for its days, even if read late", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
-    for (const net of ["a", "b", "c"]) await store.report({ doc: "d1", net, category: "phishing" }, DAY);
-    await noted(store, reading("r1"), DAY + 85);
-    await store.sweep(DAY + 90);
-    expect((await row("d1"))?.dies_on).toBe(DAY + LEVEL_ONE.evidenceDays);
-    await store.sweep(DAY + 91);
+    for (const net of ["a", "b", "c"])
+      await store.report({ doc: "d1", net, category: "phishing", asn: asnOf(net) }, DAY);
+    const lastDay = DAY + LEVEL_ONE.evidenceDays;
+    await noted(store, reading("r1"), lastDay - 5);
+    await store.sweep(lastDay);
+    expect((await row("d1"))?.dies_on).toBe(lastDay);
+    // One round lets the reports go, and the next the document they held.
+    await store.sweep(lastDay + 1);
+    await store.sweep(lastDay + 1);
     expect(await row("d1")).toBeNull();
   });
 
   it("does not let a pause or a resume touch a blocked document", async () => {
     await store.create(newDoc("d1"), DAY);
-    for (const net of ["a", "b", "c"]) await store.report({ doc: "d1", net, category: "phishing" }, DAY);
+    for (const net of ["a", "b", "c"])
+      await store.report({ doc: "d1", net, category: "phishing", asn: asnOf(net) }, DAY);
     await store.pause("d1", DAY + 1);
     await store.resume("d1", DAY + 1);
     const after = await row("d1");
@@ -416,13 +424,16 @@ describe("expiring", () => {
   it("keeps an anchor while a language of it is evidence, and lets both go after", async () => {
     await store.create(newDoc("anchor"), DAY);
     await store.create(newDoc("en", { anchor: "anchor" }), DAY);
-    for (const net of ["a", "b", "c"]) await store.report({ doc: "en", net, category: "phishing" }, DAY);
+    for (const net of ["a", "b", "c"])
+      await store.report({ doc: "en", net, category: "phishing", asn: asnOf(net) }, DAY);
     await store.sweep(DAY + 3);
     expect(await row("anchor")).not.toBeNull();
     expect(await row("en")).not.toBeNull();
-    await store.sweep(DAY + 91);
+    const after = DAY + LEVEL_ONE.evidenceDays + 1;
+    await store.sweep(after);
+    await store.sweep(after);
     expect(await row("en")).toBeNull();
-    await store.sweep(DAY + 91);
+    await store.sweep(after);
     expect(await row("anchor")).toBeNull();
   });
 
@@ -787,7 +798,8 @@ describe("uploading", () => {
     await store.upload(upload("d1", 1), DAY + 1);
     expect((await row("d1"))?.dies_on).toBe(DAY + 2);
     expect(await store.upload(upload("nobody", 1), DAY)).toBe("missing");
-    for (const net of ["a", "b", "c"]) await store.report({ doc: "d1", net, category: "malware" }, DAY);
+    for (const net of ["a", "b", "c"])
+      await store.report({ doc: "d1", net, category: "malware", asn: asnOf(net) }, DAY);
     expect(await store.upload(upload("d1", 2), DAY)).toBe("blocked");
   });
 
@@ -829,7 +841,8 @@ describe("uploading", () => {
 });
 
 describe("reports", () => {
-  const report = (net: string, doc = "d1", day = DAY) => store.report({ doc, net, category: "phishing" }, day);
+  const report = (net: string, doc = "d1", day = DAY) =>
+    store.report({ doc, net, category: "phishing", asn: asnOf(net) }, day);
 
   it("blocks at three networks, once", async () => {
     await store.create(newDoc("d1"), DAY);
@@ -857,14 +870,69 @@ describe("reports", () => {
     expect(held?.n).toBe(0);
   });
 
-  it("asks for three after an appeal, and those networks can report again, the same day too", async () => {
+  it("does not block with three networks of one operator, and does with a second", async () => {
+    await store.create(newDoc("d1"), DAY);
+    const from = (net: string, asn: number) => store.report({ doc: "d1", net, category: "phishing", asn }, DAY);
+    expect((await from("a", 7)).blocked).toBe(false);
+    expect((await from("b", 7)).blocked).toBe(false);
+    expect((await from("c", 7)).blocked).toBe(false);
+    expect((await from("d", 7)).blocked).toBe(false);
+    expect((await from("e", 8)).blocked).toBe(true);
+  });
+
+  it("does not block with two operators and only two networks", async () => {
+    await store.create(newDoc("d1"), DAY);
+    expect((await report("a")).blocked).toBe(false);
+    expect((await report("b")).blocked).toBe(false);
+  });
+
+  it("stops counting who reported something whose appeal was accepted, and asks others for three", async () => {
     await store.create(newDoc("d1"), DAY);
     for (const net of ["a", "b", "c"]) await report(net);
     await store.appealAccepted("d1", DAY);
     expect((await row("d1"))?.blocked_at).toBeNull();
-    expect((await report("a")).blocked).toBe(false);
-    expect((await report("b")).blocked).toBe(false);
-    expect((await report("c")).blocked).toBe(true);
+    for (const net of ["a", "b", "c"]) expect((await report(net)).blocked).toBe(false);
+    expect((await report("d")).blocked).toBe(false);
+    expect((await report("e")).blocked).toBe(false);
+    expect((await report("f")).blocked).toBe(true);
+  });
+
+  it("carries that to other documents, and does not let them hold one past its days", async () => {
+    await store.create(newDoc("d1"), DAY);
+    for (const net of ["a", "b", "c"]) await report(net);
+    await store.appealAccepted("d1", DAY);
+    await store.create(newDoc("d2", { owner: "o2" }), DAY);
+    for (const net of ["a", "b", "c"]) expect((await report(net, "d2")).blocked).toBe(false);
+    await store.sweep(DAY + 5);
+    expect(await row("d2")).toBeNull();
+  });
+
+  it("keeps their reports as a record", async () => {
+    await store.create(newDoc("d1"), DAY);
+    for (const net of ["a", "b", "c"]) await report(net);
+    await store.appealAccepted("d1", DAY);
+    const held = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM reports").first<{ n: number }>();
+    expect(held?.n).toBe(3);
+  });
+
+  it("counts them again once the evidence days pass", async () => {
+    await store.create(newDoc("d1"), DAY);
+    for (const net of ["a", "b", "c"]) await report(net);
+    await store.appealAccepted("d1", DAY);
+    const flagged = () => testEnv.DB.prepare("SELECT COUNT(*) AS n FROM false_reporters").first<{ n: number }>();
+    expect((await flagged())?.n).toBe(3);
+    await store.sweep(DAY + LEVEL_ONE.evidenceDays);
+    expect((await flagged())?.n).toBe(3);
+    await store.sweep(DAY + LEVEL_ONE.evidenceDays + 1);
+    expect((await flagged())?.n).toBe(0);
+  });
+
+  it("marks nobody when the appeal finds nothing blocked", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await report("a");
+    await store.appealAccepted("d1", DAY);
+    const flagged = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM false_reporters").first<{ n: number }>();
+    expect(flagged?.n).toBe(0);
   });
 
   it("keeps a paused document's days through an appeal, and does nothing if it was not blocked", async () => {
@@ -879,15 +947,170 @@ describe("reports", () => {
     expect((await row("d1"))?.dies_on).toBe(DAY + 17);
   });
 
-  it("keeps a report for its evidence days, past the document", async () => {
+  it("keeps a report for its evidence days, past a document whose report was cleared", async () => {
     await store.create(newDoc("d1"), DAY);
     await report("a");
+    await testEnv.DB.prepare("UPDATE reports SET cleared = 1").run();
     await store.sweep(DAY + 5);
     expect(await row("d1")).toBeNull();
     const kept = () => testEnv.DB.prepare("SELECT COUNT(*) AS n FROM reports").first<{ n: number }>();
     expect((await kept())?.n).toBe(1);
     await store.sweep(DAY + LEVEL_ONE.evidenceDays + 1);
     expect((await kept())?.n).toBe(0);
+  });
+});
+
+describe("what was reported", () => {
+  const report = (doc = "d1", category = "phishing", net = "a", day = DAY) =>
+    store.report({ doc, net, category, asn: asnOf(net) }, day);
+  const sealedRows = () => testEnv.DB.prepare("SELECT COUNT(*) AS n FROM reports").first<{ n: number }>();
+
+  it("outlives its days until the evidence runs out, and then goes", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.upload(upload("d1", 1), DAY);
+    await report();
+    await store.sweep(DAY + 5);
+    expect(await row("d1")).not.toBeNull();
+    expect(await objects("d1")).toEqual(["d1/1.h1"]);
+    const lastDay = DAY + LEVEL_ONE.evidenceDays;
+    await store.sweep(lastDay);
+    expect(await row("d1")).not.toBeNull();
+    await store.sweep(lastDay + 1);
+    expect((await sealedRows())?.n).toBe(0);
+    await store.sweep(lastDay + 1);
+    expect(await row("d1")).toBeNull();
+    expect(await objects("d1")).toEqual([]);
+  });
+
+  it("is not served past its days, and is served until then", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.upload(upload("d1", 1), DAY);
+    await report();
+    expect((await store.shown("d1", DAY + 1))?.alive).toBe(true);
+    await store.sweep(DAY + 5);
+    expect((await store.shown("d1", DAY + 5))?.alive).toBe(false);
+  });
+
+  it("does not take the place of what can really be forgotten in a round", async () => {
+    await store.create(newDoc("held"), DAY);
+    await report("held");
+    await store.create(newDoc("free", { ttlDays: 3 }), DAY);
+    const few = withLimits({ sweptAtOnce: 1 });
+    expect((await few.sweep(DAY + 10)).forgotten).toBe(1);
+    expect(await row("free")).toBeNull();
+    expect(await row("held")).not.toBeNull();
+  });
+
+  it("lasts 180 days by default", () => {
+    expect(LEVEL_ONE.evidenceDays).toBe(180);
+  });
+
+  it("stops holding the document once the report is cleared", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await report();
+    await testEnv.DB.prepare("UPDATE reports SET cleared = 1").run();
+    await store.sweep(DAY + 5);
+    expect(await row("d1")).toBeNull();
+  });
+
+  it("keeps the anchor of a language that was reported", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.create(newDoc("en", { anchor: "d1" }), DAY);
+    await report("en");
+    await store.sweep(DAY + 5);
+    expect(await row("d1")).not.toBeNull();
+    expect(await row("en")).not.toBeNull();
+  });
+
+  it("does not take a report that arrives as it is being forgotten", async () => {
+    await store.create(newDoc("d1"), DAY);
+    const raced = new Cloud({
+      DB: new Proxy(testEnv.DB, {
+        get(target, key) {
+          if (key === "prepare") {
+            return (sql: string) => {
+              if (!sql.startsWith("UPDATE docs SET latest = -1")) return target.prepare(sql);
+              return {
+                bind: (...values: unknown[]) => ({
+                  run: async () => {
+                    await report();
+                    return target
+                      .prepare(sql)
+                      .bind(...values)
+                      .run();
+                  },
+                }),
+              };
+            };
+          }
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      ENVELOPES: testEnv.ENVELOPES,
+    });
+    await raced.sweep(DAY + 5);
+    expect((await row("d1"))?.latest).toBe(0);
+  });
+
+  it("does not lose a version to five clean uploads", async () => {
+    await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
+    await store.upload(upload("d1", 1), DAY);
+    await report();
+    for (let n = 2; n <= LEVEL_ONE.versionsKept + 3; n += 1) await store.upload(upload("d1", n), DAY);
+    expect(await objects("d1")).toContain("d1/1.h1");
+    expect((await objects("d1")).length).toBe(LEVEL_ONE.versionsKept + 3);
+    const versions = JSON.parse((await row("d1"))?.versions ?? "[]") as { n: number }[];
+    expect(versions.length).toBe(LEVEL_ONE.versionsKept + 3);
+  });
+
+  it("does not hold anything for what anyone cannot report", async () => {
+    await store.create(newDoc("d1"), DAY);
+    expect(await report("d1", "copyright")).toEqual({ blocked: false });
+    expect((await sealedRows())?.n).toBe(0);
+    await store.sweep(DAY + 5);
+    expect(await row("d1")).toBeNull();
+  });
+
+  it("takes every grave category", async () => {
+    await store.create(newDoc("d1"), DAY);
+    for (const [n, category] of GRAVE_REPORTS.entries()) await report("d1", category, `net${n}`);
+    expect((await sealedRows())?.n).toBe(GRAVE_REPORTS.length);
+  });
+});
+
+describe("an order", () => {
+  const order = (until: number) =>
+    testEnv.DB.prepare("UPDATE docs SET legal_until = ? WHERE id = 'd1'").bind(until).run();
+
+  it("keeps the document and its reports for as long as it says, and not a day more", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.report({ doc: "d1", net: "a", category: "csam", asn: 1 }, DAY);
+    const until = DAY + LEVEL_ONE.evidenceDays + 50;
+    await order(until);
+    await store.sweep(DAY + LEVEL_ONE.evidenceDays + 10);
+    expect(await row("d1")).not.toBeNull();
+    const held = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM reports").first<{ n: number }>();
+    expect(held?.n).toBe(1);
+    await store.sweep(until + 1);
+    await store.sweep(until + 1);
+    expect(await row("d1")).toBeNull();
+  });
+
+  it("holds a document with no report at all", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await order(DAY + 10);
+    await store.sweep(DAY + 5);
+    expect(await row("d1")).not.toBeNull();
+    await store.sweep(DAY + 11);
+    expect(await row("d1")).toBeNull();
+  });
+
+  it("is told to no one who reads", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.upload(upload("d1", 1), DAY);
+    await order(DAY + 10);
+    expect(JSON.stringify(await store.shown("d1", DAY))).not.toContain(String(DAY + 10));
   });
 });
 
@@ -904,9 +1127,9 @@ describe("what each event writes, from start to end", () => {
   it("a report and a rejected report write one row and none", async () => {
     await store.create(newDoc("d1"), DAY);
     const { spent, cloud } = counting();
-    await cloud.report({ doc: "d1", net: "a", category: "x" }, DAY);
+    await cloud.report({ doc: "d1", net: "a", category: "phishing", asn: 1 }, DAY);
     expect(spent.written).toBe(1);
-    await cloud.report({ doc: "d1", net: "a", category: "x" }, DAY);
+    await cloud.report({ doc: "d1", net: "a", category: "phishing", asn: 1 }, DAY);
     expect(spent.written).toBe(1);
   });
 
