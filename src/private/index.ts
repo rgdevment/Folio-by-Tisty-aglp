@@ -12,6 +12,7 @@ interface Env extends Bindings, SpendBindings {
   HEARTBEAT_URL?: string;
   SPEND_HEARTBEAT_URL?: string;
   ALERT_URL: string;
+  FOLIO_TAG?: string;
 }
 
 const WEEKLY = "0 4 * * 0";
@@ -60,6 +61,7 @@ export default {
       },
     });
     response.headers.set("Server-Timing", `total;dur=${Date.now() - started}`);
+    if (env.FOLIO_TAG) response.headers.set("Folio-Worker", env.FOLIO_TAG);
     return response;
   },
 

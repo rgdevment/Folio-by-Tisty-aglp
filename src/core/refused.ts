@@ -1,7 +1,7 @@
 import { hourOf, saltFor } from "./start";
 
 export type Refused =
-  | { refused: "missing" | "paused" | "blocked" | "bad_report" | "too_big" | "not_blocked" | "appealed" }
+  | { refused: "missing" | "paused" | "blocked" | "bad_report" | "too_big" | "not_blocked" | "appealed" | "failed" }
   | { refused: "slow" | "quota"; until: number }
   | { refused: "proof"; salt: string; bits: number };
 

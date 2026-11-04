@@ -58,7 +58,23 @@ no_token_kept_in_the_tree() {
     && went_well "no provider token or secret is kept in the tree"
 }
 
+# The tables change before the code, and a deploy can go back: the version before has to go on reading them.
+migrations_only_grow() {
+  # What comes before any hyphen, so a comment may say the words. The sample keeps the pattern from going blind.
+  local shrinks='^[^-]*\b(drop|rename)\b'
+  if ! printf 'ALTER TABLE a DROP COLUMN b;\n' | grep -qiE "$shrinks"; then
+    amiss "the pattern for what shrinks a table does not see a DROP"
+    return
+  fi
+  grep -HniE "$shrinks" migrations/*.sql
+  looked_through \
+    "a migration drops or renames something, so the version running before it would break" $? \
+    "the migrations could not be looked through" \
+    && went_well "the migrations only grow"
+}
+
 cd "$(dirname "$0")/.." || exit 2
 both_languages_carry_the_same_documents
 no_token_kept_in_the_tree
+migrations_only_grow
 exit $status

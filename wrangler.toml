@@ -3,6 +3,9 @@ main = "src/private/index.ts"
 compatibility_date = "2026-08-01"
 workers_dev = false
 
+# Only the API, and tisty.cl needs a proxied DNS record: the page comes with its own assets (decision 109).
+routes = [{ pattern = "tisty.cl/api/*", zone_name = "tisty.cl" }]
+
 # Beside D1 and R2 in eastern North America, so a read's queries in a row cross the continent once (decision 94 bis).
 [placement]
 region = "aws:us-east-1"
@@ -23,7 +26,7 @@ name = "READS"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
-# ALERT_URL, FOLIO_SECRET and CF_API_TOKEN are secrets, put with wrangler secret put. Filled in when the account exists. BILLING_DAY is the plan's renewal day, or 28 if it falls later (decision 118).
+# ALERT_URL, HEARTBEAT_URL, SPEND_HEARTBEAT_URL, FOLIO_SECRET and CF_API_TOKEN are secrets. Filled in when the account exists. BILLING_DAY is the plan's renewal day, or 28 if it falls later (decision 118).
 [vars]
 BILLING_DAY = ""
 CF_ACCOUNT_ID = ""
