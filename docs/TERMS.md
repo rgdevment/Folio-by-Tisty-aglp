@@ -7,8 +7,8 @@
 Folio turns a Tisty document into a link you can share. There are no
 accounts: the link is the permission. What you share is encrypted, and the
 service stores it without the key to read it. It is free, non-profit and comes
-with no warranty: it may fail, change or end. Your document always stays in your Tisty;
-the link is a copy that expires.
+with no warranty: it may fail, change or end. Your document always stays in
+your Tisty; the link is a copy that expires.
 
 ## Who runs it
 
