@@ -21,6 +21,7 @@ export const STATUS: Record<Refused["refused"], number> = {
   too_big: 413,
   not_blocked: 409,
   appealed: 409,
+  failed: 500,
 };
 
 const ADMIN_ROUTES: Record<string, AdminAction> = {
@@ -142,7 +143,7 @@ const answerStart = async (request: Request, { tools, now }: Api): Promise<Respo
   return json(200, await startNow(tools.secret, now));
 };
 
-export const answer = async (request: Request, api: Api): Promise<Response> => {
+const route = async (request: Request, api: Api): Promise<Response> => {
   const { pathname } = new URL(request.url);
   if (!pathname.startsWith(PREFIX)) return new Response(null, { status: 404 });
   const path = pathname.slice(PREFIX.length);
@@ -156,4 +157,14 @@ export const answer = async (request: Request, api: Api): Promise<Response> => {
   if (route === "POST report") return answerReport(request, id, api);
   const action = ADMIN_ROUTES[route];
   return action ? answerAdmin(request, id, action, api) : json(404, { refused: "missing" });
+};
+
+// A failure answers like any refusal, with the same headers, so a client knows to send it again.
+export const answer = async (request: Request, api: Api): Promise<Response> => {
+  try {
+    return await route(request, api);
+  } catch (error) {
+    console.error("an answer failed", String(error));
+    return refusal({ refused: "failed" }, api.now);
+  }
 };

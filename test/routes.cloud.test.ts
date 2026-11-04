@@ -325,14 +325,20 @@ describe("the alert", () => {
     });
   });
 
+  const failed = async (response: Response) => {
+    expect(response.status).toBe(500);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({ refused: "failed" });
+  };
+
   it("fails the report when it is refused, and keeps the report", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
-    await expect(reported({ ALERT_URL })).rejects.toThrow("refused");
+    await failed(await reported({ ALERT_URL }));
     expect(await reports()).toHaveLength(1);
   });
 
   it("fails the report when there is nowhere to send it, rather than telling nobody", async () => {
-    await expect(reported({})).rejects.toThrow("nowhere");
+    await failed(await reported({}));
     expect(await reports()).toHaveLength(1);
   });
 });

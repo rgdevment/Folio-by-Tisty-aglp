@@ -60,8 +60,17 @@ no_token_kept_in_the_tree() {
 
 # The tables change before the code, and a deploy can go back: the version before has to go on reading them.
 migrations_only_grow() {
-  sed 's/--.*$//' migrations/*.sql | grep -niE '(drop|rename)'
-  looked_through     "a migration drops or renames something, so the version running before it would break" $?     "the migrations could not be looked through"     && went_well "the migrations only grow"
+  # What comes before any hyphen, so a comment may say the words. The sample keeps the pattern from going blind.
+  local shrinks='^[^-]*\b(drop|rename)\b'
+  if ! printf 'ALTER TABLE a DROP COLUMN b;\n' | grep -qiE "$shrinks"; then
+    amiss "the pattern for what shrinks a table does not see a DROP"
+    return
+  fi
+  grep -HniE "$shrinks" migrations/*.sql
+  looked_through \
+    "a migration drops or renames something, so the version running before it would break" $? \
+    "the migrations could not be looked through" \
+    && went_well "the migrations only grow"
 }
 
 cd "$(dirname "$0")/.." || exit 2

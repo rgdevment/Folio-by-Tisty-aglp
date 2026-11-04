@@ -12,11 +12,6 @@ on:
 permissions:
   contents: read
 
-# One change to the live Worker at a time, so a rollback never races a deploy.
-concurrency:
-  group: worker
-  cancel-in-progress: false
-
 env:
   FOLIO_URL: https://tisty.cl
   DATABASE: folio-private
@@ -71,6 +66,10 @@ jobs:
     if: github.event_name == 'push'
     # Its deployment rules let only v* tags and main reach the Cloudflare token.
     environment: production
+    # On the jobs that touch the Worker, or a rollback would wait for a tag that is still waiting for CI.
+    concurrency:
+      group: worker
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -95,6 +94,13 @@ jobs:
             echo "::error::wrangler.toml still has empty settings: $(grep -E '^[A-Z_]+ = ""$' wrangler.toml | cut -d' ' -f1 | tr '\n' ' ')"
             exit 1
           fi
+      # A Worker route answers only on a name with a proxied DNS record, and without one the check below says nothing useful.
+      - name: The domain resolves
+        run: |
+          if ! getent hosts "${FOLIO_URL#https://}" > /dev/null; then
+            echo "::error::${FOLIO_URL#https://} does not resolve: it needs a proxied DNS record in Cloudflare"
+            exit 1
+          fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -107,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           npx --no-install wrangler secret list --format json > "$RUNNER_TEMP/secrets.json"
-          for name in FOLIO_SECRET CF_API_TOKEN ALERT_URL; do
+          for name in FOLIO_SECRET CF_API_TOKEN ALERT_URL HEARTBEAT_URL SPEND_HEARTBEAT_URL; do
             jq -e --arg name "$name" 'any(.[]; .name == $name)' "$RUNNER_TEMP/secrets.json" > /dev/null \
               || { echo "::error::the Worker has no $name secret: put it with wrangler secret put"; exit 1; }
           done
@@ -117,9 +123,10 @@ jobs:
         id: before
         run: |
           set -uo pipefail
+          # Stopping here, or a failed deploy would have nothing to go back to. The very first one goes up by hand.
           if ! npx --no-install wrangler deployments status --json > "$RUNNER_TEMP/status.json"; then
-            echo "::warning::what runs now could not be read: this is the first deploy, or there is nothing to go back to"
-            exit 0
+            echo "::error::what runs now could not be read, so nothing changed. If this Worker never ran, deploy it once by hand"
+            exit 1
           fi
           if [ "$(jq '.versions | length' "$RUNNER_TEMP/status.json")" -gt 1 ]; then
             echo "::error::a gradual deployment is under way; finish it or roll it back before tagging"
@@ -141,6 +148,13 @@ jobs:
       - name: It answers as it should
         run: |
           set -uo pipefail
+          # The spending rule answers before the Worker, so a fix sent during a block could never pass this.
+          stage=$(npx --no-install wrangler d1 execute "$DATABASE" --remote --json \
+            --command "SELECT stage FROM service_stage WHERE id = 1" | jq -r '.[0].results[0].stage // "open"')
+          if [ "$stage" = blocked ]; then
+            echo "::warning::the spending rule is on, so $TAG stays deployed without being checked"
+            exit 0
+          fi
           answers() {
             local status said
             status=$(curl -s -D "$RUNNER_TEMP/headers" -o "$RUNNER_TEMP/body" -w '%{http_code}' "$FOLIO_URL/api/v1/docs/AAAAAAAA") || return 1
@@ -184,6 +198,9 @@ jobs:
     name: Put a version back
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     environment: production
+    concurrency:
+      group: worker
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:

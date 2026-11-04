@@ -12,6 +12,10 @@ info:
 
     **Refusals** answer JSON with `refused`, and `Retry-After` in seconds when `until` is there.
 
+    **`failed`** means something broke on this side. Send it again: what was done stays done.
+
+    **`Folio-Worker`** carries the tag of the version that answered, on every answer once deployed.
+
     **A proof of work:** `refused: proof` gives a `salt` and `bits`. Find a number whose
     SHA-256 of `salt|number`, in UTF-8, starts with that many zero bits, and send the same request again
     with it in `Folio-Proof`. A salt lasts until the end of the next hour, and only for that action,
@@ -39,11 +43,11 @@ paths:
       responses:
         "200":
           description: An id nobody else was given.
-          headers: { $ref: "#/components/x-api-headers" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Start" }
         "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
   /docs/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -62,15 +66,19 @@ paths:
           headers:
             Folio-Version:
               description: The number of this version.
+              required: true
               schema: { type: integer }
             Folio-Hash:
               description: The hash of this version.
+              required: true
               schema: { type: string }
             Folio-Arrived:
               description: When it arrived, in milliseconds. The server's word, not something signed.
+              required: true
               schema: { type: integer }
             Folio-Dies-On:
               description: The last day it lives, in days since 1970.
+              required: true
               schema: { type: integer }
           content:
             application/octet-stream:
@@ -83,19 +91,22 @@ paths:
         "404": { $ref: "#/components/responses/Missing" }
         "429":
           description: Going too fast, or a proof of work is asked for.
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
           content:
             application/json:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/Slow"
                   - $ref: "#/components/schemas/Proof"
+        "500": { $ref: "#/components/responses/Failed" }
     delete:
       tags: [Administering]
       operationId: stopSharing
       summary: Stops sharing a document.
       description: |
-        It stops being served at once, and it is forgotten on the next sweep. A document that has to stay
-        is kept unread, and to its owner it looks the same.
+        It stops being served at once, and the next sweep forgets it. A document that has to stay is kept
+        unread, and to its owner it looks the same. Asked again, it answers 404: the first one took.
       parameters:
         - $ref: "#/components/parameters/Admin"
       responses:
@@ -103,6 +114,7 @@ paths:
         "403": { $ref: "#/components/responses/Blocked" }
         "404": { $ref: "#/components/responses/Missing" }
         "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
   /docs/{id}/report:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -113,7 +125,7 @@ paths:
       description: |
         One report per document and network counts. It answers the same whether or not the document exists.
         Copyright is not reported here: its holder asks, and it comes down. If telling the operator fails
-        the answer is an error, the report stays, and sending it again tells again.
+        the answer is `failed`, the report stays, and sending it again tells again.
       parameters:
         - $ref: "#/components/parameters/Proof"
       requestBody:
@@ -139,12 +151,15 @@ paths:
               schema: { $ref: "#/components/schemas/TooBig" }
         "429":
           description: A proof of work is asked for, or the network used up its reports of the hour.
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
           content:
             application/json:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/Proof"
                   - $ref: "#/components/schemas/Quota"
+        "500": { $ref: "#/components/responses/Failed" }
   /docs/{id}/admin:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -162,6 +177,7 @@ paths:
               schema: { $ref: "#/components/schemas/Status" }
         "404": { $ref: "#/components/responses/Missing" }
         "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
   /docs/{id}/pause:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -176,6 +192,7 @@ paths:
         "403": { $ref: "#/components/responses/Blocked" }
         "404": { $ref: "#/components/responses/Missing" }
         "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
   /docs/{id}/resume:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -190,6 +207,7 @@ paths:
         "403": { $ref: "#/components/responses/Blocked" }
         "404": { $ref: "#/components/responses/Missing" }
         "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
   /docs/{id}/appeal:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -199,7 +217,7 @@ paths:
       summary: Appeals a block, once per block.
       description: |
         The operator is told. The block stays until the operator decides. If telling fails the answer
-        is an error, and the appeal can be sent again.
+        is `failed`, and the appeal can be sent again. Once it went, sending it again answers 409.
       parameters:
         - $ref: "#/components/parameters/Admin"
       responses:
@@ -211,11 +229,12 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/NothingToAppeal" }
         "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
 components:
-  x-api-headers:
-    Folio-Worker:
-      description: The tag of the version that answered, on every answer once deployed.
-      schema: { type: string }
+  headers:
+    RetryAfter:
+      description: In seconds, when the answer says `until`.
+      schema: { type: integer }
   parameters:
     Id:
       name: id
@@ -235,7 +254,7 @@ components:
       schema: { type: string }
   responses:
     Done:
-      description: Done. Doing it twice changes nothing.
+      description: Done.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Done" }
@@ -251,9 +270,16 @@ components:
           schema: { $ref: "#/components/schemas/Blocked" }
     Slow:
       description: Going too fast.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Slow" }
+    Failed:
+      description: Something broke on this side. Send it again.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Failed" }
   schemas:
     Start:
       type: object
@@ -331,6 +357,11 @@ components:
       required: [refused]
       properties:
         refused: { enum: [not_blocked, appealed] }
+    Failed:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: failed }
     Slow:
       type: object
       required: [refused, until]

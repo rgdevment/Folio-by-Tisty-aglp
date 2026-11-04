@@ -39,35 +39,50 @@ const refusalsIn = (schema: Written): string[] => {
   return refused.const ? [refused.const] : refused.enum;
 };
 
-const documented = (method: string, path: string, status: number): Written => {
-  const responses = spec.paths[path]?.[method.toLowerCase()]?.responses;
-  return resolved(responses?.[status]);
+const documented = (method: string, path: string, status: number): Written =>
+  resolved(spec.paths[path]?.[method.toLowerCase()]?.responses?.[status]);
+
+// The body against its schema: what it requires is there, nothing else is, and fixed values are those values.
+const fits = (body: Written, schema: Written): boolean => {
+  const plain = resolved(schema);
+  if (plain.oneOf) return plain.oneOf.some((one: Written) => fits(body, one));
+  const known = plain.properties ?? {};
+  return (
+    (plain.required ?? []).every((key: string) => key in body) &&
+    Object.keys(body).every((key) => key in known && (!("const" in known[key]) || known[key].const === body[key]))
+  );
 };
 
 interface Scenario {
   method: string;
   path: string;
   status: number;
+  refused?: string;
   admin?: string;
   body?: string;
   braked?: boolean;
+  broken?: boolean;
   ready?: () => Promise<unknown>;
   solves?: boolean;
+  times?: number;
 }
 
-const send = async ({ method, path, admin, body, braked }: Scenario, proof?: string, ip?: string) => {
+const send = async ({ method, path, admin, body, braked, broken }: Scenario, proof?: string, ip?: string) => {
   const context = createExecutionContext();
   const headers = new Headers({ "CF-Connecting-IP": ip ?? "198.51.100.77" });
   if (admin) headers.set("Folio-Admin", admin);
   if (proof) headers.set("Folio-Proof", proof);
-  const brake = braked ? { READS: { limit: async () => ({ success: false }) } } : {};
+  const limit = async () => {
+    if (broken) throw new Error("broken on purpose");
+    return { success: !braked };
+  };
   const url = `https://tisty.cl/api/v1${path.replace("{id}", ID)}`;
   const response = await worker.fetch(
     new Request(url, { method, headers, ...(body === undefined ? {} : { body }) }) as Request<
       unknown,
       IncomingRequestCfProperties
     >,
-    { ...testEnv, FOLIO_SECRET: "09".repeat(32), ALERT_URL: "https://alerts.example/folio", ...brake } as never,
+    { ...testEnv, FOLIO_SECRET: "09".repeat(32), ALERT_URL: "https://alerts.example/folio", READS: { limit } } as never,
     context,
   );
   await waitOnExecutionContext(context);
@@ -87,43 +102,113 @@ const block = async () => {
   await testEnv.DB.prepare(`UPDATE docs SET blocked_at = ? WHERE id = '${ID}'`).bind(TODAY).run();
 };
 
+const pause = async () => {
+  await share();
+  await store.pause(ID, TODAY);
+};
+
+const pastTheFreeReaders = async () => {
+  await share();
+  await testEnv.DB.prepare(
+    `CREATE TABLE seen_${TODAY} (owner TEXT, reader TEXT, doc TEXT, hour INTEGER, PRIMARY KEY (owner, reader, doc)) WITHOUT ROWID`,
+  ).run();
+  await testEnv.DB.prepare(
+    `INSERT INTO seen_${TODAY} WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+     SELECT 'o1', 'r' || i, '${ID}', 9 FROM n`,
+  )
+    .bind(LEVEL_ONE.newReadersFree)
+    .run();
+};
+
 const REPORT = JSON.stringify({ category: "phishing" });
+const REPORT_PATH = "/docs/{id}/report";
+const APPEAL_PATH = "/docs/{id}/appeal";
 
 const adminRoute = (method: string, path: string, blockable = true): Scenario[] => [
   { method, path, status: 200, admin: TOKEN, ready: share },
-  ...(blockable ? [{ method, path, status: 403, admin: TOKEN, ready: block }] : []),
-  { method, path, status: 404, admin: "wrong", ready: share },
-  { method, path, status: 429, admin: TOKEN, braked: true },
+  ...(blockable ? [{ method, path, status: 403, refused: "blocked", admin: TOKEN, ready: block }] : []),
+  { method, path, status: 404, refused: "missing", admin: "wrong", ready: share },
+  { method, path, status: 429, refused: "slow", admin: TOKEN, braked: true },
+  { method, path, status: 500, refused: "failed", admin: TOKEN, broken: true },
 ];
 
 const SCENARIOS: Scenario[] = [
   { method: "POST", path: "/start", status: 200 },
-  { method: "POST", path: "/start", status: 429, braked: true },
+  { method: "POST", path: "/start", status: 429, refused: "slow", braked: true },
+  { method: "POST", path: "/start", status: 500, refused: "failed", broken: true },
   { method: "GET", path: "/docs/{id}", status: 200, ready: share },
-  { method: "GET", path: "/docs/{id}", status: 403, ready: block },
-  { method: "GET", path: "/docs/{id}", status: 404 },
-  { method: "GET", path: "/docs/{id}", status: 429, braked: true },
+  { method: "GET", path: "/docs/{id}", status: 403, refused: "blocked", ready: block },
+  { method: "GET", path: "/docs/{id}", status: 403, refused: "paused", ready: pause },
+  { method: "GET", path: "/docs/{id}", status: 404, refused: "missing" },
+  { method: "GET", path: "/docs/{id}", status: 429, refused: "slow", braked: true },
+  { method: "GET", path: "/docs/{id}", status: 429, refused: "proof", ready: pastTheFreeReaders },
+  { method: "GET", path: "/docs/{id}", status: 500, refused: "failed", broken: true },
   ...adminRoute("DELETE", "/docs/{id}"),
-  { method: "POST", path: "/docs/{id}/report", status: 202, body: REPORT, solves: true, ready: share },
-  { method: "POST", path: "/docs/{id}/report", status: 400, body: "{}" },
-  { method: "POST", path: "/docs/{id}/report", status: 413, body: "x".repeat(20_000) },
-  { method: "POST", path: "/docs/{id}/report", status: 429, body: REPORT },
+  { method: "POST", path: REPORT_PATH, status: 202, body: REPORT, solves: true, ready: share },
+  { method: "POST", path: REPORT_PATH, status: 400, refused: "bad_report", body: "{}" },
+  { method: "POST", path: REPORT_PATH, status: 413, refused: "too_big", body: "x".repeat(20_000) },
+  { method: "POST", path: REPORT_PATH, status: 429, refused: "proof", body: REPORT },
+  {
+    method: "POST",
+    path: REPORT_PATH,
+    status: 429,
+    refused: "quota",
+    body: REPORT,
+    solves: true,
+    times: LEVEL_ONE.reportsAnHour + 1,
+    ready: share,
+  },
+  {
+    method: "POST",
+    path: REPORT_PATH,
+    status: 500,
+    refused: "failed",
+    body: JSON.stringify({ category: "csam" }),
+    solves: true,
+    ready: async () => {
+      await share();
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 503 }));
+    },
+  },
   ...adminRoute("GET", "/docs/{id}/admin", false),
   ...adminRoute("POST", "/docs/{id}/pause"),
   ...adminRoute("POST", "/docs/{id}/resume"),
-  { method: "POST", path: "/docs/{id}/appeal", status: 200, admin: TOKEN, ready: block },
-  { method: "POST", path: "/docs/{id}/appeal", status: 404, admin: "wrong", ready: block },
-  { method: "POST", path: "/docs/{id}/appeal", status: 409, admin: TOKEN, ready: share },
-  { method: "POST", path: "/docs/{id}/appeal", status: 429, admin: TOKEN, braked: true },
+  { method: "POST", path: APPEAL_PATH, status: 200, admin: TOKEN, ready: block },
+  { method: "POST", path: APPEAL_PATH, status: 404, refused: "missing", admin: "wrong", ready: block },
+  { method: "POST", path: APPEAL_PATH, status: 409, refused: "not_blocked", admin: TOKEN, ready: share },
+  {
+    method: "POST",
+    path: APPEAL_PATH,
+    status: 409,
+    refused: "appealed",
+    admin: TOKEN,
+    ready: async () => {
+      await block();
+      await send({ method: "POST", path: APPEAL_PATH, status: 200, admin: TOKEN });
+    },
+  },
+  { method: "POST", path: APPEAL_PATH, status: 429, refused: "slow", admin: TOKEN, braked: true },
+  { method: "POST", path: APPEAL_PATH, status: 500, refused: "failed", admin: TOKEN, broken: true },
 ];
 
-const allWritten = (): string[] =>
+const operations = (): [string, string, Written][] =>
   Object.entries(spec.paths as Written).flatMap(([path, item]) =>
     Object.entries(item as Written)
       .filter(([method]) => method !== "parameters")
-      .flatMap(([method, operation]) =>
-        Object.keys((operation as Written).responses).map((status) => `${method.toUpperCase()} ${path} ${status}`),
-      ),
+      .map(([method, operation]): [string, string, Written] => [method.toUpperCase(), path, operation]),
+  );
+
+const writtenAnswers = (): string[] =>
+  operations().flatMap(([method, path, operation]) =>
+    Object.keys(operation.responses).map((status) => `${method} ${path} ${status}`),
+  );
+
+const writtenRefusals = (): string[] =>
+  operations().flatMap(([method, path, operation]) =>
+    Object.entries(operation.responses as Written).flatMap(([status, response]) => {
+      const schema = resolved(response).content?.["application/json"]?.schema;
+      return schema ? refusalsIn(schema).map((refused) => `${method} ${path} ${status} ${refused}`) : [];
+    }),
   );
 
 const solve = async (salt: string, bits: number): Promise<string> => {
@@ -145,6 +230,10 @@ beforeEach(async () => {
   for (const table of ["docs", "net_day", "net_hour", "reports", "holds"]) {
     await testEnv.DB.prepare(`DELETE FROM ${table}`).run();
   }
+  const tables = await testEnv.DB.prepare("SELECT name FROM sqlite_master WHERE name GLOB 'seen_[0-9]*'").all<{
+    name: string;
+  }>();
+  for (const { name } of tables.results) await testEnv.DB.prepare(`DROP TABLE ${name}`).run();
   const held = await testEnv.ENVELOPES.list();
   if (held.objects.length > 0) await testEnv.ENVELOPES.delete(held.objects.map((one) => one.key));
 });
@@ -152,26 +241,40 @@ beforeEach(async () => {
 describe("the written API", () => {
   it("has a scenario here for every answer it promises, and the other way around", () => {
     const tried = SCENARIOS.map(({ method, path, status }) => `${method} ${path} ${status}`);
-    expect(new Set(tried)).toEqual(new Set(allWritten()));
+    expect(new Set(tried)).toEqual(new Set(writtenAnswers()));
   });
 
-  it.each(SCENARIOS)("$method $path answers $status as written", async (scenario) => {
-    const { method, path, status, ready, solves } = scenario;
+  it("has a scenario here for every refusal each route promises, and the other way around", () => {
+    const tried = SCENARIOS.filter((one) => one.refused).map(
+      ({ method, path, status, refused }) => `${method} ${path} ${status} ${refused}`,
+    );
+    expect(new Set(tried)).toEqual(new Set(writtenRefusals()));
+  });
+
+  it.each(SCENARIOS)("$method $path answers $status $refused as written", async (scenario) => {
+    const { method, path, status, refused, ready, solves, times = 1 } = scenario;
     await ready?.();
     let response = await send(scenario);
     if (solves) {
       const { salt, bits } = (await response.json()) as { salt: string; bits: number };
-      response = await send(scenario, await solve(salt, bits));
+      const proof = await solve(salt, bits);
+      for (let n = 0; n < times; n += 1) response = await send(scenario, proof);
     }
     expect(response.status).toBe(status);
 
     const promised = documented(method, path, status);
     expect(promised).toBeTruthy();
-    const types = Object.keys(promised.content);
-    expect(types).toContain(response.headers.get("Content-Type"));
-    if (status < 400) return;
-    const { refused } = (await response.json()) as { refused: string };
-    expect(refusalsIn(promised.content["application/json"].schema)).toContain(refused);
+    expect(Object.keys(promised.content)).toContain(response.headers.get("Content-Type"));
+    for (const [name, header] of Object.entries(promised.headers ?? {}) as [string, Written][]) {
+      if (resolved(header).required) expect(response.headers.has(name)).toBe(true);
+    }
+    if (response.headers.has("Retry-After")) expect(promised.headers).toHaveProperty("Retry-After");
+
+    const schema = promised.content["application/json"]?.schema;
+    if (!schema) return;
+    const body = (await response.json()) as Written;
+    expect(fits(body, schema)).toBe(true);
+    expect(body.refused).toBe(refused);
   });
 
   it("names every refusal the Worker has, and no other", () => {
@@ -190,8 +293,8 @@ describe("the written API", () => {
     await share();
     const response = await send({ method: "GET", path: "/docs/{id}/admin", status: 200, admin: TOKEN });
     const { status } = (await response.json()) as { status: object };
-    const written = spec.components.schemas.Status.properties.status;
-    expect(Object.keys(status).sort()).toEqual([...written.required].sort());
+    const promised = spec.components.schemas.Status.properties.status;
+    expect(Object.keys(status).sort()).toEqual([...promised.required].sort());
   });
 });
 
