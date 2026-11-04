@@ -54,8 +54,9 @@ export const cycleOf = (now: number, renewalDay: number): Cycle => {
   return { start, days, day: dayOf(now) - dayOf(start) + 1 };
 };
 
+// The margin sits under the rise: as a flat floor, the first days did not move and a block outlived its midnight.
 export const lineOf = ({ day, days }: Cycle): number =>
-  Math.max(PLAN_USD + BURST_USD, PLAN_USD + ((CAP_USD - PLAN_USD) * day) / days);
+  PLAN_USD + BURST_USD + ((CAP_USD - PLAN_USD - BURST_USD) * day) / days;
 
 export const stageOf = (usage: Usage, cycle: Cycle): Stage => {
   const bill = billOf(usage);
@@ -72,7 +73,7 @@ export interface SpendTools {
   notify: (said: { stage: Stage; was: Stage; bill: number; line: number }) => Promise<void>;
 }
 
-// The rule goes first and the stage last, so a step that fails is done again on the next round.
+// The stage goes last, so a step that fails, the alert too, is done again on the next round.
 export const checkSpend = async (now: number, renewalDay: number, tools: SpendTools): Promise<Stage> => {
   const { store, usageSince, setBlocked, notify } = tools;
   const cycle = cycleOf(now, renewalDay);
@@ -83,7 +84,7 @@ export const checkSpend = async (now: number, renewalDay: number, tools: SpendTo
 
   if ((stage === "blocked") !== (was === "blocked")) await setBlocked(stage === "blocked");
   if (was === "blocked") await store.liftCut(dayOf(now));
-  await store.setStage(stage);
   await notify({ stage, was, bill: billOf(usage), line: lineOf(cycle) });
+  await store.setStage(stage);
   return stage;
 };

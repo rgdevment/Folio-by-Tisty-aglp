@@ -164,6 +164,28 @@ describe("what a read refuses", () => {
     expect(await read()).toHaveProperty("served", true);
   });
 
+  it("a language whose anchor can no longer be read", async () => {
+    await share();
+    await share("Anchor22");
+    await testEnv.DB.prepare(`UPDATE docs SET anchor = 'Anchor22', dies_on = ? WHERE id = '${ID}'`)
+      .bind(TODAY - 1)
+      .run();
+    const anchorSet = (set: string, ...values: number[]) =>
+      testEnv.DB.prepare(`UPDATE docs SET ${set} WHERE id = 'Anchor22'`)
+        .bind(...values)
+        .run();
+
+    await anchorSet("blocked_at = ?", TODAY);
+    expect(await read()).toEqual({ refused: "missing" });
+    await anchorSet("blocked_at = NULL, paused_at = ?", TODAY);
+    expect(await read()).toEqual({ refused: "missing" });
+    await anchorSet("paused_at = NULL, dies_on = ?", TODAY - 1);
+    expect(await read()).toEqual({ refused: "missing" });
+
+    await testEnv.DB.prepare("INSERT INTO holds (held, holder) VALUES ('Anchor22', 'other')").run();
+    expect(await read()).toHaveProperty("served", true);
+  });
+
   it("one blocked or paused, without counting a reader", async () => {
     await share();
     await store.pause(ID, TODAY);
@@ -223,6 +245,12 @@ describe("the key of the day", () => {
     expect(await object?.text()).not.toContain(first);
   });
 
+  it("does not go back to an earlier day when an isolate is late", async () => {
+    const next = await store.dayKey(TODAY + 1);
+    expect(await store.dayKey(TODAY)).toBe(next);
+    expect(await store.dayKey(TODAY + 1)).toBe(next);
+  });
+
   it("is one when many ask at once", async () => {
     const keys = await Promise.all(Array.from({ length: 5 }, () => store.dayKey(TODAY)));
     expect(new Set(keys).size).toBe(1);
@@ -241,6 +269,8 @@ describe("a network", () => {
     expect(netOf("2001:DB8:1:2:3:4:5:6")).toBe("2001:0db8:0001");
     expect(netOf("2001:db8::1")).toBe("2001:0db8:0000");
     expect(netOf("::1")).toBe("0000:0000:0000");
+    expect(netOf("::ffff:203.0.113.7")).toBe("203.0.113.7");
+    expect(netOf("::FFFF:203.0.113.7")).toBe("203.0.113.7");
   });
 });
 

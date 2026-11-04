@@ -92,6 +92,15 @@ describe("a block", () => {
     expect(await diesOn("fine")).toBe(DAY + 2);
   });
 
+  it("does not give days to what only evidence keeps, which must stay unread", async () => {
+    await dying("reported", DAY - 1);
+    await store.report({ doc: "reported", net: "n", category: "phishing", asn: 1 }, DAY - 1);
+    await dying("ordered", DAY - 1, `, legal_until = ${DAY + 90}`);
+    await store.liftCut(DAY);
+    expect(await diesOn("reported")).toBe(DAY - 1);
+    expect(await diesOn("ordered")).toBe(DAY - 1);
+  });
+
   it("does not give days to what is paused or blocked, whose time is its own", async () => {
     await dying("paused", DAY - 1, ", paused_at = 1");
     await dying("blocked", DAY - 1, ", blocked_at = 1");

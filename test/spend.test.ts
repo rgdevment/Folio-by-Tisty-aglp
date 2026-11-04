@@ -52,10 +52,10 @@ describe("the cycle", () => {
 
 describe("the line", () => {
   it("rises as the decision says", () => {
-    expect(lineOf(cycle30(1))).toBe(8);
-    expect(lineOf(cycle30(6))).toBe(8);
-    expect(lineOf(cycle30(10))).toBe(10);
-    expect(lineOf(cycle30(20))).toBe(15);
+    expect(lineOf(cycle30(1))).toBeCloseTo(8.4);
+    expect(lineOf(cycle30(2))).toBeCloseTo(8.8);
+    expect(lineOf(cycle30(10))).toBeCloseTo(12);
+    expect(lineOf(cycle30(20))).toBeCloseTo(16);
     expect(lineOf(cycle30(30))).toBe(20);
   });
 
@@ -74,20 +74,21 @@ describe("the stage", () => {
   });
 
   it("cuts uploads at three quarters of today's line, and blocks at it", () => {
-    expect(stageOf(costing(5.9), cycle30(1))).toBe("open");
-    expect(stageOf(costing(6), cycle30(1))).toBe("no_uploads");
-    expect(stageOf(costing(8), cycle30(1))).toBe("blocked");
+    expect(stageOf(costing(6.2), cycle30(1))).toBe("open");
+    expect(stageOf(costing(6.4), cycle30(1))).toBe("no_uploads");
+    expect(stageOf(costing(8.3), cycle30(1))).toBe("no_uploads");
+    expect(stageOf(costing(8.5), cycle30(1))).toBe("blocked");
   });
 
   it("cuts uploads at the storage ceiling, and keeps reading", () => {
     expect(stageOf({ ...quiet, storedGb: 100 }, cycle30(30))).toBe("no_uploads");
   });
 
-  it("opens again by itself when the line rises past the same bill", () => {
-    const attacked = costing(8);
-    expect(stageOf(attacked, cycle30(5))).toBe("blocked");
-    expect(stageOf(attacked, cycle30(9))).toBe("no_uploads");
-    expect(stageOf(attacked, cycle30(24))).toBe("open");
+  it("opens again at the next midnight when the attack stops, even in the first days", () => {
+    const attacked = costing(8.5);
+    expect(stageOf(attacked, cycle30(1))).toBe("blocked");
+    expect(stageOf(attacked, cycle30(2))).toBe("no_uploads");
+    expect(stageOf(attacked, cycle30(10))).toBe("open");
   });
 });
 
@@ -117,25 +118,32 @@ describe("checking", () => {
   });
 
   it("switches the rule before it says so, and only then tells", async () => {
-    const { set, steps } = tools(costing(8), "no_uploads");
+    const { set, steps } = tools(costing(11), "no_uploads");
     expect(await checkSpend(NOW, RENEWAL, set)).toBe("blocked");
-    expect(steps).toEqual(["rule:true", "stage:blocked", "notify"]);
+    expect(steps).toEqual(["rule:true", "notify", "stage:blocked"]);
   });
 
   it("gives back the days and lifts the rule when the line rises", async () => {
-    const { set, steps } = tools(costing(6), "blocked");
+    const { set, steps } = tools(costing(8), "blocked");
     expect(await checkSpend(NOW, RENEWAL, set)).toBe("no_uploads");
-    expect(steps).toEqual(["rule:false", "lift", "stage:no_uploads", "notify"]);
+    expect(steps).toEqual(["rule:false", "lift", "notify", "stage:no_uploads"]);
   });
 
   it("does not touch the rule between stages that are not blocked", async () => {
-    const { set, steps } = tools(costing(6.5), "open");
+    const { set, steps } = tools(costing(8), "open");
     await checkSpend(NOW, RENEWAL, set);
-    expect(steps).toEqual(["stage:no_uploads", "notify"]);
+    expect(steps).toEqual(["notify", "stage:no_uploads"]);
+  });
+
+  it("keeps the stage when the alert fails, so the next round tells again", async () => {
+    const { set, steps } = tools(costing(8), "open");
+    set.notify = () => Promise.reject(new Error("no alert"));
+    await expect(checkSpend(NOW, RENEWAL, set)).rejects.toThrow("no alert");
+    expect(steps).toEqual([]);
   });
 
   it("keeps the stage when the rule fails, so the next round tries again", async () => {
-    const { set, steps } = tools(costing(8), "open");
+    const { set, steps } = tools(costing(11), "open");
     set.setBlocked = () => Promise.reject(new Error("no rule"));
     await expect(checkSpend(NOW, RENEWAL, set)).rejects.toThrow("no rule");
     expect(steps).toEqual([]);
@@ -157,8 +165,8 @@ describe("checking", () => {
   });
 
   it("says the numbers, and nothing else", async () => {
-    const { set } = tools(costing(8), "open");
+    const { set } = tools(costing(11), "open");
     await checkSpend(NOW, RENEWAL, set);
-    expect(set.notify).toHaveBeenCalledWith({ stage: "blocked", was: "open", bill: 8, line: 8 });
+    expect(set.notify).toHaveBeenCalledWith({ stage: "blocked", was: "open", bill: 11, line: lineOf(cycle30(6)) });
   });
 });

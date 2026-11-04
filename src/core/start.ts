@@ -27,7 +27,7 @@ const sameText = (one: string, other: string): boolean => {
   return differs === 0;
 };
 
-const hourOf = (ms: number): number => Math.floor(ms / HOUR_MS);
+export const hourOf = (ms: number): number => Math.floor(ms / HOUR_MS);
 
 const newId = (): string => {
   // Rejecting the top of the range keeps every letter equally likely.

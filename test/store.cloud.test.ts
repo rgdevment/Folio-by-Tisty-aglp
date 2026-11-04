@@ -664,6 +664,13 @@ describe("creating", () => {
     expect(await store.create(newDoc("d3"), DAY)).toBe("shares_full");
   });
 
+  it("does not count as a share what only evidence keeps", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.create(newDoc("d2", { ttlDays: 15 }), DAY);
+    await store.report({ doc: "d1", net: "n", category: "phishing", asn: 1 }, DAY);
+    expect(await store.create(newDoc("d3"), DAY + 5)).toBe("created");
+  });
+
   it("gives the quota back when it refuses", async () => {
     await store.create(newDoc("d1"), DAY);
     await store.create(newDoc("d2"), DAY);
@@ -919,6 +926,22 @@ describe("reports", () => {
     expect((await flagged())?.n).toBe(3);
     await store.sweep(DAY + LEVEL_ONE.evidenceDays + 1);
     expect((await flagged())?.n).toBe(0);
+  });
+
+  it("starts the days again when the same network reports falsely once more", async () => {
+    await store.create(newDoc("d1"), DAY);
+    for (const net of ["a", "b", "c"]) await report(net);
+    await store.appealAccepted("d1", DAY);
+
+    await store.create(newDoc("d2"), DAY);
+    await store.report({ doc: "d2", net: "a", category: "phishing", asn: 1 }, DAY + 100);
+    await testEnv.DB.prepare("UPDATE docs SET blocked_at = ? WHERE id = 'd2'")
+      .bind(DAY + 100)
+      .run();
+    await store.appealAccepted("d2", DAY + 100);
+
+    const again = await testEnv.DB.prepare("SELECT at FROM false_reporters WHERE net = 'a'").first<{ at: number }>();
+    expect(again?.at).toBe(DAY + 100);
   });
 
   it("marks nobody when the appeal finds nothing blocked", async () => {

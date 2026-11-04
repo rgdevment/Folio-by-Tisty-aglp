@@ -26,7 +26,9 @@ const reviewSpend = async (now: number, env: Env): Promise<void> => {
     setBlocked: (blocked) => spend.setBlocked(blocked),
     notify: async (said) => {
       console.log(JSON.stringify(said));
-      if (env.ALERT_URL) await fetch(env.ALERT_URL, { method: "POST", body: JSON.stringify(said) });
+      if (!env.ALERT_URL) return;
+      const alert = await fetch(env.ALERT_URL, { method: "POST", body: JSON.stringify(said) });
+      if (!alert.ok) throw new Error(`the alert was refused: ${alert.status}`);
     },
   });
   console.log(JSON.stringify({ stage }));

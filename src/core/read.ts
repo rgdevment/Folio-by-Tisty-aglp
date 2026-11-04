@@ -1,6 +1,6 @@
 import { dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
-import { proofIsFresh, saltFor } from "./start";
+import { hourOf, proofIsFresh, saltFor } from "./start";
 import type { Reading, Shown, Store, Version } from "./store";
 
 export interface Asked {
@@ -36,9 +36,7 @@ export interface Served {
   note?: Reading;
 }
 
-const SECOND_MS = 1000;
-const LIMITER_WINDOW_MS = 60 * SECOND_MS;
-const HOUR_MS = 60 * 60 * SECOND_MS;
+const LIMITER_WINDOW_MS = 60_000;
 
 const refusalOfState = (shown: Shown | null): Refused | null => {
   if (!shown?.version) return { refused: "missing" };
@@ -70,7 +68,7 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
   if (admitted === "over") {
     return {
       refused: "proof",
-      salt: await saltFor(secret, scope, Math.floor(now / HOUR_MS)),
+      salt: await saltFor(secret, scope, hourOf(now)),
       bits: limits.proofBits,
     };
   }

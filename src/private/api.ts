@@ -40,11 +40,12 @@ export interface Api {
 }
 
 const answerRead = async (request: Request, id: string, { tools, waitUntil, now }: Api): Promise<Response> => {
+  const proof = request.headers.get("Folio-Proof");
   const asked: Asked = {
     id,
     now,
     ip: request.headers.get("CF-Connecting-IP") ?? "",
-    ...optional("proof", request.headers.get("Folio-Proof")),
+    ...(proof === null ? {} : { proof }),
   };
   const answer = await readDoc(asked, tools);
   if (!("served" in answer)) return refusal(answer, now);
@@ -65,9 +66,6 @@ const answerRead = async (request: Request, id: string, { tools, waitUntil, now 
     },
   });
 };
-
-const optional = <K extends string>(key: K, value: string | null): { [P in K]?: string } =>
-  value === null ? {} : ({ [key]: value } as { [P in K]: string });
 
 export const answer = async (request: Request, api: Api): Promise<Response> => {
   const { pathname } = new URL(request.url);
