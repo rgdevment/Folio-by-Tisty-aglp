@@ -1,6 +1,7 @@
 import { dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
-import { hourOf, proofIsFresh, saltFor } from "./start";
+import { askForProof, type Refused } from "./refused";
+import { proofIsFresh } from "./start";
 import type { Reading, Shown, Store, Version } from "./store";
 
 export interface Asked {
@@ -22,11 +23,6 @@ export interface ReadTools {
   dayKey: (today: number) => Promise<string>;
 }
 
-export type Refused =
-  | { refused: "missing" | "paused" | "blocked" }
-  | { refused: "slow"; until: number }
-  | { refused: "proof"; salt: string; bits: number };
-
 export interface Served {
   served: true;
   version: Version;
@@ -41,8 +37,8 @@ const LIMITER_WINDOW_MS = 60_000;
 const refusalOfState = (shown: Shown | null): Refused | null => {
   if (!shown?.version) return { refused: "missing" };
   if (shown.blockedAt !== null) return { refused: "blocked" };
-  if (shown.pausedAt !== null) return { refused: "paused" };
-  return shown.alive ? null : { refused: "missing" };
+  if (!shown.alive) return { refused: "missing" };
+  return shown.pausedAt === null ? null : { refused: "paused" };
 };
 
 export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): Promise<Served | Refused> => {
@@ -65,13 +61,7 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
     proved,
   };
   const admitted = await store.admit(reading, today);
-  if (admitted === "over") {
-    return {
-      refused: "proof",
-      salt: await saltFor(secret, scope, hourOf(now)),
-      bits: limits.proofBits,
-    };
-  }
+  if (admitted === "over") return askForProof(secret, scope, limits.proofBits, now);
 
   const body = await store.envelope(id, shown.version);
   if (!body) return { refused: "missing" };

@@ -41,6 +41,12 @@ export interface Report {
   sealedLink?: string;
 }
 
+export interface Reported {
+  blocked: boolean;
+  known: boolean;
+  blockedOn: number | null;
+}
+
 // What a read needs of a document, in one row.
 export interface Shown {
   owner: string;
@@ -49,6 +55,22 @@ export interface Shown {
   alive: boolean;
   pausedAt: number | null;
   blockedAt: number | null;
+}
+
+// What the admin link shows, and never an order that keeps a document (decision 42).
+export interface DocStatus {
+  latest: number;
+  diesOn: number;
+  pausedAt: number | null;
+  blockedAt: number | null;
+  appealedAt: number | null;
+  readTotal: number;
+  days: unknown;
+}
+
+export interface Owned {
+  adminHash: string;
+  status: DocStatus;
 }
 
 export type Created = "created" | "same" | "taken" | "shares_full" | "no_anchor" | "quota" | "bad_ttl";
@@ -71,10 +93,15 @@ export interface Store {
   shown(id: string, today: number): Promise<Shown | null>;
   envelope(id: string, version: Version): Promise<ReadableStream | null>;
   dayKey(today: number): Promise<string>;
-  report(report: Report, today: number): Promise<{ blocked: boolean }>;
+  evidenceKey(today: number): Promise<string>;
+  takeHourly(net: string, action: string, hour: number, atMost: number): Promise<boolean>;
+  report(report: Report, today: number): Promise<Reported>;
+  owned(id: string, today: number): Promise<Owned | null>;
+  appeal(id: string, today: number): Promise<void>;
   appealAccepted(id: string, today: number): Promise<void>;
   pause(id: string, today: number): Promise<void>;
   resume(id: string, today: number): Promise<void>;
+  stop(id: string, today: number): Promise<void>;
   sweep(today: number): Promise<Swept>;
   forgetOrphans(now: number): Promise<number>;
   stage(): Promise<Stage>;

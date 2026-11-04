@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
 import { DAY_MS, dayOf, LEVEL_ONE } from "../src/core/limits";
-import { netDigest, netOf } from "../src/core/net";
+import { netOf } from "../src/core/net";
 import { type Limiter, type ReadTools, readDoc } from "../src/core/read";
 import { startHolds } from "../src/core/start";
 import worker from "../src/private/index";
@@ -19,7 +19,17 @@ const NOW = Date.now();
 const TODAY = dayOf(NOW);
 const ID = "AbCdEfGh";
 const API = `https://tisty.cl/api/v1/docs/${ID}`;
-const TABLES = ["docs", "service_day", "service_stage", "net_day", "reports", "revocations", "holds", "openings"];
+const TABLES = [
+  "docs",
+  "service_day",
+  "service_stage",
+  "net_day",
+  "net_hour",
+  "reports",
+  "revocations",
+  "holds",
+  "openings",
+];
 
 const open: Limiter = { allows: async () => true };
 
@@ -120,7 +130,7 @@ describe("reading over HTTP", () => {
     expect((await get({ method: "DELETE" })).status).toBe(404);
   });
 
-  it("gives a start that holds, without writing anything", async () => {
+  it("gives a start that holds, without making a document", async () => {
     const response = await get({ method: "POST" }, "203.0.113.7", "https://tisty.cl/api/v1/start");
     const { id, mac } = (await response.json()) as { id: string; mac: string };
     expect(await startHolds(testEnv.FOLIO_SECRET, id, mac, Date.now())).toBe(true);
@@ -204,7 +214,6 @@ describe("what a read refuses", () => {
 
   it("asks a new reader past the free ones for a proof, and serves it with the proof", async () => {
     await share();
-    const net = await netDigest("a key for the day", "203.0.113.7");
     await testEnv.DB.prepare(
       `CREATE TABLE seen_${TODAY} (owner TEXT, reader TEXT, doc TEXT, hour INTEGER, PRIMARY KEY (owner, reader, doc)) WITHOUT ROWID`,
     ).run();
@@ -216,19 +225,18 @@ describe("what a read refuses", () => {
       .run();
     const asked = await read();
     expect(asked).toMatchObject({ refused: "proof", bits: LEVEL_ONE.proofBits });
-    const nonce = await solve(`read|${ID}|${net}`, (asked as { salt: string }).salt);
+    const nonce = await solve((asked as { salt: string }).salt);
     expect(await read({ proof: nonce })).toHaveProperty("served", true);
     expect(await read({ proof: "wrong" })).toMatchObject({ refused: "proof" });
   });
 
   it("serves past the ceiling with a proof, without noting", async () => {
     await share();
-    const net = await netDigest("a key for the day", "203.0.113.7");
     const few = { ...LEVEL_ONE, newReadersFree: 1, rowsPerOwnerADay: 1, proofBits: 1 };
     await store.note({ owner: "o1", reader: "someone", doc: ID, hour: 1, proved: false }, TODAY);
     const using = tools({ store: new Cloud(testEnv, few), limits: few });
     const asked = (await read({}, using)) as { salt: string };
-    const nonce = await solve(`read|${ID}|${net}`, asked.salt, 1);
+    const nonce = await solve(asked.salt, 1);
     const served = await read({ proof: nonce }, using);
     expect(served).toHaveProperty("served", true);
     expect(served).not.toHaveProperty("note");
@@ -274,10 +282,10 @@ describe("a network", () => {
   });
 });
 
-const solve = async (scope: string, salt: string, bits = LEVEL_ONE.proofBits): Promise<string> => {
+const solve = async (salt: string, bits = LEVEL_ONE.proofBits): Promise<string> => {
   const encoder = new TextEncoder();
   for (let nonce = 0; ; nonce += 1) {
-    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(`${salt}|${scope}|${nonce}`)));
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(`${salt}|${nonce}`)));
     const first = (hash[0] ?? 0) * 256 + (hash[1] ?? 0);
     if (first >> (16 - bits) === 0) return String(nonce);
   }
