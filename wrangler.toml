@@ -3,7 +3,6 @@ main = "src/private/index.ts"
 compatibility_date = "2026-08-01"
 workers_dev = false
 
-# A custom domain, so wrangler deploy creates its DNS record and certificate.
 routes = [{ pattern = "tisty.cl", custom_domain = true }]
 
 # Free and uncounted (decision 109): only the API wakes the Worker, and any other path gets the page.
@@ -26,7 +25,6 @@ migrations_dir = "migrations"
 binding = "ENVELOPES"
 bucket_name = "folio-private-envelopes"
 
-# Reads, starts and the admin link cost no writes here. It counts by location and is only a brake against floods (decision 116).
 [[ratelimits]]
 name = "READS"
 namespace_id = "1001"
