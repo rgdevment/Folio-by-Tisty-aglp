@@ -611,9 +611,27 @@ td {
   vertical-align: top;
 }
 
-th {
+th,
+tfoot td {
   background: var(--tisty-hover);
   font-weight: 600;
+}
+
+table:has(th[data-type]) td {
+  font-variant-numeric: tabular-nums;
+}
+
+td.whole {
+  white-space: nowrap;
+}
+
+tr {
+  height: calc(1lh + 13px);
+}
+
+td[data-amiss] {
+  text-decoration: underline wavy color-mix(in srgb, var(--tisty-hue-amber) 70%, transparent);
+  text-underline-offset: 3px;
 }
 
 hr {
@@ -626,6 +644,12 @@ a {
   color: var(--tisty-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* A word that leads nowhere yet must not promise a click. */
+a:not([href]) {
+  color: inherit;
+  text-decoration: none;
 }
 
 /* A page or a document named inside a sentence stays a word of it. */
