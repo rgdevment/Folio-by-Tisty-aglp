@@ -41,7 +41,6 @@ export const finished = (words: DocumentFragment, addresses: (string | null)[]):
       // There is no way to ask for it yet, so it reads as its words and not as a link that does nothing.
       link.removeAttribute("href");
       link.setAttribute("data-file", FILE.exec(where)?.[1] ?? "");
-      link.setAttribute("title", "Este adjunto todavía no se puede descargar");
     }
   }
   return words;
