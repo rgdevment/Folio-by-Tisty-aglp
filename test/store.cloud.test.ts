@@ -28,7 +28,6 @@ const TABLES = [
 const newDoc = (id: string, over: Partial<NewDoc> = {}): NewDoc => ({
   id,
   owner: "o1",
-  editHash: `edit-${id}`,
   adminHash: `admin-${id}`,
   ttlDays: 1,
   net: "n1",
@@ -738,8 +737,19 @@ describe("creating", () => {
   it("takes a lost answer as the same document, and another's id as taken", async () => {
     await store.create(newDoc("d1"), DAY);
     expect(await store.create(newDoc("d1"), DAY)).toBe("same");
-    expect(await store.create(newDoc("d1", { editHash: "other" }), DAY)).toBe("taken");
+    expect(await store.create(newDoc("d1", { adminHash: "other" }), DAY)).toBe("taken");
+    expect(await store.create(newDoc("d1", { owner: "o2" }), DAY)).toBe("taken");
     expect((await quota())?.docs).toBe(1);
+  });
+
+  it("keeps who may edit, and nobody when its owner allowed no one", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.create(newDoc("d2", { permit: "a-public-key" }), DAY);
+    const permits = await testEnv.DB.prepare("SELECT id, permit FROM docs WHERE id IN ('d1', 'd2') ORDER BY id").all();
+    expect(permits.results).toEqual([
+      { id: "d1", permit: null },
+      { id: "d2", permit: "a-public-key" },
+    ]);
   });
 
   it("refuses a time nobody can choose", async () => {

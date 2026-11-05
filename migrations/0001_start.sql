@@ -5,31 +5,38 @@ CREATE TABLE docs (
   id TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
   anchor TEXT,
-  edit_hash TEXT NOT NULL,
+  permit TEXT,
   admin_hash TEXT NOT NULL,
   latest INTEGER NOT NULL DEFAULT 0,
   versions TEXT NOT NULL DEFAULT '[]',
   bytes INTEGER NOT NULL DEFAULT 0,
-  files_at INTEGER,
   ttl_days INTEGER NOT NULL,
   dies_on INTEGER NOT NULL,
   active_day INTEGER NOT NULL,
   paused_at INTEGER,
   blocked_at INTEGER,
+  blocked_hour INTEGER,
   appealed_at INTEGER,
+  appealed_hour INTEGER,
+  legal_until INTEGER,
   read_total INTEGER NOT NULL DEFAULT 0,
   days TEXT NOT NULL DEFAULT '{}'
 ) WITHOUT ROWID;
 
--- Written only when a document is created, since nothing else changes the owner.
 CREATE INDEX docs_owner ON docs (owner, anchor);
 
--- What stays of each day for good, with no document in it.
 CREATE TABLE service_day (
   day INTEGER PRIMARY KEY,
   readers INTEGER NOT NULL,
   docs INTEGER NOT NULL,
   hours TEXT NOT NULL
+) WITHOUT ROWID;
+
+CREATE TABLE service_stage (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  stage TEXT NOT NULL,
+  alerted TEXT NOT NULL DEFAULT 'open',
+  digested_hour INTEGER NOT NULL DEFAULT 0
 ) WITHOUT ROWID;
 
 CREATE TABLE net_day (
@@ -40,15 +47,31 @@ CREATE TABLE net_day (
   PRIMARY KEY (day, net)
 ) WITHOUT ROWID;
 
+-- One row per network and action, reset within itself each hour: the network's name changes every day (decision 137).
+CREATE TABLE net_hour (
+  net TEXT NOT NULL,
+  action TEXT NOT NULL,
+  hour INTEGER NOT NULL,
+  n INTEGER NOT NULL,
+  PRIMARY KEY (net, action)
+) WITHOUT ROWID;
+
 CREATE TABLE reports (
   doc TEXT NOT NULL,
   net TEXT NOT NULL,
   at INTEGER NOT NULL,
+  at_hour INTEGER NOT NULL DEFAULT 0,
   category TEXT NOT NULL,
   detail TEXT,
   sealed_link TEXT,
+  asn INTEGER,
   cleared INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (doc, net)
+) WITHOUT ROWID;
+
+CREATE TABLE false_reporters (
+  net TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
 ) WITHOUT ROWID;
 
 CREATE TABLE revocations (
@@ -65,7 +88,6 @@ CREATE TABLE holds (
   PRIMARY KEY (held, holder)
 ) WITHOUT ROWID;
 
--- A document that dies has to let go of what it holds, and holds change far less than they are read.
 CREATE INDEX holds_holder ON holds (holder);
 
 CREATE TABLE openings (
