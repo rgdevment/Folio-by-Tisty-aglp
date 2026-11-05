@@ -203,3 +203,143 @@ hr {
 a {
   color: var(--tisty-accent);
 }
+
+/* A page or a document named inside a sentence stays a word of it. */
+a.card {
+  padding: 0 5px;
+  background: var(--tisty-mark-doc);
+  border-radius: 4px;
+  color: var(--tisty-ink);
+  text-decoration: none;
+}
+
+a.card:hover {
+  background: var(--tisty-mark-doc-lit);
+}
+
+/* Alone in its paragraph it is drawn whole, as Tisty draws it. */
+a.doc-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 14px;
+  padding: 12px 14px;
+  background: none;
+  border: 1px solid var(--tisty-hair);
+  border-radius: 10px;
+  color: inherit;
+  cursor: pointer;
+}
+
+a.doc-card:hover {
+  background: var(--tisty-hover);
+  border-color: var(--tisty-line);
+}
+
+a.doc-card:focus-visible {
+  outline: 2px solid var(--tisty-accent);
+  outline-offset: 2px;
+}
+
+.card-tile {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  background: var(--tisty-mark-doc);
+  border-radius: 8px;
+  color: var(--tisty-soft);
+}
+
+.is-page .card-tile {
+  background: var(--tisty-accent-soft);
+  color: var(--tisty-accent);
+}
+
+.card-tile svg {
+  display: inline;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-name:has(+ .card-blurb:empty) {
+  grid-row: 1 / span 2;
+}
+
+.card-blurb {
+  grid-column: 2;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--tisty-faint);
+  font-size: 0.86em;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.card-blurb:empty {
+  display: none;
+}
+
+.card-meta {
+  grid-row: 1 / span 2;
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tisty-faint);
+  font-size: 0.76em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.card-go {
+  font-size: 1.4em;
+  line-height: 1;
+}
+
+.chip {
+  padding: 1px 8px;
+  background: var(--tisty-accent-soft);
+  border-radius: 999px;
+  color: var(--tisty-accent);
+  font-weight: 550;
+}
+
+/* On a phone the page's number goes under its words, so they keep the width. */
+@media (max-width: 640px) {
+  .card-tile,
+  .card-go {
+    grid-row: 1 / span 3;
+  }
+
+  .card-meta {
+    display: contents;
+  }
+
+  .card-go {
+    grid-column: 3;
+    color: var(--tisty-faint);
+  }
+
+  .chip {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: 4px;
+    font-size: 0.76em;
+    font-variant-numeric: tabular-nums;
+  }
+}

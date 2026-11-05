@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { Document } from "@tisty/contracts";
+import type { Document, Page } from "@tisty/contracts";
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { domPurifyCleaner } from "../src/page/ui/clean";
@@ -8,6 +8,15 @@ import { drawFrame } from "../src/page/ui/frame";
 
 const SEAL = { verdict: "holds", fingerprint: "1", diesOn: "mañana" } as const;
 const ADDRESS = "https://tisty.cl/k7Qm2xPa#THEKEY";
+
+const ENERO: Page = {
+  id: "p1",
+  page_of: "k7Qm2xPa",
+  at: 1,
+  title: "Enero",
+  html: '<h1 id="enero">Enero</h1>',
+  body: "",
+};
 
 const HELD: Document = {
   id: "k7Qm2xPa",
@@ -20,7 +29,7 @@ const HELD: Document = {
     '<p><a href="https://www.tisty.app/">web</a></p>',
     '<h2 id="rio">Río</h2>',
   ].join(""),
-  pages: [{ id: "p1", page_of: "k7Qm2xPa", at: 1, title: "Enero", html: '<h1 id="enero">Enero</h1>', body: "" }],
+  pages: [ENERO],
   cited: [{ document: "wordsOnly", key: "CITEDKEY" }],
 };
 
@@ -109,7 +118,7 @@ describe("a click on what the sheet links to", () => {
     expect(crumb()?.hidden).toBe(true);
     click("Enero");
     expect(crumb()?.hidden).toBe(false);
-    expect(place.document.getElementById("crumb-at")?.textContent).toBe("Página 1 de 1");
+    expect(place.document.getElementById("crumb-at")?.textContent).toBe("1 de 1");
     place.document.getElementById("crumb-back")?.click();
     expect(crumb()?.hidden).toBe(true);
     expect(place.document.title).toBe(`${HELD.title} · Folio`);
@@ -132,6 +141,49 @@ describe("a click on what the sheet links to", () => {
     draw(HELD);
     expect(click("web")).toBe(false);
     expect(linkSaying("web")?.getAttribute("target")).toBe("_blank");
+  });
+});
+
+describe("a card in the words", () => {
+  const withWords = (html: string): Document => ({
+    ...HELD,
+    html,
+    pages: [{ ...ENERO, html: "<h1>Enero</h1><p>Un mes tranquilo.</p><p><b>Dos</b> frases.</p>" }],
+  });
+
+  it("is drawn whole when alone in its paragraph, and still turns to its page", () => {
+    draw(withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>'));
+    const card = root.querySelector("a.doc-card.is-page");
+    expect(card?.querySelector(".card-name")?.textContent).toBe("Enero");
+    expect(card?.querySelector(".card-blurb")?.textContent).toBe("Un mes tranquilo. · Dos frases.");
+    expect(card?.querySelector(".chip")?.textContent).toBe("Página 1 de 1");
+    card
+      ?.querySelector(".card-name")
+      ?.dispatchEvent(new place.MouseEvent("click", { bubbles: true, composed: true, cancelable: true }));
+    expect(place.document.title).toBe("Enero · Folio");
+  });
+
+  it("stays a word of the sentence it sits in", () => {
+    draw(withWords('<p>Mira <a class="card" href="tisty:page/1">Enero</a> ahí.</p>'));
+    expect(root.querySelector("a.doc-card")).toBeNull();
+    expect(root.querySelector("a.card")?.textContent).toBe("Enero");
+  });
+
+  it("names a document shared along by its title", () => {
+    const shared: Document = {
+      ...withWords('<p><a class="card" href="tisty:cited/0">Otro</a></p>'),
+      cited: [{ document: "wordsOnly", key: "CITEDKEY", title: "Sobre el río" }],
+    };
+    draw(shared);
+    expect(root.querySelector("a.doc-card .card-name")?.textContent).toBe("Sobre el río");
+    expect(root.querySelector("a.doc-card .chip")?.textContent).toBe("Documento");
+  });
+
+  it("writes a title as words, never as HTML", () => {
+    const hostile = withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>');
+    draw({ ...hostile, pages: [{ ...ENERO, title: "<img src=x onerror=alert(1)>" }] });
+    expect(root.querySelector(".card-name")?.textContent).toBe("<img src=x onerror=alert(1)>");
+    expect(root.querySelector(".card-name img")).toBeNull();
   });
 });
 

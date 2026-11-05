@@ -242,6 +242,48 @@ body::before {
   stroke-width: 4.5;
 }
 
+/* The way back from a page to its document, always in reach. */
+.crumb {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--tisty-hair);
+  color: var(--tisty-faint);
+  font-size: 12.5px;
+}
+
+.crumb-back {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 10px 0 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--tisty-soft);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--quick),
+    color var(--quick);
+}
+
+.crumb-back:hover {
+  background: var(--track);
+  color: var(--tisty-ink);
+}
+
+.crumb-at {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .bar-end {
   display: flex;
   align-items: center;
@@ -403,47 +445,6 @@ body::before {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-}
-
-/* The way back, above the sheet of a page that is not the document's first. */
-.crumb {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  width: var(--page-width, var(--sheet-width));
-  max-width: 100%;
-  margin: -6px auto 10px;
-  color: var(--tisty-faint);
-  font-size: 12.5px;
-}
-
-.crumb-back {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  min-height: 28px;
-  padding: 0 10px 0 4px;
-  background: transparent;
-  border: 0;
-  border-radius: 8px;
-  color: var(--tisty-soft);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background var(--quick),
-    color var(--quick);
-}
-
-.crumb-back:hover {
-  background: var(--track);
-  color: var(--tisty-ink);
-}
-
-.crumb-at {
-  flex: none;
-  font-variant-numeric: tabular-nums;
 }
 
 .one-line {
@@ -1127,6 +1128,21 @@ body::before {
     display: none;
   }
 
+  /* On a page, the bar keeps the mark, the way back and where the reader is. */
+  .bar:has(.crumb:not([hidden])) .brand-name,
+  .crumb-title,
+  .crumb-word {
+    display: none;
+  }
+
+  .crumb {
+    padding-left: 8px;
+  }
+
+  .crumb-back {
+    padding-right: 2px;
+  }
+
   .page-foot {
     grid-template-columns: 1fr;
     justify-items: center;
@@ -1159,7 +1175,6 @@ body::before {
 
   .bar,
   .loading,
-  .crumb,
   .pages-card,
   .panels,
   .page-foot,

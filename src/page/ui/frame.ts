@@ -1,4 +1,5 @@
 import type { Document, Orientation, Page, Paper, Verdict } from "@tisty/contracts";
+import { drawCards } from "./cards";
 import { bareUrl } from "./clean";
 import sheetStyles from "./sheet.css?url";
 
@@ -311,12 +312,12 @@ const markPage = (at: number): void => {
   }
 };
 
-// The way back to the document, above the sheet of any of its pages.
+// The way back to the document, in the bar so it is there however far down the page the reader goes.
 const drawWayBack = (held: Document, at: number, total: number, goTo: (shown: Document) => void): void => {
   element("crumb").hidden = at < 0;
   if (at < 0) return;
   element("crumb-title").textContent = nameOf(held);
-  element("crumb-at").textContent = `Página ${at + 1} de ${total}`;
+  element("crumb-at").textContent = `${at + 1} de ${total}`;
   element("crumb-back").onclick = () => goTo(held);
 };
 
@@ -336,7 +337,10 @@ export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFra
   let reading: AbortController | undefined;
   const goTo = (shown: Document | Page): void => {
     sheet.lang = shown.lang ?? held.lang ?? "";
-    sheet.replaceChildren(...(shown.tags?.length ? [tagsOf(shown.tags)] : []), wordsOf(shown.html));
+    sheet.replaceChildren(
+      ...(shown.tags?.length ? [tagsOf(shown.tags)] : []),
+      drawCards(wordsOf(shown.html), held, wordsOf),
+    );
     document.title = shown.title ? `${shown.title} · Folio` : "Folio by Tisty";
     const at = pages.indexOf(shown as Page);
     markPage(at);
