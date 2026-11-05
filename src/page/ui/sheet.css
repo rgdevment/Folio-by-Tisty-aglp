@@ -650,7 +650,8 @@ a.card:not(.doc-card)::before,
 }
 
 /* Alone in its paragraph it is drawn whole, as Tisty draws it. */
-.doc-card {
+.doc-card,
+a.doc-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;

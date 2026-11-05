@@ -49,14 +49,6 @@ const fill = (link: Element, name: string, under: string, paths: string[], chip:
 
 const isWidget = ({ kind, name }: Attachment): boolean => kind === "text/html" || WIDGET_FILE.test(name);
 
-const drawFile = (link: Element, held: Document): void => {
-  const file = held.files?.[Number(link.getAttribute("data-file"))];
-  if (!file) return;
-  const widget = isWidget(file);
-  fill(link, file.name, widget ? SEEN_IN_TISTY : NOT_YET, LEAF, widget ? "Widget" : "Adjunto");
-  link.classList.add("doc-card", "is-still");
-};
-
 // Its code is what would run, so it leaves here unread: the card is written from nothing that came in it.
 const drawWidgets = (words: DocumentFragment): void => {
   for (const code of words.querySelectorAll("figure.code > pre > code.language-widget")) {
@@ -96,6 +88,17 @@ const standsAlone = (link: Element, words: DocumentFragment): boolean => {
   );
 };
 
+const drawFiles = (words: DocumentFragment, held: Document): void => {
+  for (const link of words.querySelectorAll("a[data-file]")) {
+    const file = held.files?.find((one) => one.at === Number(link.getAttribute("data-file")));
+    const widget = file !== undefined && isWidget(file);
+    link.setAttribute("title", widget ? SEEN_IN_TISTY : NOT_YET);
+    if (!file || !link.matches("p > a.card") || !standsAlone(link, words)) continue;
+    fill(link, file.name, widget ? SEEN_IN_TISTY : NOT_YET, LEAF, widget ? "Widget" : "Adjunto");
+    link.classList.add("doc-card", "is-still");
+  }
+};
+
 // What it writes comes from the document that was already checked, always as words and never as HTML.
 export const cardsFor = (held: Document, wordsOf: (html: string) => DocumentFragment) => {
   const pages: Page[] = held.pages ?? [];
@@ -109,12 +112,9 @@ export const cardsFor = (held: Document, wordsOf: (html: string) => DocumentFrag
 
   return (words: DocumentFragment): DocumentFragment => {
     drawWidgets(words);
+    drawFiles(words, held);
     for (const link of words.querySelectorAll("p > a.card")) {
       if (!standsAlone(link, words)) continue;
-      if (link.hasAttribute("data-file")) {
-        drawFile(link, held);
-        continue;
-      }
       const reference = referenceOf(link.getAttribute("href") ?? "");
       const said = link.textContent ?? "";
       if (reference?.kind === "page") {

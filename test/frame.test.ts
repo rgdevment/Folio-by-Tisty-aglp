@@ -319,6 +319,31 @@ describe("what is seen only in Tisty", () => {
     expect(root.querySelector("iframe, object, embed")).toBeNull();
   });
 
+  it("finds a file by its place, not by where it sits in the list", () => {
+    draw({
+      ...WITH_FILES,
+      html: '<p><a class="card" href="tisty:file/5">x</a></p>',
+      files: [{ at: 5, name: "cartilla.pdf", kind: "application/pdf" }],
+    });
+    expect(root.querySelector(".card-name")?.textContent).toBe("cartilla.pdf");
+  });
+
+  it("says the same of a file named inside a sentence, which stays a word", () => {
+    draw({
+      ...WITH_FILES,
+      html: '<p>Mira <a href="tisty:file/0">la tabla</a> y <a href="tisty:file/1">el papel</a>.</p>',
+    });
+    const [html, pdf] = root.querySelectorAll("a[data-file]");
+    expect(html?.getAttribute("title")).toContain("ábrelo en Tisty");
+    expect(pdf?.getAttribute("title")).toContain("no se puede descargar");
+    expect(root.querySelector(".doc-card")).toBeNull();
+  });
+
+  it("draws a whole card over the rule for a card inside a sentence", () => {
+    const sheet = readFileSync("src/page/ui/sheet.css", "utf8");
+    expect(sheet.indexOf("a.doc-card {")).toBeGreaterThan(sheet.indexOf("a.card {"));
+  });
+
   it("writes a file's name as words, never as HTML", () => {
     draw({ ...WITH_FILES, files: [{ at: 0, name: "<img src=x onerror=alert(1)>", kind: "text/html" }] });
     expect(root.querySelector(".card-name img")).toBeNull();
