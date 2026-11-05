@@ -1,7 +1,7 @@
 type Theme = "light" | "dark";
 
-// The same key public/theme.js reads, before anything is painted.
-const CHOSEN = "folio-theme";
+// The key and values www.tisty.app uses, and the key public/theme.js reads before anything is painted.
+const CHOSEN = "theme";
 const DARK = "(prefers-color-scheme: dark)";
 
 // A browser that keeps nothing still reads: the choice just lasts until the page is closed.

@@ -2,7 +2,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { offerThemes } from "../src/page/ui/theme";
 
-const KEY = "folio-theme";
+const KEY = "theme";
 
 let place: Window & typeof globalThis;
 let kept: Map<string, string>;
