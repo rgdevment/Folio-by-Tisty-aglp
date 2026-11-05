@@ -70,6 +70,14 @@ beforeEach(() => {
   vi.stubGlobal("location", { href: ADDRESS, hash: "#THEKEY", assign });
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("scrollTo", vi.fn());
+  vi.stubGlobal("addEventListener", vi.fn());
+  vi.stubGlobal("requestAnimationFrame", vi.fn());
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe(): void {}
+    },
+  );
 });
 
 afterEach(() => {
@@ -91,8 +99,20 @@ describe("a click on what the sheet links to", () => {
     expect(place.document.title).toBe("Enero · Folio");
     expect(root.querySelector("h1")?.id).toBe("enero");
     const marks = [...place.document.querySelectorAll("#pages button")].map((one) => one.getAttribute("aria-current"));
-    expect(marks).toEqual([null, "page"]);
+    expect(marks).toEqual(["page"]);
     expect(place.location.href).toBe(ADDRESS);
+  });
+
+  it("shows the way back above a page, and none above the document", () => {
+    const crumb = () => place.document.getElementById("crumb");
+    draw(HELD);
+    expect(crumb()?.hidden).toBe(true);
+    click("Enero");
+    expect(crumb()?.hidden).toBe(false);
+    expect(place.document.getElementById("crumb-at")?.textContent).toBe("Página 1 de 1");
+    place.document.getElementById("crumb-back")?.click();
+    expect(crumb()?.hidden).toBe(true);
+    expect(place.document.title).toBe(`${HELD.title} · Folio`);
   });
 
   it("goes to what is cited, with its own key", () => {

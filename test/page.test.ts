@@ -45,10 +45,30 @@ describe("the page's headers", () => {
 });
 
 describe("what the page loads", () => {
+  it("carries Tisty's icon and mascot itself, because the CSP lets no image come from anywhere else", () => {
+    for (const file of ["icon.svg", "tisto.svg"]) {
+      expect(HTML).toContain(`"/${file}"`);
+      expect(read(`src/page/public/${file}`)).toContain("<svg");
+    }
+  });
+
   it("is all its own: no font, script or image of anyone else", () => {
     expect(HTML).not.toMatch(/<(script|link|img)[^>]+(src|href)="https?:/);
     expect(SHEET).not.toMatch(/url\(|@import/);
     expect(read("src/page/ui/frame.css")).not.toMatch(/url\(|@import/);
+  });
+});
+
+describe("the theme", () => {
+  it("is settled before anything is painted, from a file of the page's own that the CSP lets run", () => {
+    const script = '<script src="/theme.js">';
+    expect(HTML).toContain(script);
+    expect(HTML.indexOf(script)).toBeLessThan(HTML.indexOf('<script type="module"'));
+  });
+
+  it("is kept under one name, on both sides of the first paint", () => {
+    const name = read("src/page/ui/theme.ts").match(/CHOSEN = "(.+)"/)?.[1] ?? "no name";
+    expect(read("src/page/public/theme.js")).toContain(`"${name}"`);
   });
 });
 

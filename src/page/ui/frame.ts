@@ -20,6 +20,10 @@ const PIXELS_PER_INCH = 96;
 const MILLIMETRES_PER_INCH = 25.4;
 const LONG_PAGE_WIDTH_PIXELS = 820;
 
+// The frame's own: where the panels stick under the bar, as frame.css says, and what they keep clear at the window's foot.
+const PANELS_TOP_PIXELS = 80;
+const PANELS_FOOT_PIXELS = 16;
+
 const pixels = (millimetres: number): number => Math.round((millimetres / MILLIMETRES_PER_INCH) * PIXELS_PER_INCH);
 
 const VERDICTS: Record<Verdict, { text: string; tone: string }> = {
@@ -91,9 +95,39 @@ const drawPaperPanel = (host: HTMLElement, held: Document): void => {
   apply();
 };
 
-const drawIndex = (root: ShadowRoot, held: Document | Page): void => {
+// By hand and not with scrollIntoView, which would also move the page the reader is reading.
+const centerInItsList = (button: HTMLElement): void => {
+  const list = button.closest("ol");
+  if (list) list.scrollTop = button.offsetTop - list.clientHeight / 2;
+};
+
+// Marks the heading being read: the last one past the upper third of the window, or the last of all once at the end.
+const followReading = (marks: Map<Element, HTMLElement>): AbortController => {
+  const headings = [...marks.keys()];
+  const mark = (): void => {
+    const atTheEnd = scrollY > 0 && scrollY + innerHeight >= document.documentElement.scrollHeight - 1;
+    const passed = headings.filter((heading) => heading.getBoundingClientRect().top <= innerHeight / 3);
+    const reached = atTheEnd ? headings.at(-1) : passed.at(-1);
+    for (const [heading, button] of marks) {
+      if (heading !== reached) button.removeAttribute("aria-current");
+      else if (!button.hasAttribute("aria-current")) {
+        button.setAttribute("aria-current", "location");
+        centerInItsList(button);
+      }
+    }
+  };
+  const stop = new AbortController();
+  addEventListener("scroll", mark, { passive: true, signal: stop.signal });
+  addEventListener("resize", mark, { signal: stop.signal });
+  // After the frame has drawn: until then the sheet is hidden, and every heading would seem already passed.
+  requestAnimationFrame(mark);
+  return stop;
+};
+
+const drawIndex = (root: ShadowRoot, held: Document | Page): AbortController => {
   const list = element("index");
   list.replaceChildren();
+  const marks = new Map<Element, HTMLElement>();
   const headings = [...root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")];
   // The title is already the first thing on the sheet, so the index starts after it.
   const shown = headings[0]?.textContent === held.title ? headings.slice(1) : headings;
@@ -110,13 +144,27 @@ const drawIndex = (root: ShadowRoot, held: Document | Page): void => {
     });
     item.append(button);
     list.append(item);
+    marks.set(heading, button);
   }
-  const empty = list.childElementCount === 0 && element("pages").childElementCount === 0;
+  const empty = list.childElementCount === 0;
   element("panel-index").hidden = empty;
   // On a phone its button would open a dimmed screen with nothing on it.
   for (const button of element("dock").querySelectorAll<HTMLElement>('[data-panel="panel-index"]')) {
     button.hidden = empty;
   }
+  return followReading(marks);
+};
+
+// Taller than the window, the panels stop with their foot in view, so the page's one scrollbar reaches all of them.
+const keepPanelsInReach = (): void => {
+  const panels = element("panels");
+  const place = (): void => {
+    const over = panels.getBoundingClientRect().height + PANELS_TOP_PIXELS + PANELS_FOOT_PIXELS - innerHeight;
+    if (over > 0) panels.style.setProperty("--panels-top", `${PANELS_TOP_PIXELS - over}px`);
+    else panels.style.removeProperty("--panels-top");
+  };
+  new ResizeObserver(place).observe(panels);
+  addEventListener("resize", place);
 };
 
 const fact = (list: HTMLElement, name: string, value: string): void => {
@@ -176,6 +224,7 @@ let opener: HTMLElement | null = null;
 const closePanel = (): void => {
   for (const panel of document.querySelectorAll<HTMLElement>(".panel[data-open]")) delete panel.dataset.open;
   element("scrim").hidden = true;
+  opener?.setAttribute("aria-expanded", "false");
   opener?.focus();
   opener = null;
 };
@@ -194,6 +243,7 @@ const drawDock = (): void => {
     panel.tabIndex = -1;
     panel.focus();
     opener = button;
+    button.setAttribute("aria-expanded", "true");
     element("scrim").hidden = false;
   });
   element("scrim").addEventListener("click", closePanel);
@@ -235,19 +285,20 @@ const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page:
   }
 };
 
-const drawPages = (held: Document, goTo: (shown: Document | Page) => void): void => {
-  const list = element("pages");
-  const pages = held.pages ?? [];
+const nameOf = (shown: Document | Page): string => shown.title ?? "Sin título";
+
+// At the end of the document and on a card of their own, as Tisty shows them.
+const drawPages = (pages: Page[], goTo: (shown: Page) => void): void => {
   if (pages.length === 0) return;
-  for (const shown of [held, ...pages]) {
+  element("pages-card").hidden = false;
+  element("pages-count").textContent = String(pages.length);
+  const list = element("pages");
+  for (const shown of pages) {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = shown.title ?? "Sin título";
-    button.addEventListener("click", () => {
-      closePanel();
-      goTo(shown);
-    });
+    button.textContent = nameOf(shown);
+    button.addEventListener("click", () => goTo(shown));
     item.append(button);
     list.append(item);
   }
@@ -258,6 +309,15 @@ const markPage = (at: number): void => {
     if (place === at) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
+};
+
+// The way back to the document, above the sheet of any of its pages.
+const drawWayBack = (held: Document, at: number, total: number, goTo: (shown: Document) => void): void => {
+  element("crumb").hidden = at < 0;
+  if (at < 0) return;
+  element("crumb-title").textContent = nameOf(held);
+  element("crumb-at").textContent = `Página ${at + 1} de ${total}`;
+  element("crumb-back").onclick = () => goTo(held);
 };
 
 // What it draws is already clean: `wordsOf` gives what the cleaner gave back, never the HTML as it arrived.
@@ -272,23 +332,30 @@ export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFra
   sheet.className = "sheet";
   root.append(styles, sheet);
 
+  const pages = held.pages ?? [];
+  let reading: AbortController | undefined;
   const goTo = (shown: Document | Page): void => {
     sheet.lang = shown.lang ?? held.lang ?? "";
     sheet.replaceChildren(...(shown.tags?.length ? [tagsOf(shown.tags)] : []), wordsOf(shown.html));
     document.title = shown.title ? `${shown.title} · Folio` : "Folio by Tisty";
-    markPage(shown === held ? 0 : (held.pages ?? []).indexOf(shown as Page) + 1);
-    drawIndex(root, shown);
-    scrollTo({ top: 0 });
+    const at = pages.indexOf(shown as Page);
+    markPage(at);
+    drawWayBack(held, at, pages.length, goTo);
+    reading?.abort();
+    reading = drawIndex(root, shown);
+    // At once: gliding back over a long page would only show everything the reader is leaving.
+    scrollTo({ top: 0, behavior: "instant" });
   };
   root.addEventListener("click", (event) => followLink(event, root, held, goTo));
 
-  drawPages(held, goTo);
+  drawPages(pages, goTo);
   goTo(held);
   drawPaperPanel(host, held);
   drawDetails(root, held);
   drawSeal(held, seal);
   drawActions();
   drawDock();
+  keepPanelsInReach();
   element("loading").hidden = true;
   element("desk").hidden = false;
   document.body.dataset.state = "open";

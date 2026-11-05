@@ -2,6 +2,7 @@ import "virtual:tisty-tokens.css";
 import "./frame.css";
 import { askFor } from "./ask";
 import { drawClosed } from "./closed";
+import { offerThemes } from "./theme";
 
 const ID_PATH = /^\/[A-Za-z0-9]{8}$/;
 const NOT_FOUND = "https://www.tisty.app/404";
@@ -23,6 +24,8 @@ const showAsked = async (id: string): Promise<void> => {
   const { showLink } = await import("./show");
   await showLink(id, location.hash.slice(1), asked, NOT_FOUND);
 };
+
+offerThemes();
 
 if (import.meta.env.MODE !== "production") {
   await showSample();

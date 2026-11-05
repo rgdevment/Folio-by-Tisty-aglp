@@ -122,16 +122,22 @@ img {
 }
 
 /* A diagram travels drawn twice, and the reader shows the one of its theme (decision 129). */
-svg[data-theme="dark"] {
+svg[data-theme="dark"],
+:host([data-theme="dark"]) svg[data-theme="light"] {
   display: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  svg[data-theme="light"] {
+:host([data-theme="dark"]) svg[data-theme="dark"] {
+  display: inline;
+}
+
+/* Paper is light, whichever theme the screen was in. */
+@media print {
+  :host([data-theme="dark"]) svg[data-theme="dark"] {
     display: none;
   }
 
-  svg[data-theme="dark"] {
+  :host([data-theme="dark"]) svg[data-theme="light"] {
     display: inline;
   }
 }
