@@ -518,15 +518,20 @@ describe("the written API", () => {
     expect(JSON.parse(response.headers.get("Folio-Revocations") ?? "null")).toEqual([said]);
   });
 
-  it("stops serving past the day to correct, while the button still sees its version", async () => {
+  it("serves through the last day to correct, stops after it, and a new version lifts it", async () => {
     await shareSigned();
-    await testEnv.DB.prepare(`UPDATE docs SET fix_by = ? WHERE id = '${ID}'`)
-      .bind(TODAY - 1)
-      .run();
+    const fixBy = (day: number) => testEnv.DB.prepare(`UPDATE docs SET fix_by = ? WHERE id = '${ID}'`).bind(day).run();
+    await fixBy(TODAY);
+    const lastDay = await send({ method: "GET", path: "/docs/{id}", status: 200 });
+    await lastDay.body?.cancel();
+    expect(lastDay.status).toBe(200);
+    await fixBy(TODAY - 1);
     const read = await send({ method: "GET", path: "/docs/{id}", status: 403 });
     expect(await read.json()).toEqual({ refused: "blocked" });
     const latest = await send({ method: "GET", path: LATEST_PATH, status: 200 });
-    expect(await latest.json()).toMatchObject({ version: 1, fixBy: TODAY - 1 });
+    const said = (await latest.json()) as object;
+    expect(said).toMatchObject({ version: 1 });
+    expect(said).not.toHaveProperty("fixBy");
     const again = await send({ method: "PUT", path: UPLOAD_PATH, status: 200, upload: envelope(2) });
     expect(await again.json()).toEqual({ stored: true, version: 2 });
     const open = await send({ method: "GET", path: "/docs/{id}", status: 200 });

@@ -323,9 +323,10 @@ paths:
       operationId: report
       summary: Reports a document.
       description: |
-        One report per document and network counts, and it stays tied to the version served then. It answers
-        the same whether or not the document exists. Spam and offensive content are light: three networks warn
-        the author, who has three days to send a new version. Phishing, malware and scams block with three
+        One report per document and network counts, and it stays tied to the version the reader saw. A network
+        can raise its report to a higher level or add the link, and nothing else changes it. It answers
+        the same whether or not the document exists. Spam and offensive content are light: three networks of two
+        operators warn the author, who has three days to send a new version. Phishing, malware and scams block with three
         networks of two operators. So do the grave ones, but only with `sealedLink`: without it they stay on
         record and block nothing, since nobody could review them. Copyright is not reported here: its holder
         asks, and it comes down. If telling the operator fails the answer is `failed`, the report stays, and
@@ -522,9 +523,6 @@ components:
       properties:
         version: { type: integer }
         hash: { type: string }
-        fixBy:
-          type: integer
-          description: "With light reports, the last day to send a new version. Past it the document is not served until one arrives."
     BadUpload:
       type: object
       required: [refused]
@@ -573,7 +571,14 @@ components:
         category:
           type: string
           enum: [spam, offensive, phishing, malware, scam, threat, doxxing, intimate, csam]
-        detail: { type: string, maxLength: 2000 }
+        detail:
+          type: string
+          maxLength: 2000
+          description: It is kept in the clear, so one holding a reading link is refused.
+        version:
+          type: integer
+          minimum: 1
+          description: The version the reader saw. If the server no longer holds it, the report goes to the latest one.
         sealedLink:
           type: string
           maxLength: 1024

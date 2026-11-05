@@ -56,18 +56,14 @@ const refusalOfState = (shown: Shown | null, { oldestContractServed: floor }: Li
 export const latestVersion = async (
   { id, ip, now }: Asking,
   { store, limiter, syncLimiter, limits, dayKey }: SyncTools,
-): Promise<{ version: number; hash: string; fixBy?: number } | Refused> => {
+): Promise<{ version: number; hash: string } | Refused> => {
   const today = dayOf(now);
   const net = await netDigest(await dayKey(today), ip);
   if (!(await limiter.allows(net)) || !(await syncLimiter.allows(`${net}|${id}`))) return tooFast(now);
   const shown = await store.shown(id, today);
   const refused = refusalOfState(shown, limits);
   if (refused || !shown?.version) return refused ?? { refused: "missing" };
-  return {
-    version: shown.version.n,
-    hash: shown.version.hash,
-    ...(shown.fixBy === null ? {} : { fixBy: shown.fixBy }),
-  };
+  return { version: shown.version.n, hash: shown.version.hash };
 };
 
 export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): Promise<Served | Refused> => {

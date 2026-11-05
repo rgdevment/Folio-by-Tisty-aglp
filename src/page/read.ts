@@ -9,6 +9,7 @@ export interface Arrived {
   bytes: Bytes;
   arrivedAt: number;
   diesOn: number;
+  version?: number;
   revocations?: Revocation[];
 }
 

@@ -66,6 +66,10 @@ const REPORT_AS_EVIDENCE = `${COUNTED_REPORT} AND r.level <> 'light'`;
 const REPORT_THAT_BLOCKS = `${COUNTED_REPORT} AND (r.level = 'medium' OR (r.level = 'grave' AND r.sealed_link IS NOT NULL))`;
 const LIGHT_REPORT = `${COUNTED_REPORT} AND r.level = 'light'`;
 
+const WEIGHT_OF = (level: string): string => `CASE ${level} WHEN 'grave' THEN 2 WHEN 'medium' THEN 1 ELSE 0 END`;
+const REPORT_RISES = `${WEIGHT_OF("excluded.level")} > ${WEIGHT_OF("reports.level")}`;
+const REPORT_REPLACES = `(reports.cleared = 1 OR ${REPORT_RISES})`;
+
 // What keeps a document past its days, not served and not deleted (decision 42). Reports leave once their days pass.
 const HELD_AS_EVIDENCE = (doc: string, today: string): string =>
   `(COALESCE(${doc}.legal_until, 0) >= ${today} OR EXISTS (SELECT 1 FROM reports r WHERE r.doc = ${doc}.id AND ${REPORT_AS_EVIDENCE}))`;
@@ -487,12 +491,21 @@ export class Cloud implements Store {
       this.#db
         .prepare(
           `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn, at_hour, level, version)
-           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, d.latest FROM docs d WHERE d.id = ?1
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+             CASE WHEN EXISTS (SELECT 1 FROM json_each(d.versions) v WHERE json_extract(v.value, '$.n') = ?10)
+               THEN ?10 ELSE d.latest END
+           FROM docs d WHERE d.id = ?1
            ON CONFLICT (doc, net) DO UPDATE
-             SET at = excluded.at, at_hour = excluded.at_hour, category = excluded.category, detail = excluded.detail,
-                 sealed_link = excluded.sealed_link, asn = excluded.asn, level = excluded.level,
-                 version = excluded.version, cleared = 0
-             WHERE cleared = 1`,
+             SET at = excluded.at, at_hour = excluded.at_hour, asn = excluded.asn,
+                 category = CASE WHEN ${REPORT_REPLACES} THEN excluded.category ELSE reports.category END,
+                 level = CASE WHEN ${REPORT_REPLACES} THEN excluded.level ELSE reports.level END,
+                 version = CASE WHEN ${REPORT_REPLACES} THEN excluded.version ELSE reports.version END,
+                 detail = CASE WHEN reports.cleared = 1 THEN excluded.detail
+                   ELSE COALESCE(excluded.detail, reports.detail) END,
+                 sealed_link = CASE WHEN reports.cleared = 1 THEN excluded.sealed_link
+                   ELSE COALESCE(reports.sealed_link, excluded.sealed_link) END,
+                 cleared = 0
+             WHERE ${REPORT_REPLACES} OR (reports.sealed_link IS NULL AND excluded.sealed_link IS NOT NULL)`,
         )
         .bind(
           report.doc,
@@ -504,6 +517,7 @@ export class Cloud implements Store {
           report.asn,
           hour,
           level,
+          report.version ?? null,
         ),
       level === "light" ? this.#warnAuthor(report.doc, today) : this.#blockWhenItCounts(report.doc, today, hour),
     ]);
@@ -515,9 +529,16 @@ export class Cloud implements Store {
       .prepare(
         `UPDATE docs SET fix_by = ?1 + ?2
          WHERE id = ?3 AND fix_by IS NULL AND blocked_at IS NULL
-           AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND ${LIGHT_REPORT}) >= ?4`,
+           AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND ${LIGHT_REPORT}) >= ?4
+           AND (SELECT COUNT(DISTINCT r.asn) FROM reports r WHERE r.doc = ?3 AND ${LIGHT_REPORT}) >= ?5`,
       )
-      .bind(today, this.#limits.lightFixDays, doc, this.#limits.lightReportsToWarn);
+      .bind(
+        today,
+        this.#limits.lightFixDays,
+        doc,
+        this.#limits.lightReportsToWarn,
+        this.#limits.reportOperatorsToBlock,
+      );
   }
 
   #blockWhenItCounts(doc: string, today: number, hour: number): D1PreparedStatement {
@@ -603,7 +624,7 @@ export class Cloud implements Store {
         .bind(id),
       this.#db
         .prepare(
-          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL, blocked_hour = NULL, appealed_hour = NULL,
+          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL, blocked_hour = NULL, appealed_hour = NULL, fix_by = NULL,
              dies_on = CASE WHEN paused_at IS NULL THEN ?1 + ttl_days ELSE paused_at + ?2 END
            WHERE id = ?3 AND blocked_at IS NOT NULL`,
         )

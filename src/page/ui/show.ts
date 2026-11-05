@@ -2,7 +2,7 @@ import { type EnvelopeRefusal, EnvelopeRefused } from "../../rules/envelope";
 import { OPERATOR_KEY } from "../operator-key";
 import type { Arrived } from "../read";
 import { openLink } from "../read";
-import { askFor, type NotArrived } from "./ask";
+import { askFor, type NotArrived, TOO_MANY_VISITS } from "./ask";
 import { domPurifyCleaner } from "./clean";
 import { drawClosed } from "./closed";
 import { finished, pictureAddresses } from "./finish";
@@ -15,7 +15,7 @@ const DAY_MILLISECONDS = 86_400_000;
 const NOT_ARRIVED: Record<string, string> = {
   paused: "Quien compartió este documento lo pausó.",
   blocked: "Este documento fue bloqueado.",
-  slow: "Hay demasiadas visitas desde tu red. Vuelve a intentarlo en un momento.",
+  slow: TOO_MANY_VISITS,
   quota: "Hay demasiadas visitas desde tu red. Vuelve a intentarlo más tarde.",
   proof: "Este documento tuvo muchas visitas hoy. Vuelve a intentarlo más tarde.",
 };
@@ -43,7 +43,12 @@ const shown = async (id: string, linkKey: string, arrived: Arrived): Promise<voi
     ownerFingerprint,
     diesOn: lastDay(diesOn),
   });
-  offerReport(id, linkKey, OPERATOR_KEY);
+  offerReport({
+    id,
+    linkKey,
+    operatorKey: OPERATOR_KEY,
+    ...(arrived.version === undefined ? {} : { version: arrived.version }),
+  });
 };
 
 export const showLink = async (

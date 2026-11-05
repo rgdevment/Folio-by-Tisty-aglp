@@ -50,6 +50,10 @@ describe("a link sealed for the operator", () => {
 describe("what a report may say", () => {
   const sealed = `sealed1.${"A".repeat(150)}`;
 
+  it("takes the version the reader saw", () => {
+    expect(saidOf({ category: "spam", version: 4 }, LEVEL_ONE)).toEqual({ category: "spam", version: 4 });
+  });
+
   it("takes a category it knows, with what it may bring", () => {
     expect(saidOf({ category: "spam" }, LEVEL_ONE)).toEqual({ category: "spam" });
     expect(saidOf({ category: "threat", detail: "x", sealedLink: sealed }, LEVEL_ONE)).toEqual({
@@ -67,6 +71,10 @@ describe("what a report may say", () => {
     ["a bare key", { category: "phishing", sealedLink: LINK_KEY }],
     ["a link that is too long", { category: "phishing", sealedLink: `sealed1.${"A".repeat(1024)}` }],
     ["a link on a light report", { category: "spam", sealedLink: sealed }],
+    ["a link in the detail", { category: "spam", detail: `mira https://tisty.cl/${ID}#${LINK_KEY}` }],
+    ["a link with its token in the detail", { category: "spam", detail: `${ID}#${LINK_KEY}.token` }],
+    ["a version that is not one", { category: "spam", version: 0 }],
+    ["a version in words", { category: "spam", version: "1" }],
     ["a detail that is too long", { category: "spam", detail: "x".repeat(LEVEL_ONE.reportDetailAtMost + 1) }],
   ])("refuses %s", (_, body) => {
     expect(saidOf(body, LEVEL_ONE)).toBeNull();

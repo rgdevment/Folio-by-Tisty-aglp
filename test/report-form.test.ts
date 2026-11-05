@@ -42,7 +42,7 @@ beforeEach(async () => {
   vi.mocked(solved).mockClear();
   const pair = (await crypto.subtle.generateKey("X25519", true, ["deriveBits"])) as CryptoKeyPair;
   operatorKey = Buffer.from(await crypto.subtle.exportKey("raw", pair.publicKey)).toString("base64url");
-  offerReport(ID, LINK_KEY, operatorKey);
+  offerReport({ id: ID, linkKey: LINK_KEY, operatorKey, version: 3 });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -64,7 +64,7 @@ describe("the report form", () => {
   it("sends no link unless the reader agrees", async () => {
     choose("threat");
     await submitted();
-    expect(bodySent(0)).toEqual({ category: "threat" });
+    expect(bodySent(0)).toEqual({ category: "threat", version: 3 });
     expect(element("report-said").textContent).toContain("Recibimos");
     expect(element<HTMLButtonElement>("report-send").disabled).toBe(true);
   });
@@ -84,10 +84,22 @@ describe("the report form", () => {
     choose("spam");
     expect(element("report-consent").hidden).toBe(true);
     await submitted();
-    expect(bodySent(0)).toEqual({ category: "spam" });
+    expect(bodySent(0)).toEqual({ category: "spam", version: 3 });
     choose("scam");
     expect(element("report-consent").hidden).toBe(false);
   });
+
+  it.each([`https://tisty.cl/${ID}#${LINK_KEY}`, `la llave es ${LINK_KEY}`])(
+    "sends nothing while the message carries the link: %s",
+    async (written) => {
+      choose("threat");
+      (place.document.querySelector("textarea") as HTMLTextAreaElement).value = written;
+      await submitted();
+      expect(asked).not.toHaveBeenCalled();
+      expect(element("report-said").textContent).toContain("Quita el link");
+      expect(element<HTMLButtonElement>("report-send").disabled).toBe(false);
+    },
+  );
 
   it("does the work it is asked for, and sends again with it", async () => {
     asked.mockResolvedValueOnce(answer(429, { refused: "proof", salt: "s", bits: 4 }));

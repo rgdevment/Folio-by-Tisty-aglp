@@ -937,6 +937,72 @@ describe("the levels of a report", () => {
     expect(await fixBy()).toBe(DAY + 1 + LEVEL_ONE.lightFixDays);
   });
 
+  it("does not warn for three networks of one operator, as with what blocks", async () => {
+    const sameOperator = (net: string) => store.report({ doc: "d1", net, category: "spam", asn: 7 }, DAY, DAY * 24);
+    for (const net of ["a", "b", "c"]) await sameOperator(net);
+    expect(await fixBy()).toBeNull();
+    await report("spam", "d");
+    expect(await fixBy()).toBe(DAY + LEVEL_ONE.lightFixDays);
+  });
+
+  it("keeps the version the reader saw, even after clean ones replace it", async () => {
+    await store.upload(upload("d1", 2), DAY);
+    await store.report({ doc: "d1", net: "a", category: "phishing", asn: 1, version: 1 }, DAY, DAY * 24);
+    for (let n = 3; n <= LEVEL_ONE.versionsKept + 4; n += 1) {
+      await store.upload({ ...upload("d1", n), at: n * WEEK_AND_A_DAY }, DAY);
+    }
+    expect((await reportRows()).results[0]?.version).toBe(1);
+    expect(await objects("d1")).toContain("d1/1.h1");
+    expect(await objects("d1")).not.toContain("d1/2.h2");
+  });
+
+  it("goes to the latest version when it names one the server does not hold", async () => {
+    await store.report({ doc: "d1", net: "a", category: "phishing", asn: 1, version: 99 }, DAY, DAY * 24);
+    expect((await reportRows()).results[0]?.version).toBe(1);
+  });
+
+  it("takes the link a network brings later, and that one counts to block", async () => {
+    await report("threat", "a");
+    await report("threat", "a", SEALED);
+    const linked = await testEnv.DB.prepare("SELECT sealed_link FROM reports WHERE net = 'a'").first<{
+      sealed_link: string;
+    }>();
+    expect(linked?.sealed_link).toBe(SEALED);
+    await report("threat", "b", SEALED);
+    expect((await report("threat", "c", SEALED)).blocked).toBe(true);
+  });
+
+  it("rises with a network that says it is worse, and never falls or loses its link", async () => {
+    await report("spam", "a");
+    await report("csam", "a");
+    await report("phishing", "b", SEALED);
+    await report("threat", "b");
+    await report("spam", "b");
+    await report("phishing", "b");
+    const rows = await testEnv.DB.prepare("SELECT net, category, level, sealed_link FROM reports ORDER BY net").all();
+    expect(rows.results).toEqual([
+      { net: "a", category: "csam", level: "grave", sealed_link: null },
+      { net: "b", category: "threat", level: "grave", sealed_link: SEALED },
+    ]);
+  });
+
+  it("does not move a report that says nothing new", async () => {
+    await report("threat", "a", SEALED, DAY);
+    await report("threat", "a", SEALED, DAY + 1);
+    const kept = await testEnv.DB.prepare("SELECT at FROM reports WHERE net = 'a'").first<{ at: number }>();
+    expect(kept?.at).toBe(DAY);
+  });
+
+  it("leaves nothing to correct once an appeal is accepted", async () => {
+    for (const net of ["a", "b", "c"]) await report("spam", net);
+    for (const net of ["d", "e", "f"]) await report("phishing", net);
+    expect((await row("d1"))?.blocked_at).not.toBeNull();
+    await store.appeal("d1", DAY, DAY * 24);
+    await store.appealAccepted("d1", DAY);
+    expect(await fixBy()).toBeNull();
+    expect((await row("d1"))?.blocked_at).toBeNull();
+  });
+
   it("clears light reports with a new version, on record, and they can come again", async () => {
     for (const net of ["a", "b", "c"]) await report("spam", net);
     expect(await store.upload(upload("d1", 2), DAY + 9)).toBe("stored");

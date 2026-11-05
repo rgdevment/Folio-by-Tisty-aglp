@@ -62,12 +62,13 @@ responsabilidad. No se permite usar Folio para:
   categoría, el porqué y, si acepta, el link para leerlo, nunca la parte que
   permite editar. Una denuncia seria (abuso infantil, amenazas o violencia,
   incitación concreta, doxxing o imágenes íntimas) sin ese link queda registrada
-  pero no bloquea nada, porque nadie podría revisarla.
+  pero no bloquea nada, porque nadie podría revisarla. Si el link que trajo no
+  abre el documento, la denuncia se descarta como falsa.
 - **Una denuncia leve** (spam, o algo molesto u ofensivo sin ser delito) no
-  necesita que nadie intervenga. Con tres desde lugares distintos, quien lo
-  compartió ve un aviso en Tisty y en su link de administración, y tiene tres
-  días para subir una versión nueva. Si no lo hace, deja de servirse hasta que
-  llegue una. Una versión nueva deja esas denuncias en cero.
+  necesita que nadie intervenga. Con tres desde lugares y operadores distintos,
+  quien lo compartió ve un aviso en su link de administración, también desde
+  Tisty, y tiene tres días para subir una versión nueva. Si no lo hace, deja de
+  servirse hasta que llegue una. Una versión nueva deja esas denuncias en cero.
 - **Con tres denuncias** de phishing, malware, estafa o algo serio, desde lugares
   distintos, el documento se bloquea: deja de servirse, pero no se borra. Quien
   lo compartió ve el bloqueo en su link de administración y puede reclamar ahí.

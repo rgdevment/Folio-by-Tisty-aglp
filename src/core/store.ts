@@ -62,6 +62,7 @@ export interface Report {
   asn: number;
   detail?: string;
   sealedLink?: string;
+  version?: number;
 }
 
 export interface Reported {
