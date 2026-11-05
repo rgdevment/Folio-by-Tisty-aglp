@@ -47,8 +47,11 @@ be met with legal threats.
 
 - **The page that decrypts is served by the same server.** That protects against
   a leak or an order over what is stored, but not against an operator who chose
-  to change that code to steal keys. The code is public so anyone can check it;
-  between two Tisty apps this does not apply.
+  to change that code to steal keys. The code is public so anyone can check it,
+  and each release publishes an attested list of the page's code to compare with
+  what is served, checked with
+  `gh attestation verify SHA256SUMS --repo rgdevment/Folio-by-Tisty`; between two
+  Tisty apps this does not apply.
 - **Whoever holds a link reads it,** and can pass it on. A link cannot be taken
   back except by stopping the share.
 - **What the service sees anyway:** sizes, times, the link's id, and for a few

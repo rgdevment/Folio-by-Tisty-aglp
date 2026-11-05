@@ -26,6 +26,18 @@ jobs:
       contents: read
       actions: read
     steps:
+      # Before anything ships: the release's notes are the tag's words, and a plain tag has none.
+      - name: The tag says what it brings
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          kind=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.type)
+          if [ "$kind" != tag ]; then
+            echo "::error::$TAG has no message: tag it with git tag -a, saying what the version brings"
+            exit 1
+          fi
       - name: This commit passed CI on main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,10 +96,50 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 7
+      - name: What the release publishes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          bash scripts/page-code.sh sums dist/page > dist/release/SHA256SUMS
+          # npm cannot name a package with no version, and the tag is the only version Folio has.
+          npm pkg set "version=${TAG#v}"
+          npm sbom --sbom-format spdx --package-lock-only > dist/release/folio.spdx.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: dist/release
+          if-no-files-found: error
+          retention-days: 7
+
+  # Apart from the build, so the code of an npm package never holds the identity that signs.
+  attest:
+    name: Attest the page
+    needs: [tested, page]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist/release
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: dist/release/SHA256SUMS
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: dist/release/SHA256SUMS
+          sbom-path: dist/release/folio.spdx.json
 
   deploy:
     name: Deploy the Worker
-    needs: [tested, page]
+    needs: [tested, page, attest]
     if: github.event_name == 'push'
     # Its deployment rules let only v* tags and main reach the Cloudflare token.
     environment: prod-private
@@ -230,6 +282,39 @@ jobs:
         run: |
           npx --no-install wrangler rollback "$BACK_TO" --yes --message "$TAG did not hold after its deploy"
           echo "::error::$TAG was rolled back to $BACK_TO"
+
+      # After the step that goes back: a working version stays up, and a difference is for a person to read.
+      - name: What it serves is what was attested
+        run: bash scripts/page-code.sh served dist/page "$FOLIO_URL"
+
+  release:
+    name: Publish the release
+    needs: deploy
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist/release
+      - name: Publish it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "$TAG is already published"
+            exit 0
+          fi
+          set -euo pipefail
+          tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)
+          gh api "repos/$GH_REPO/git/tags/$tag_object" --jq .message \
+            | sed '/-----BEGIN SSH SIGNATURE-----/,$d' > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" dist/release/SHA256SUMS dist/release/folio.spdx.json --verify-tag --notes-file "$RUNNER_TEMP/notes.md"
 
   rollback:
     name: Put a version back
