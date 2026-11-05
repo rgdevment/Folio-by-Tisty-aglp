@@ -277,6 +277,68 @@ describe("who signed it", () => {
   });
 });
 
+const holding = (html: string): Document => ({ ...HELD, html });
+
+describe("what is seen only in Tisty", () => {
+  const HARMFUL = "&lt;script&gt;window.ran = true&lt;/script&gt;&lt;img src=x onerror=alert(1)&gt;";
+  const widget = (caption: string) =>
+    `<figure class="code">${caption}<pre><code class="language-widget">${HARMFUL}</code></pre></figure>`;
+
+  it("draws a widget as a card, with nothing of its code left", () => {
+    draw(holding(widget("<figcaption>Paseos</figcaption>")));
+    const card = root.querySelector(".doc-card.is-still");
+    expect(card?.querySelector(".card-name")?.textContent).toBe("Paseos");
+    expect(card?.querySelector(".card-blurb")?.textContent).toContain("ábrelo en Tisty");
+    expect(root.querySelector("code.language-widget")).toBeNull();
+    expect(root.innerHTML).not.toContain("onerror");
+    expect(root.querySelector("iframe, script")).toBeNull();
+  });
+
+  it("calls a widget with no title what it is", () => {
+    draw(holding(widget("")));
+    expect(root.querySelector(".card-name")?.textContent).toBe("Widget");
+  });
+
+  const WITH_FILES: Document = {
+    ...HELD,
+    html: '<p><a class="card" href="tisty:file/0">otro nombre</a></p><p><a class="card" href="tisty:file/1">c</a></p>',
+    files: [
+      { at: 0, name: "paseos.html", kind: "text/html", size: 40 },
+      { at: 1, name: "cartilla.pdf", kind: "application/pdf", size: 40 },
+    ],
+    files_hash: "x",
+  };
+
+  it("never opens an HTML file, and says where it is seen", () => {
+    draw(WITH_FILES);
+    const [html, pdf] = root.querySelectorAll(".doc-card.is-still");
+    expect(html?.querySelector(".card-name")?.textContent).toBe("paseos.html");
+    expect(html?.querySelector(".card-blurb")?.textContent).toContain("ábrelo en Tisty");
+    expect(html?.hasAttribute("href")).toBe(false);
+    expect(pdf?.querySelector(".card-blurb")?.textContent).toContain("no se puede descargar");
+    expect(root.querySelector("iframe, object, embed")).toBeNull();
+  });
+
+  it("writes a file's name as words, never as HTML", () => {
+    draw({ ...WITH_FILES, files: [{ at: 0, name: "<img src=x onerror=alert(1)>", kind: "text/html" }] });
+    expect(root.querySelector(".card-name img")).toBeNull();
+    expect(root.querySelector(".card-name")?.textContent).toContain("onerror");
+  });
+});
+
+describe("what a note says it is", () => {
+  it.each([
+    ["note", "Nota"],
+    ["tip", "Consejo"],
+    ["important", "Importante"],
+    ["warning", "Aviso"],
+    ["caution", "Cuidado"],
+  ])("%s reads %s", (kind, said) => {
+    draw(holding(`<blockquote class="callout" data-callout="${kind}"><p>x</p></blockquote>`));
+    expect(root.querySelector("blockquote")?.getAttribute("data-said")).toBe(said);
+  });
+});
+
 describe("editing in Tisty", () => {
   const notice = () => place.document.getElementById("opening-tisty") as HTMLElement;
   const button = () => place.document.getElementById("edit-in-tisty") as HTMLAnchorElement;
