@@ -1,6 +1,6 @@
 # Folio by Tisty privacy policy
 
-**Draft of October 29, 2026.** Folio is not open yet.
+**Draft of November 5, 2026.** Folio is not open yet.
 
 ## The short version
 
@@ -18,23 +18,20 @@ as a non-profit. Contact: <rgdevment@tisty.app>.
   encrypted in your Tisty before they leave. The key travels in the link, after
   the `#`, and browsers do not send it to the server.
 - **Who you are.** There are no accounts, no email addresses and no names.
-- **Your password**, if you set one. The server keeps only a slow digest of it
-  (a hash), which checks it and cannot bring it back.
 
 ## What it does keep, and for how long
 
 | What | Why | For how long |
 |---|---|---|
-| The encrypted document, with its versions | To serve it to whoever has the link | Until the time without activity you choose, 15 days at most, or until you stop sharing it |
+| The encrypted document, with its versions | To serve it to whoever has the link | Until the time without activity you choose, 15 days at most, or until you stop sharing it. With a serious report or an order, it is no longer served and stays for up to 180 days, or for as long as the order asks |
 | The manifest in the clear: how many parts, what each weighs, their kind and the version | To hold the limits without reading the content | As long as the document |
 | The edit and manage links, kept as a digest (hash) | To check who may change or delete it | As long as the document |
 | If you sign, your public key and its certificate | So readers know it is yours | As long as the document |
 | How many times it was read, counted once a day per visitor | To show you the reads in Tisty | As long as the document |
 | A line for each read served: the link's id (without its key, so it opens nothing), the country and the Cloudflare data center, never your IP | To know how much each document is read and where from, and size the service | 3 days, in Cloudflare's Workers Logs |
 | A digest of your IP (an HMAC with a key that changes) | Per-IP limits and blocks against abuse | As long as the quota or the block lasts |
-| For a document with a password: a digest of your network and of the IPv6 blocks it sits in, the wrong passwords counted against them, and that it gave the right one today | So wrong passwords make only the network that says them wait, and a reader who already got in is not slowed | Until the 15-minute stretch or the day ends |
 | Keys you took back, as your root signed them: the key's public part and your root's | So readers learn that a stolen or retired key no longer speaks for you | For good, since a reader must always be able to tell |
-| Reports: category, detail, the link if given, and a digest of the reporter's network (an HMAC with a key that changes every 90 days), so each network reports only once | To moderate and pass them where they belong | 90 days, or 180 if the prosecutor orders it |
+| Reports: category, detail, the link if given, and a digest of the reporter's network (an HMAC with a key that changes every 180 days), so each network reports only once | To moderate and pass them where they belong | 180 days, or longer if an order asks for it. If an appeal against a report is accepted, that network's digest stays 180 days from then, so it stops counting |
 
 **About signing:** if you sign what you share, your public key lets anyone tell
 that two signed documents come from the same person, though not who you are.
@@ -61,8 +58,8 @@ never receives the key after the `#`, so it cannot read what you share either.
   protects against a leak or an order over what is stored, but not against an
   operator who chose to change that code to steal keys. The code is public so
   anyone can check it.
-- **A report with the full link** makes that document readable. It is done only
-  in the cases the [terms](TERMS.md) list, and every opening is logged.
+- **A report with the link to read it** makes that document readable. It is
+  done only in the cases the [terms](TERMS.md) list, and every opening is logged.
 
 ## Your rights
 

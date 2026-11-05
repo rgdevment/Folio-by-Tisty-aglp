@@ -1,6 +1,6 @@
 # Folio by Tisty terms of use
 
-**Draft of October 29, 2026.** Folio is not open yet.
+**Draft of November 5, 2026.** Folio is not open yet.
 
 ## The short version
 
@@ -25,8 +25,8 @@ The Tisty app has [terms of its own](https://github.com/rgdevment/Tisty/blob/mai
 
 ## How it works
 
-- **You share only from Tisty**, and what you share is unlisted (whoever has
-  the link reads it) or protected by a password (which it also asks for).
+- **You share only from Tisty**, and what you share is unlisted: whoever has the
+  link reads it.
 - **Each document has three links:** one to read, one to edit and one to
   manage. Whoever holds a link holds that power; keep them like a key.
 - **What you share is end-to-end encrypted.** The key travels in the link,
@@ -36,7 +36,8 @@ The Tisty app has [terms of its own](https://github.com/rgdevment/Tisty/blob/mai
   choose when sharing, from one day to 15 days at most: no reads, no visits of
   yours and no new versions. When it expires, the links
   stop working and the server's copy is deleted. Your document stays in Tisty,
-  and you can share it again.
+  and you can share it again. With a serious report or an order, it is no longer
+  served, but its copy stays for up to 180 days, or for as long as the order asks.
 - **There are limits** on size and on how many pictures a document carries,
   which the service may change. Tisty tells you before sharing if something
   does not fit.
@@ -58,7 +59,10 @@ responsibility. You may not use Folio for:
 ## Reports and removal
 
 - **Anyone can report** a link from the page where it is read: with a
-  category, the reason and, if they choose, the full link.
+  category, the reason and, if they agree, the link to read it, never the part
+  that lets someone edit. A serious report (child abuse, threats or violence,
+  concrete incitement, doxxing or intimate images) without that link stays on
+  record but blocks nothing, because nobody could review it.
 - **With three reports** from different places, the document is blocked: it
   is no longer served, but it is not deleted. Whoever shared it sees the block
   in their management link and can appeal there.
@@ -66,10 +70,11 @@ responsibility. You may not use Folio for:
   investigations police) or the public prosecutor, and phishing and malware
   also to Google Safe Browsing and Cloudflare. Copyright claims are made by the
   rights holder, with a court order or a DMCA notice through Cloudflare.
-- **The operator only opens what is encrypted** in three cases and always with
-  the full link: when whoever shared it hands it over to
-  show a block was a mistake, to confirm phishing or malware before reporting
-  it, or by a judge's order. Every opening is logged. The pictures in a report
+- **The operator only opens what is encrypted** in four cases and always with
+  the link to read it: when whoever shared it hands it over to
+  show a block was a mistake, to review a serious report with the link its
+  reporter handed over, to confirm phishing or malware before reporting it, or
+  by a judge's order. Every opening is logged. The pictures in a report
   of child abuse are never opened: the document is blocked, the least needed
   is kept, and the PDI or the prosecutor is told, with the link, so they open
   it themselves. In a browser, the code that decrypts comes from the same

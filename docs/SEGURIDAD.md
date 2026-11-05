@@ -40,10 +40,9 @@ amenazas legales.
 - **Las imágenes salen limpias.** Se vuelven a escribir o, en una foto que no
   necesita cambios, se dejan solo la imagen y su perfil de color: sin
   ubicación, sin comentarios, sin nada escondido detrás.
-- **Abusar cuesta.** Reservar, subir y denunciar piden cada uno una prueba de
-  trabajo. Las claves se guardan como un resumen lento; las equivocadas se le
-  cuentan a la red que las dice, que es la única que espera, y pasadas 50 en
-  el día cada intento pide también una prueba de trabajo.
+- **Abusar cuesta.** Denunciar pide una prueba de trabajo, y también un lector
+  nuevo pasado el cupo gratis del día. Iniciar un compartido y leer tienen un
+  freno de velocidad por red, y subir tiene un cupo diario por red.
 
 ## Qué no protege
 
@@ -56,7 +55,7 @@ amenazas legales.
 - **Lo que el servicio ve igual:** tamaños, horas, el id del link y, por unos
   días, el país y el centro de datos de Cloudflare de cada lectura. Cloudflare
   ve la IP de quien lee, como cualquier hosting.
-- **Una denuncia que trae el link completo** hace legible ese documento, en los
+- **Una denuncia que trae el link para leerlo** hace legible ese documento, en los
   casos que dicen los [términos](TERMINOS.md).
 
 ## Versiones con soporte
