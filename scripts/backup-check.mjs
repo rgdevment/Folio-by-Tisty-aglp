@@ -8,7 +8,12 @@ const file = process.argv[2];
 if (!file) throw new Error("give the dump to check");
 
 const db = new DatabaseSync(":memory:");
-db.exec(readFileSync(file, "utf8"));
+// A fixed message, because SQLite's can quote the dump and this repository's logs are public.
+try {
+  db.exec(readFileSync(file, "utf8"));
+} catch {
+  throw new Error("the dump does not load");
+}
 
 const tables = db
   .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -21,6 +26,9 @@ for (const name of tables.filter((one) => LEFT_OUT.test(one))) {
   const { n } = db.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get();
   if (n !== 0) throw new Error(`the dump carries rows of ${name}, which it must leave out`);
 }
+
+const { migrations } = db.prepare("SELECT COUNT(*) AS migrations FROM d1_migrations").get();
+if (migrations === 0) throw new Error("the dump holds no rows");
 
 const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'").all();
 if (indexes.length === 0) throw new Error("the dump has no indexes, and d1_migrations would say they exist");

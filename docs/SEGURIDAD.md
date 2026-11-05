@@ -49,9 +49,10 @@ amenazas legales.
 - **La página que descifra la sirve el mismo servidor.** Eso protege ante una
   filtración o una orden sobre lo guardado, pero no ante un operador que
   decidiera cambiar ese código para robar llaves. El código es público para que
-  cualquiera lo revise, y cada versión publica una lista atestada de los archivos
-  de la página, para compararla con lo que se sirve; entre dos apps Tisty esto no
-  aplica.
+  cualquiera lo revise, y cada versión publica una lista atestada del código de
+  la página, para compararla con lo que se sirve, que se comprueba con
+  `gh attestation verify SHA256SUMS --repo rgdevment/Folio-by-Tisty`; entre dos
+  apps Tisty esto no aplica.
 - **Quien tiene un link lo lee,** y puede pasarlo. Un link no se puede retirar
   salvo dejando de compartir.
 - **Lo que el servicio ve igual:** tamaños, horas, el id del link y, por unos

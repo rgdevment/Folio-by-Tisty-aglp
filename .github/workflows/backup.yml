@@ -23,13 +23,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
     steps:
       - name: The account, its token and the recipient are there
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BACKUP_CLOUDFLARE_API_TOKEN }}
         run: |
-          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::the prod-private environment has no CLOUDFLARE_API_TOKEN secret"; exit 1; }
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::the prod-private environment has no BACKUP_CLOUDFLARE_API_TOKEN secret"; exit 1; }
           [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::the prod-private environment has no CLOUDFLARE_ACCOUNT_ID variable"; exit 1; }
           case "$RECIPIENT" in
             age1pq1*) ;;
@@ -57,6 +58,8 @@ jobs:
 
       - name: Export, check and seal
         id: sealed
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BACKUP_CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
           plain="$RUNNER_TEMP/folio.sql"

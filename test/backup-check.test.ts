@@ -15,7 +15,8 @@ const check = (sql: string): string => {
 const TABLES = ["docs", "reports", "holds", "service_day", "service_stage", "false_reporters", "d1_migrations"]
   .map((name) => `CREATE TABLE ${name} (id TEXT);`)
   .join("\n");
-const WHOLE = `PRAGMA defer_foreign_keys=TRUE;\n${TABLES}\nCREATE INDEX docs_owner ON docs (id);\nINSERT INTO docs VALUES ('a');`;
+const INDEX = "CREATE INDEX docs_owner ON docs (id);";
+const WHOLE = `PRAGMA defer_foreign_keys=TRUE;\n${TABLES}\n${INDEX}\nINSERT INTO d1_migrations VALUES ('0001');`;
 
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
@@ -29,7 +30,7 @@ describe("checking a dump", () => {
   });
 
   it("refuses one with no indexes", () => {
-    expect(() => check(TABLES)).toThrow(/no indexes/);
+    expect(() => check(`${TABLES}\nINSERT INTO d1_migrations VALUES ('0001');`)).toThrow(/no indexes/);
   });
 
   it.each(["seen_20000", "net_day", "net_hour"])("refuses one that carries rows of %s", (name) => {
@@ -38,7 +39,19 @@ describe("checking a dump", () => {
     );
   });
 
-  it("refuses one that does not parse", () => {
-    expect(() => check(`${WHOLE}\nINSERT INTO`)).toThrow();
+  it("refuses one with the schema and no rows", () => {
+    expect(() => check(`${TABLES}\n${INDEX}`)).toThrow(/holds no rows/);
+  });
+
+  it("refuses one that does not load, and never quotes it", () => {
+    let said = "";
+    try {
+      check(`${WHOLE}\nINSERT INTO reports VALUES ('palabras secretas' 'de una denuncia');`);
+    } catch (error) {
+      said = String((error as { stderr?: string }).stderr);
+    }
+    expect(said).toContain("the dump does not load");
+    expect(said).not.toContain("secretas");
+    expect(said).not.toContain("denuncia");
   });
 });

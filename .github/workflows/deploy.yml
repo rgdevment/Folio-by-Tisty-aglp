@@ -102,7 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/release
-          (cd dist/page && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) > dist/release/SHA256SUMS
+          bash scripts/page-code.sh sums dist/page > dist/release/SHA256SUMS
           # npm cannot name a package with no version, and the tag is the only version Folio has.
           npm pkg set "version=${TAG#v}"
           npm sbom --sbom-format spdx --package-lock-only > dist/release/folio.spdx.json
@@ -255,12 +255,6 @@ jobs:
             grep -q 'id="sheet"' "$RUNNER_TEMP/page" || return 1
             [ "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$FOLIO_URL/")" = "301 https://www.tisty.app/" ] || return 1
             curl -s "$FOLIO_URL/robots.txt" | grep -qx 'Disallow: /' || return 1
-            # What decrypts is what was attested, and robots.txt stays out because Cloudflare may add to it.
-            cmp -s "$RUNNER_TEMP/page" dist/page/index.html || return 1
-            local one
-            while IFS= read -r one; do
-              curl -s "$FOLIO_URL/$one" | cmp -s - "dist/page/$one" || return 1
-            done < <(cd dist/page && find . -type f \( -name '*.js' -o -name '*.css' \) | sed 's|^\./||')
           }
           for attempt in $(seq 1 10); do
             verdict=0
@@ -289,6 +283,10 @@ jobs:
           npx --no-install wrangler rollback "$BACK_TO" --yes --message "$TAG did not hold after its deploy"
           echo "::error::$TAG was rolled back to $BACK_TO"
 
+      # After the step that goes back: a working version stays up, and a difference is for a person to read.
+      - name: What it serves is what was attested
+        run: bash scripts/page-code.sh served dist/page "$FOLIO_URL"
+
   release:
     name: Publish the release
     needs: deploy
@@ -312,7 +310,11 @@ jobs:
             echo "$TAG is already published"
             exit 0
           fi
-          gh release create "$TAG" dist/release/SHA256SUMS dist/release/folio.spdx.json --verify-tag --notes-from-tag
+          set -euo pipefail
+          tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)
+          gh api "repos/$GH_REPO/git/tags/$tag_object" --jq .message \
+            | sed '/-----BEGIN SSH SIGNATURE-----/,$d' > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" dist/release/SHA256SUMS dist/release/folio.spdx.json --verify-tag --notes-file "$RUNNER_TEMP/notes.md"
 
   rollback:
     name: Put a version back

@@ -50,7 +50,7 @@ both_languages_carry_the_same_documents() {
 }
 
 no_token_kept_in_the_tree() {
-  local token='ya29\.[A-Za-z0-9_-]{20,}|1//0[A-Za-z0-9_-]{20,}|GOCSPX-[A-Za-z0-9_-]{20,}|sl\.[A-Za-z0-9_-]{40,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}'
+  local token='AGE-SECRET-KEY-(PQ-)?1[0-9A-Z]{20,}|ya29\.[A-Za-z0-9_-]{20,}|1//0[A-Za-z0-9_-]{20,}|GOCSPX-[A-Za-z0-9_-]{20,}|sl\.[A-Za-z0-9_-]{40,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}'
   grep -rnIE "$token" scripts .github docs
   looked_through \
     "a provider's token or secret is in the tree; a real one goes up with wrangler secret put or into the repository's secrets" $? \
