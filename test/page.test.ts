@@ -87,6 +87,13 @@ describe("opening a link", () => {
   });
 });
 
+describe("the movement of the page", () => {
+  it("is left to the stylesheet when jumping, so asking for none stops that too", () => {
+    expect(FRAME).toContain("scrollIntoView({ block");
+    expect(FRAME).not.toMatch(/scrollIntoView\([^)]*smooth/);
+  });
+});
+
 describe("the foot of the page", () => {
   it("promises nothing about a document that did not open", () => {
     expect(HTML).toContain('class="page-foot-promise"');

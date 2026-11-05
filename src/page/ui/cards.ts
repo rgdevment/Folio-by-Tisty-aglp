@@ -51,13 +51,14 @@ export const referenceOf = (href: string): { kind: "page" | "cited"; at: number 
 const BLOCKS = "p, li, blockquote";
 
 // Only the innermost blocks, so a paragraph inside a quote is not said twice, and whole characters, so no emoji is cut.
-const glimpsed = (words: DocumentFragment): string => {
+const glimpsed = (words: DocumentFragment, title: string | undefined): string => {
   const said = [...words.querySelectorAll(BLOCKS)]
     .filter((one) => !one.querySelector(BLOCKS))
     .map((one) => one.textContent?.trim())
-    .filter(Boolean)
-    .join(" · ");
-  return [...said].slice(0, GLIMPSE_CHARACTERS).join("");
+    .filter(Boolean);
+  // A title can be the first paragraph (contract, «title»), and the card already says it.
+  const told = said[0] === title?.trim() ? said.slice(1) : said;
+  return [...told.join(" · ")].slice(0, GLIMPSE_CHARACTERS).join("");
 };
 
 // A card alone in its paragraph is drawn whole, and one inside a sentence stays a word of it, as Tisty does.
@@ -76,7 +77,7 @@ export const cardsFor = (held: Document, wordsOf: (html: string) => DocumentFrag
   // A page is cleaned once for its card, however many times the reader comes back to the words that name it.
   const glimpses = new Map<Page, string>();
   const glimpseOf = (page: Page): string => {
-    const known = glimpses.get(page) ?? glimpsed(wordsOf(page.html));
+    const known = glimpses.get(page) ?? glimpsed(wordsOf(page.html), page.title);
     glimpses.set(page, known);
     return known;
   };

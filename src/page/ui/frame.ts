@@ -21,10 +21,6 @@ const PIXELS_PER_INCH = 96;
 const MILLIMETRES_PER_INCH = 25.4;
 const LONG_PAGE_WIDTH_PIXELS = 820;
 
-// The frame's own: where the panels stick under the bar, as frame.css says, and what they keep clear at the window's foot.
-const PANELS_TOP_PIXELS = 80;
-const PANELS_FOOT_PIXELS = 16;
-
 const pixels = (millimetres: number): number => Math.round((millimetres / MILLIMETRES_PER_INCH) * PIXELS_PER_INCH);
 
 const VERDICTS: Record<Verdict, { text: string; tone: string }> = {
@@ -103,24 +99,43 @@ const centerInItsList = (button: HTMLElement): void => {
   if (list) list.scrollTop = button.offsetTop - list.clientHeight / 2;
 };
 
+// The last heading past the limit. They go down the page in order, so a long page is asked about only a few of them.
+const lastPast = (headings: Element[], limit: number): Element | undefined => {
+  let low = 0;
+  let high = headings.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((headings[middle] as Element).getBoundingClientRect().top <= limit) low = middle + 1;
+    else high = middle;
+  }
+  return headings[low - 1];
+};
+
 // Marks the heading being read: the last one past the upper third of the window, or the last of all once at the end.
 const followReading = (marks: Map<Element, HTMLElement>): AbortController => {
   const headings = [...marks.keys()];
+  let marked: HTMLElement | undefined;
   const mark = (): void => {
     const atTheEnd = scrollY > 0 && scrollY + innerHeight >= document.documentElement.scrollHeight - 1;
-    const passed = headings.filter((heading) => heading.getBoundingClientRect().top <= innerHeight / 3);
-    const reached = atTheEnd ? headings.at(-1) : passed.at(-1);
-    for (const [heading, button] of marks) {
-      if (heading !== reached) button.removeAttribute("aria-current");
-      else if (!button.hasAttribute("aria-current")) {
-        button.setAttribute("aria-current", "location");
-        centerInItsList(button);
-      }
-    }
+    const reached = atTheEnd ? headings.at(-1) : lastPast(headings, innerHeight / 3);
+    const button = reached && marks.get(reached);
+    if (button === marked) return;
+    marked?.removeAttribute("aria-current");
+    button?.setAttribute("aria-current", "location");
+    if (button) centerInItsList(button);
+    marked = button;
   };
   const stop = new AbortController();
   addEventListener("scroll", mark, { passive: true, signal: stop.signal });
-  addEventListener("resize", mark, { signal: stop.signal });
+  // A list shown by a wider window was hidden until now, so it has to find its place again.
+  addEventListener(
+    "resize",
+    () => {
+      mark();
+      if (marked) centerInItsList(marked);
+    },
+    { signal: stop.signal },
+  );
   // After the frame has drawn: until then the sheet is hidden, and every heading would seem already passed.
   requestAnimationFrame(mark);
   return stop;
@@ -129,6 +144,8 @@ const followReading = (marks: Map<Element, HTMLElement>): AbortController => {
 const drawIndex = (root: ShadowRoot, held: Document | Page): AbortController => {
   const list = element("index");
   list.replaceChildren();
+  // A new page starts at its top, so its list does too, wherever the last one had got to.
+  list.scrollTop = 0;
   const marks = new Map<Element, HTMLElement>();
   const headings = [...root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")];
   // The title is already the first thing on the sheet, so the index starts after it.
@@ -142,7 +159,7 @@ const drawIndex = (root: ShadowRoot, held: Document | Page): AbortController => 
     // Inside the document only, so an id in it can never lead to the page around it.
     button.addEventListener("click", () => {
       closePanel();
-      heading.scrollIntoView({ behavior: "smooth", block: "start" });
+      heading.scrollIntoView({ block: "start" });
     });
     item.append(button);
     list.append(item);
@@ -157,16 +174,15 @@ const drawIndex = (root: ShadowRoot, held: Document | Page): AbortController => 
   return followReading(marks);
 };
 
-// Taller than the window, the panels stop with their foot in view, so the page's one scrollbar reaches all of them.
-const keepPanelsInReach = (): void => {
+// The arithmetic is frame.css's: it only needs what the panels measure, which no stylesheet can ask for.
+const measurePanels = (): void => {
   const panels = element("panels");
-  const place = (): void => {
-    const over = panels.getBoundingClientRect().height + PANELS_TOP_PIXELS + PANELS_FOOT_PIXELS - innerHeight;
-    if (over > 0) panels.style.setProperty("--panels-top", `${PANELS_TOP_PIXELS - over}px`);
-    else panels.style.removeProperty("--panels-top");
-  };
-  new ResizeObserver(place).observe(panels);
-  addEventListener("resize", place);
+  const list = element("index");
+  new ResizeObserver(() => {
+    const height = panels.getBoundingClientRect().height;
+    panels.style.setProperty("--panels-height", `${height}px`);
+    panels.style.setProperty("--panels-rest", `${height - list.getBoundingClientRect().height}px`);
+  }).observe(panels);
 };
 
 const fact = (list: HTMLElement, name: string, value: string): void => {
@@ -275,7 +291,7 @@ const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page:
   if (!where || link?.getAttribute("target") === "_blank") return;
   event.preventDefault();
   if (where.startsWith("#")) {
-    root.getElementById(where.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    root.getElementById(where.slice(1))?.scrollIntoView({ block: "start" });
     return;
   }
   const reference = referenceOf(where);
@@ -365,7 +381,7 @@ export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFra
   drawSeal(held, seal);
   drawActions();
   drawDock();
-  keepPanelsInReach();
+  measurePanels();
   element("loading").hidden = true;
   element("desk").hidden = false;
   document.body.dataset.state = "open";

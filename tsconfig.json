@@ -19,6 +19,7 @@
     "test/clean.test.ts",
     "test/ask.test.ts",
     "test/frame.test.ts",
+    "test/theme.test.ts",
     "test/show.test.ts"
   ]
 }

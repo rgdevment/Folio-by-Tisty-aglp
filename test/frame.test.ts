@@ -194,6 +194,11 @@ describe("a card in the words", () => {
     expect(root.querySelector(".card-blurb")?.textContent).toBe("Ojo · Uno");
   });
 
+  it("does not repeat a title that is the page's first paragraph", () => {
+    draw(withPageWords("<p>Enero</p><p>Un mes tranquilo.</p>"));
+    expect(root.querySelector(".card-blurb")?.textContent).toBe("Un mes tranquilo.");
+  });
+
   it("cuts no character in half when the summary runs long", () => {
     draw(withPageWords(`<p>${"a".repeat(159)}😀b</p>`));
     expect(root.querySelector(".card-blurb")?.textContent).toBe(`${"a".repeat(159)}😀`);
@@ -237,6 +242,100 @@ describe("the paper", () => {
     expect(column?.style.getPropertyValue("--page-width")).toBe("820px");
     place.document.getElementById("sheets")?.click();
     expect(column?.style.getPropertyValue("--page-width")).toBe("794px");
+  });
+});
+
+describe("following the reading", () => {
+  const LONG: Document = {
+    ...HELD,
+    html: [
+      '<h1 id="paseos">Paseos</h1>',
+      '<h2 id="uno">Uno</h2>',
+      '<h2 id="dos">Dos</h2>',
+      '<h2 id="tres">Tres</h2>',
+    ].join(""),
+  };
+  let tops: Record<string, number>;
+  let on: Record<string, () => void>;
+
+  const current = () => place.document.querySelector("#index [aria-current]")?.textContent;
+
+  beforeEach(() => {
+    tops = { paseos: -500, uno: 900, dos: 1500, tres: 2100 };
+    on = {};
+    place.Element.prototype.getBoundingClientRect = function (this: Element) {
+      return { top: tops[this.id] ?? 0 } as DOMRect;
+    };
+    vi.stubGlobal("innerHeight", 900);
+    vi.stubGlobal("scrollY", 0);
+    vi.stubGlobal("requestAnimationFrame", (run: () => void) => run());
+    vi.stubGlobal("addEventListener", (name: string, run: () => void) => {
+      on[name] = run;
+    });
+  });
+
+  it("marks nothing while no heading has been reached", () => {
+    draw(LONG);
+    expect(current()).toBeUndefined();
+  });
+
+  it("marks the last heading past the upper third of the window, and only that one", () => {
+    draw(LONG);
+    tops = { ...tops, uno: -100, dos: 250, tres: 800 };
+    on.scroll?.();
+    expect(current()).toBe("Dos");
+    expect(place.document.querySelectorAll("#index [aria-current]")).toHaveLength(1);
+  });
+
+  it("marks the last heading at the end of the page, however low it stayed", () => {
+    draw(LONG);
+    Object.defineProperty(place.document.documentElement, "scrollHeight", { value: 2000, configurable: true });
+    vi.stubGlobal("scrollY", 1100);
+    on.scroll?.();
+    expect(current()).toBe("Tres");
+  });
+
+  it("starts the list from its top on a new page, wherever the last one had got to", () => {
+    draw({ ...LONG, html: `<p><a href="tisty:page/1">Enero</a></p>${LONG.html}` });
+    const list = place.document.getElementById("index") as HTMLElement;
+    list.scrollTop = 400;
+    click("Enero");
+    expect(list.scrollTop).toBe(0);
+  });
+
+  it("leaves a row in its place in the list when the window changes", () => {
+    draw(LONG);
+    tops = { ...tops, uno: -100 };
+    on.scroll?.();
+    const list = place.document.getElementById("index") as HTMLElement;
+    const row = list.querySelector<HTMLElement>("[aria-current]");
+    if (row) Object.defineProperty(row, "offsetTop", { value: 500 });
+    Object.defineProperty(list, "clientHeight", { value: 200 });
+    on.resize?.();
+    expect(list.scrollTop).toBe(400);
+  });
+});
+
+describe("the panels' measures", () => {
+  it("are handed to the stylesheet, which does the arithmetic", () => {
+    let measure = (): void => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(run: () => void) {
+          measure = run;
+        }
+        observe(): void {}
+      },
+    );
+    draw(HELD);
+    place.Element.prototype.getBoundingClientRect = function (this: Element) {
+      return { height: this.id === "panels" ? 700 : 160 } as DOMRect;
+    };
+    measure();
+    const style = place.document.getElementById("panels")?.style;
+    expect(style?.getPropertyValue("--panels-height")).toBe("700px");
+    expect(style?.getPropertyValue("--panels-rest")).toBe("540px");
   });
 });
 

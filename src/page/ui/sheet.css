@@ -63,7 +63,7 @@ h4,
 h5,
 h6,
 [id] {
-  scroll-margin-top: 88px;
+  scroll-margin-top: calc(var(--bar-edge, 80px) + 8px);
 }
 
 h1 {
