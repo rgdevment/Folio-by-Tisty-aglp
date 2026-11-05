@@ -21,7 +21,7 @@ describe("asking for an envelope", () => {
     const fetched = answering(
       new Response(new Uint8Array([1, 2]), { headers: { "Folio-Arrived": "5", "Folio-Dies-On": "7" } }),
     );
-    expect(await askFor(ID)).toEqual({ bytes: new Uint8Array([1, 2]), arrivedAt: 5, diesOn: 7 });
+    expect(await askFor(ID)).toEqual({ revocations: [], bytes: new Uint8Array([1, 2]), arrivedAt: 5, diesOn: 7 });
     expect(fetched).toHaveBeenCalledWith(`/api/v1/docs/${ID}`, { credentials: "omit", cache: "no-store" });
   });
 

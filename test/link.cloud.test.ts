@@ -40,6 +40,21 @@ describe("opening a link", () => {
     expect(opened.ownerFingerprint).not.toBe(opened.fingerprint);
   });
 
+  it("says what its server says of a machine taken back", async () => {
+    const { root, machine } = SAMPLES.signed_by;
+    const { verdict } = SAMPLES.verdicts.find((one: { verdict: string }) => one.verdict === "doubtful");
+    expect(verdict).toBe("doubtful");
+    const said = SAMPLES.revocation;
+    expect([said.root, said.machine]).toEqual([root, machine]);
+    const opened = await openLink(ID, SAMPLES.link_key, { ...MAIN, revocations: [said] });
+    expect(["retired", "doubtful"]).toContain(opened.verdict);
+  });
+
+  it("does not believe a note that does not hold", async () => {
+    const forged = { ...SAMPLES.revocation, signed: "A".repeat(86) };
+    expect((await openLink(ID, SAMPLES.link_key, { ...MAIN, revocations: [forged] })).verdict).toBe("holds");
+  });
+
   it("names no owner apart when the owner signed this version", async () => {
     const { ownerFingerprint } = await openLink(ID, SAMPLES.link_key, MAIN);
     expect(ownerFingerprint).toBeNull();

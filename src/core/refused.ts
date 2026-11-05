@@ -17,7 +17,9 @@ export type Refused =
         | "shares_full"
         | "bad_upload"
         | "uploads_off"
-        | "outdated";
+        | "outdated"
+        | "revoked"
+        | "bad_revocation";
     }
   | { refused: "envelope"; why: EnvelopeRefusal }
   | { refused: "slow" | "quota"; until: number }

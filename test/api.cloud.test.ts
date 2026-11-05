@@ -4,12 +4,12 @@ import { load } from "js-yaml";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import written from "../docs/openapi.yaml?raw";
 import { Cloud } from "../src/cloudflare/store";
-import type { Bytes } from "../src/core/bytes";
+import { type Bytes, words } from "../src/core/bytes";
 import { dayOf, GRAVE_REPORTS, LEVEL_ONE } from "../src/core/limits";
 import { hourOf, macOf, proofHolds, tokenHash } from "../src/core/start";
 import { STATUS } from "../src/private/api";
 import worker from "../src/private/index";
-import { newPerson, type Person, rootOf, SIGNED_BY_THE_OWNER, sealedEnvelope } from "./sealed";
+import { newPerson, type Person, revocationBy, rootOf, SIGNED_BY_THE_OWNER, sealedEnvelope } from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -193,7 +193,36 @@ const adminRoute = (method: string, path: string, blockable = true): Scenario[] 
   { method, path, status: 500, refused: "failed", admin: TOKEN, broken: true },
 ];
 
+const REVOCATIONS_PATH = "/revocations";
+const aRevocation = async () => words(JSON.stringify([await revocationBy(owner, "2026-11-01T10:00:00Z")]));
 const UPLOADING: Scenario[] = [
+  { method: "POST", path: REVOCATIONS_PATH, status: 200, upload: aRevocation },
+  { method: "POST", path: REVOCATIONS_PATH, status: 400, refused: "bad_revocation", body: "[]" },
+  { method: "POST", path: REVOCATIONS_PATH, status: 413, refused: "too_big", body: "x".repeat(9000) },
+  { method: "POST", path: REVOCATIONS_PATH, status: 429, refused: "slow", upload: aRevocation, braked: true },
+  {
+    method: "POST",
+    path: REVOCATIONS_PATH,
+    status: 429,
+    refused: "quota",
+    upload: aRevocation,
+    ready: async () => {
+      LEVEL_ONE.revocationsAnHour = 1;
+      await send({ method: "POST", path: REVOCATIONS_PATH, status: 200, upload: aRevocation });
+    },
+  },
+  { method: "POST", path: REVOCATIONS_PATH, status: 500, refused: "failed", upload: aRevocation, broken: true },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 403,
+    refused: "revoked",
+    upload: envelope(2),
+    ready: async () => {
+      await shareSigned();
+      await store.revoke([await revocationBy(owner, "2026-11-01T10:00:00Z")]);
+    },
+  },
   { method: "PUT", path: UPLOAD_PATH, status: 200, upload: envelope(2), ready: shareSigned },
   { method: "PUT", path: UPLOAD_PATH, status: 400, refused: "bad_upload", upload: envelope(1), first: true, admin: "" },
   {
@@ -409,7 +438,8 @@ afterEach(() => {
 beforeEach(async () => {
   LEVEL_ONE.oldestContractTaken = null;
   LEVEL_ONE.oldestContractServed = null;
-  for (const table of ["docs", "net_day", "net_hour", "reports", "holds", "service_stage"]) {
+  LEVEL_ONE.revocationsAnHour = 30;
+  for (const table of ["docs", "net_day", "net_hour", "reports", "holds", "service_stage", "revocations"]) {
     await testEnv.DB.prepare(`DELETE FROM ${table}`).run();
   }
   const tables = await testEnv.DB.prepare("SELECT name FROM sqlite_master WHERE name GLOB 'seen_[0-9]*'").all<{

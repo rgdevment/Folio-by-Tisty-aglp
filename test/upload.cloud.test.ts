@@ -5,11 +5,12 @@ import { Cloud } from "../src/cloudflare/store";
 import type { Bytes } from "../src/core/bytes";
 import { DAY_MS, dayOf, LEVEL_ONE, type Limits } from "../src/core/limits";
 import { latestVersion } from "../src/core/read";
+import { takeRevocations } from "../src/core/revocations";
 import { saltFor, solveProof, startNow, toBase64Url, tokenHash } from "../src/core/start";
 import type { Stage, Version } from "../src/core/store";
 import { type FirstUpload, uploadDoc } from "../src/core/upload";
 import { keptVersions, listFreesAt, uploadAllowedAt } from "../src/core/versions";
-import { newPerson, newToken, type Person, rootOf, sealedEnvelope } from "./sealed";
+import { newPerson, newToken, type Person, revocationBy, rootOf, sealedEnvelope } from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -64,7 +65,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  for (const table of ["docs", "net_day", "net_hour", "service_stage"]) {
+  for (const table of ["docs", "net_day", "net_hour", "service_stage", "revocations"]) {
     await testEnv.DB.prepare(`DELETE FROM ${table}`).run();
   }
 });
@@ -334,6 +335,74 @@ describe("what stops a version", () => {
 const versionsAt = (signer: string, ...ats: number[]): Version[] =>
   ats.map((at, index) => ({ n: index + 1, hash: `h${index}`, bytes: 1, at, signer, contract: "1.2.0" }));
 const MINUTE = 60_000;
+
+describe("a machine its root took back", () => {
+  const AT = "2026-11-01T10:00:00Z";
+  const LATER_AT = "2026-11-02T10:00:00Z";
+  const take = (said: unknown) => takeRevocations({ said, ip: "203.0.113.9", now: NOW }, tools);
+
+  it("no longer sends a version", async () => {
+    const id = await shared();
+    expect(await take([await revocationBy(mario, AT)])).toEqual({ done: true });
+    expect(await send(id, await sealedEnvelope({ id, version: 2, owner: mario }), LATER)).toEqual({
+      refused: "revoked",
+    });
+  });
+
+  it("may send until the moment it says, when that has not come", async () => {
+    const id = await shared();
+    await take([await revocationBy(mario, "2027-01-01T00:00:00Z")]);
+    expect(await send(id, await sealedEnvelope({ id, version: 2, owner: mario }), LATER)).toEqual({
+      stored: true,
+      version: 2,
+    });
+  });
+
+  it("stops only that person's machine", async () => {
+    const { pair, permit } = await newToken();
+    const id = await shared({ permit });
+    await take([await revocationBy(ana, AT)]);
+    const stopped = await sealedEnvelope({ id, version: 2, owner: mario, signer: ana, permit, token: pair });
+    expect(await send(id, stopped, LATER)).toEqual({ refused: "revoked" });
+    expect(await send(id, await sealedEnvelope({ id, version: 2, owner: mario, permit }), LATER)).toEqual({
+      stored: true,
+      version: 2,
+    });
+  });
+
+  it("keeps the earliest moment, and a later note cannot move it", async () => {
+    await take([await revocationBy(mario, AT)]);
+    await take([await revocationBy(mario, LATER_AT)]);
+    expect((await store.revocationsOf([rootOf(mario)]))[0]?.at).toBe(AT);
+    const earlier = "2026-10-20T10:00:00Z";
+    await take([await revocationBy(mario, earlier)]);
+    expect((await store.revocationsOf([rootOf(mario)]))[0]?.at).toBe(earlier);
+  });
+
+  it("is said only by its own root, in what the contract allows", async () => {
+    const good = await revocationBy(mario, AT);
+    for (const said of [
+      [],
+      "not a list",
+      Array.from({ length: LIMITS.revocationsAtOnce + 1 }, () => good),
+      [{ ...good, signed: (await revocationBy(ana, AT)).signed }],
+      [{ ...good, at: "yesterday" }],
+      [{ ...good, root: rootOf(ana) }],
+    ]) {
+      expect(await take(said)).toEqual({ refused: "bad_revocation" });
+    }
+    expect(await store.revocationsOf([rootOf(mario)])).toEqual([]);
+  });
+
+  it("stops at its quota and at the brake", async () => {
+    const good = await revocationBy(mario, AT);
+    const quick = { ...tools, limits: { ...LIMITS, revocationsAnHour: 1 } };
+    const ask = (over = quick) => takeRevocations({ said: [good], ip: "203.0.113.9", now: NOW }, over);
+    expect(await ask()).toEqual({ done: true });
+    expect(await ask()).toMatchObject({ refused: "quota" });
+    expect(await ask({ ...quick, limiter: { allows: async () => false } })).toMatchObject({ refused: "slow" });
+  });
+});
 
 describe("the waits of the button", () => {
   it("are the ones decided, in a row", () => {

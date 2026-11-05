@@ -1,3 +1,4 @@
+import type { Revocation } from "@tisty/contracts";
 import { DAY_MS, GRAVE_REPORTS, LEVEL_ONE, type Limits } from "../core/limits";
 import { toBase64Url } from "../core/start";
 import type {
@@ -19,6 +20,7 @@ import type {
   Version,
 } from "../core/store";
 import { keptVersions } from "../core/versions";
+import { momentOf } from "../rules/envelope";
 
 export interface Bindings {
   DB: D1Database;
@@ -217,6 +219,31 @@ export class Cloud implements Store {
 
   async setPermit(id: string, permit: string | null): Promise<void> {
     await this.#db.prepare("UPDATE docs SET permit = ?2 WHERE id = ?1").bind(id, permit).run();
+  }
+
+  // The earliest one found counts, so a later note cannot move a theft forward (contract, revocation).
+  async revoke(revocations: Revocation[]): Promise<void> {
+    await this.#db.batch(
+      revocations.map(({ root, machine, at, signed }) =>
+        this.#db
+          .prepare(
+            `INSERT INTO revocations (root, machine, at, signed) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (root, machine) DO UPDATE SET at = excluded.at, signed = excluded.signed
+             WHERE excluded.at < revocations.at`,
+          )
+          .bind(root, machine, Date.parse(at) / 1000, signed),
+      ),
+    );
+  }
+
+  async revocationsOf(roots: string[]): Promise<Revocation[]> {
+    const found = await this.#db
+      .prepare(
+        "SELECT root, machine, at, signed FROM revocations WHERE root IN (SELECT value FROM json_each(?1)) LIMIT ?2",
+      )
+      .bind(JSON.stringify([...new Set(roots)]), this.#limits.revocationsServedAtMost)
+      .all<{ root: string; machine: string; at: number; signed: string }>();
+    return found.results.map((one) => ({ ...one, at: momentOf(one.at * 1000) }));
   }
 
   async #lostTheRace(upload: Upload, key: string): Promise<Uploaded> {

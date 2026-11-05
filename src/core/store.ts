@@ -1,3 +1,5 @@
+import type { Revocation } from "@tisty/contracts";
+
 export interface Version {
   n: number;
   hash: string;
@@ -113,6 +115,8 @@ export interface Store {
   upload(upload: Upload, today: number, held?: Held): Promise<Uploaded>;
   held(id: string): Promise<Held | null>;
   setPermit(id: string, permit: string | null): Promise<void>;
+  revoke(revocations: Revocation[]): Promise<void>;
+  revocationsOf(roots: string[]): Promise<Revocation[]>;
   admit(reading: Reading, today: number): Promise<Admitted>;
   note(reading: Reading, today: number): Promise<void>;
   shown(id: string, today: number): Promise<Shown | null>;

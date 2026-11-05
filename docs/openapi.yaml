@@ -49,6 +49,46 @@ paths:
               schema: { $ref: "#/components/schemas/Start" }
         "429": { $ref: "#/components/responses/Slow" }
         "500": { $ref: "#/components/responses/Failed" }
+  /revocations:
+    post:
+      tags: [Uploading]
+      operationId: revoke
+      summary: Keeps what a root says of its machines, for whoever reads what they signed.
+      description: |
+        Each one is signed by its root, and the server checks that. The earliest moment found for a machine
+        counts. From that moment, the server takes no version signed by it. It deletes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              maxItems: 8
+              items: { $ref: "#/components/schemas/Revocation" }
+      responses:
+        "200": { $ref: "#/components/responses/Done" }
+        "400":
+          description: One of them is not a revocation, or it does not hold.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BadRevocation" }
+        "413":
+          description: Past what a request may weigh.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TooBig" }
+        "429":
+          description: Going too fast, or past its quota.
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Slow"
+                  - $ref: "#/components/schemas/Quota"
+        "500": { $ref: "#/components/responses/Failed" }
   /docs/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -81,6 +121,10 @@ paths:
               description: The last day it lives, in days since 1970.
               required: true
               schema: { type: integer }
+            Folio-Revocations:
+              description: What the root that signed it and the root of its owner took back, as JSON. A reader checks each one.
+              required: true
+              schema: { type: string }
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
@@ -150,13 +194,14 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BadUpload" }
         "403":
-          description: It is paused or blocked, this signer may not send a version of it, or its id is someone else's.
+          description: It is paused or blocked, this signer may not send a version of it, its id is someone else's, or its root took back the machine that signed it.
           content:
             application/json:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/PausedOrBlocked"
                   - $ref: "#/components/schemas/NotYours"
+                  - $ref: "#/components/schemas/Revoked"
         "404": { $ref: "#/components/responses/Missing" }
         "409":
           description: Another version arrived first, or this person keeps as many documents as they may.
@@ -442,6 +487,24 @@ components:
         id: { type: string, pattern: "^[A-Za-z0-9]{8}$" }
         mac: { type: string, description: What shows this id was given here, this hour or the one before. }
         salt: { type: string }
+    Revocation:
+      type: object
+      required: [root, machine, at, signed]
+      properties:
+        root: { type: string }
+        machine: { type: string }
+        at: { type: string, format: date-time }
+        signed: { type: string }
+    BadRevocation:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: bad_revocation }
+    Revoked:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: revoked }
     Stored:
       type: object
       required: [stored, version]

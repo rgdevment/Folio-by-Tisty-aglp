@@ -11,6 +11,9 @@ export interface Limits {
   firstBytesAtMost: number;
   restBytesAtMost: number;
   uploadsAnHour: number;
+  revocationsAnHour: number;
+  revocationsAtOnce: number;
+  revocationsServedAtMost: number;
   uploadsOfARootAnHour: number;
   uploadWaitsMinutes: number[];
   uploadStreakResetMinutes: number;
@@ -47,6 +50,9 @@ export const LEVEL_ONE: Limits = {
   firstBytesAtMost: 2_512_000,
   restBytesAtMost: 15_572_000,
   uploadsAnHour: 60,
+  revocationsAnHour: 30,
+  revocationsAtOnce: 8,
+  revocationsServedAtMost: 16,
   uploadsOfARootAnHour: 10,
   uploadWaitsMinutes: [1, 1, 1, 2, 4, 8, 15],
   uploadStreakResetMinutes: 30,

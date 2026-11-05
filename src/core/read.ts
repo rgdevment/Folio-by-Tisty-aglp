@@ -1,3 +1,4 @@
+import type { Revocation } from "@tisty/contracts";
 import { isBelowVersion } from "../rules/envelope";
 import { dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
@@ -39,6 +40,7 @@ export interface Served {
   version: Version;
   diesOn: number;
   body: ReadableStream;
+  revocations: Revocation[];
   // What is written once the answer left, so a read never waits for a write (decision 105).
   note?: Reading;
 }
@@ -86,13 +88,17 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
   const admitted = await store.admit(reading, today);
   if (admitted === "over") return askForProof(secret, scope, limits.proofBits, now);
 
-  const body = await store.envelope(id, shown.version);
+  const [body, revocations] = await Promise.all([
+    store.envelope(id, shown.version),
+    store.revocationsOf([shown.version.signer, shown.owner]),
+  ]);
   if (!body) return { refused: "missing" };
   return {
     served: true,
     version: shown.version,
     diesOn: shown.diesOn,
     body,
+    revocations,
     ...(admitted === "new" ? { note: reading } : {}),
   };
 };

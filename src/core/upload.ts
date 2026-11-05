@@ -5,6 +5,7 @@ import { DAY_MS, dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
 import type { ReadTools } from "./read";
 import { askForProof, type Refused, tooFast } from "./refused";
+import { isRevoked } from "./revocations";
 import { hourEnds, hourOf, proofIsFresh, startHolds, toBase64Url, tokenHash } from "./start";
 import type { Created, Held, Uploaded } from "./store";
 import { listFreesAt, uploadAllowedAt } from "./versions";
@@ -164,6 +165,7 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
   if (!mayUpload(read, held)) return { refused: "not_yours" };
   const stopped = notNext(held, manifest.version);
   if (stopped) return stopped;
+  if (isRevoked(await store.revocationsOf([signature.root]), signature.machine, now)) return { refused: "revoked" };
   const listFreed = listFreesAt(held.versions, now, limits);
   if (listFreed !== null) return { refused: "quota", until: listFreed };
 
