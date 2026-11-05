@@ -90,7 +90,7 @@ jobs:
     needs: [tested, page]
     if: github.event_name == 'push'
     # Its deployment rules let only v* tags and main reach the Cloudflare token.
-    environment: production
+    environment: prod-private
     # On the jobs that touch the Worker, or a rollback would wait for a tag that is still waiting for CI.
     concurrency:
       group: worker
@@ -104,8 +104,8 @@ jobs:
     steps:
       - name: The account and its token are there
         run: |
-          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::the production environment has no CLOUDFLARE_API_TOKEN secret"; exit 1; }
-          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::the production environment has no CLOUDFLARE_ACCOUNT_ID variable"; exit 1; }
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::the prod-private environment has no CLOUDFLARE_API_TOKEN secret"; exit 1; }
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::the prod-private environment has no CLOUDFLARE_ACCOUNT_ID variable"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -234,7 +234,7 @@ jobs:
   rollback:
     name: Put a version back
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    environment: production
+    environment: prod-private
     concurrency:
       group: worker
       cancel-in-progress: false
