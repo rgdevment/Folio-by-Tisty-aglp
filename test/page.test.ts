@@ -45,10 +45,30 @@ describe("the page's headers", () => {
 });
 
 describe("what the page loads", () => {
+  it("carries Tisty's icon and mascot itself, because the CSP lets no image come from anywhere else", () => {
+    for (const file of ["icon.svg", "tisto.svg"]) {
+      expect(HTML).toContain(`"/${file}"`);
+      expect(read(`src/page/public/${file}`)).toContain("<svg");
+    }
+  });
+
   it("is all its own: no font, script or image of anyone else", () => {
     expect(HTML).not.toMatch(/<(script|link|img)[^>]+(src|href)="https?:/);
     expect(SHEET).not.toMatch(/url\(|@import/);
     expect(read("src/page/ui/frame.css")).not.toMatch(/url\(|@import/);
+  });
+});
+
+describe("the theme", () => {
+  it("is settled before anything is painted, from a file of the page's own that the CSP lets run", () => {
+    const script = '<script src="/theme.js">';
+    expect(HTML).toContain(script);
+    expect(HTML.indexOf(script)).toBeLessThan(HTML.indexOf('<script type="module"'));
+  });
+
+  it("is kept under one name, on both sides of the first paint", () => {
+    const name = read("src/page/ui/theme.ts").match(/CHOSEN = "(.+)"/)?.[1] ?? "no name";
+    expect(read("src/page/public/theme.js")).toContain(`"${name}"`);
   });
 });
 
@@ -64,6 +84,20 @@ describe("opening a link", () => {
   it("says something even when the code that reads it could not load", () => {
     expect(main).toContain('from "./closed"');
     expect(main).toMatch(/showAsked\([^)]*\)[^;]*\.catch/);
+  });
+});
+
+describe("the movement of the page", () => {
+  it("is left to the stylesheet when jumping, so asking for none stops that too", () => {
+    expect(FRAME).toContain("scrollIntoView({ block");
+    expect(FRAME).not.toMatch(/scrollIntoView\([^)]*smooth/);
+  });
+});
+
+describe("the foot of the page", () => {
+  it("promises nothing about a document that did not open", () => {
+    expect(HTML).toContain('class="page-foot-promise"');
+    expect(read("src/page/ui/frame.css")).toMatch(/\[data-state="closed"\] \.page-foot-promise \{\s+display: none;/);
   });
 });
 
@@ -115,6 +149,10 @@ describe("the assets in the Worker", () => {
 describe("the contract's numbers", () => {
   const style = (CONTRACTS.style as { values: StyleValues }).values;
   const sheet = (CONTRACTS.sheet as { values: Record<string, unknown> }).values;
+
+  it("keep a diagram no wider than the sheet", () => {
+    expect(SHEET).toMatch(/figure\.diagram svg \{\s+max-width: 100%;/);
+  });
 
   it("are the ones the sheet's CSS writes", () => {
     expect(SHEET).toContain(`font-size: ${style.body.size}`);

@@ -26,8 +26,8 @@ live at tisty.cl, and its site is [www.tisty.app](https://www.tisty.app).
   came from you.
 - **It expires on its own** after the time without activity you choose, from one
   day to 15 at most. Your document stays in your Tisty.
-- **A link opens in any browser,** at tisty.cl, or in another Tisty with *Open
-  in Tisty*.
+- **A link opens in any browser,** at tisty.cl, and is edited in another Tisty
+  with *Edit in Tisty*.
 
 ## Its documents
 

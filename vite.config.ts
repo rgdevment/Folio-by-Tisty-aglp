@@ -9,9 +9,9 @@ interface StyleValues {
   colors: { light: Record<string, string>; dark: Record<string, string> };
 }
 
-const variables = (colors: Record<string, string>): string =>
-  Object.entries(colors)
-    .map(([name, value]) => `--tisty-${name}:${value};`)
+const variables = ({ light, dark }: StyleValues["colors"]): string =>
+  Object.entries(light)
+    .map(([name, value]) => `--tisty-${name}:light-dark(${value},${dark[name]});`)
     .join("");
 
 // The colors come from the contract when building, so they change with it and no copy of them is kept here.
@@ -21,7 +21,7 @@ const tokens = (): Plugin => ({
   load(id) {
     if (id !== RESOLVED_TOKENS) return null;
     const { colors } = (CONTRACTS.style as { values: StyleValues }).values;
-    return `:root{${variables(colors.light)}}@media (prefers-color-scheme:dark){:root{${variables(colors.dark)}}}`;
+    return `:root{${variables(colors)}}`;
   },
 });
 

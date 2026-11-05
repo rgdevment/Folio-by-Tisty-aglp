@@ -1,4 +1,5 @@
 import type { Document, Orientation, Page, Paper, Verdict } from "@tisty/contracts";
+import { cardsFor, referenceOf } from "./cards";
 import { bareUrl } from "./clean";
 import sheetStyles from "./sheet.css?url";
 
@@ -41,7 +42,8 @@ const withLayout = (host: HTMLElement, sheets: boolean, paper: Paper, orientatio
   const across = orientation === "landscape" ? long : short;
   const down = orientation === "landscape" ? short : long;
   host.dataset.sheets = String(sheets);
-  host.style.setProperty("--page-width", `${sheets ? pixels(across) : LONG_PAGE_WIDTH_PIXELS}px`);
+  // On the column, because the card of pages under the sheet keeps its width too.
+  element("sheet-column").style.setProperty("--page-width", `${sheets ? pixels(across) : LONG_PAGE_WIDTH_PIXELS}px`);
   if (sheets) {
     host.style.setProperty("--page-height", `${pixels(down)}px`);
     host.style.setProperty("--margin-x", `${pixels(MARGIN_MILLIMETRES.x)}px`);
@@ -91,9 +93,60 @@ const drawPaperPanel = (host: HTMLElement, held: Document): void => {
   apply();
 };
 
-const drawIndex = (root: ShadowRoot, held: Document | Page): void => {
+// By hand and not with scrollIntoView, which would also move the page the reader is reading.
+const centerInItsList = (button: HTMLElement): void => {
+  const list = button.closest("ol");
+  if (list) list.scrollTop = button.offsetTop - list.clientHeight / 2;
+};
+
+// The last heading past the limit. They go down the page in order, so a long page is asked about only a few of them.
+const lastPast = (headings: Element[], limit: number): Element | undefined => {
+  let low = 0;
+  let high = headings.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((headings[middle] as Element).getBoundingClientRect().top <= limit) low = middle + 1;
+    else high = middle;
+  }
+  return headings[low - 1];
+};
+
+// Marks the heading being read: the last one past the upper third of the window, or the last of all once at the end.
+const followReading = (marks: Map<Element, HTMLElement>): AbortController => {
+  const headings = [...marks.keys()];
+  let marked: HTMLElement | undefined;
+  const mark = (): void => {
+    const atTheEnd = scrollY > 0 && scrollY + innerHeight >= document.documentElement.scrollHeight - 1;
+    const reached = atTheEnd ? headings.at(-1) : lastPast(headings, innerHeight / 3);
+    const button = reached && marks.get(reached);
+    if (button === marked) return;
+    marked?.removeAttribute("aria-current");
+    button?.setAttribute("aria-current", "location");
+    if (button) centerInItsList(button);
+    marked = button;
+  };
+  const stop = new AbortController();
+  addEventListener("scroll", mark, { passive: true, signal: stop.signal });
+  // A list shown by a wider window was hidden until now, so it has to find its place again.
+  addEventListener(
+    "resize",
+    () => {
+      mark();
+      if (marked) centerInItsList(marked);
+    },
+    { signal: stop.signal },
+  );
+  // After the frame has drawn: until then the sheet is hidden, and every heading would seem already passed.
+  requestAnimationFrame(mark);
+  return stop;
+};
+
+const drawIndex = (root: ShadowRoot, held: Document | Page): AbortController => {
   const list = element("index");
   list.replaceChildren();
+  // A new page starts at its top, so its list does too, wherever the last one had got to.
+  list.scrollTop = 0;
+  const marks = new Map<Element, HTMLElement>();
   const headings = [...root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")];
   // The title is already the first thing on the sheet, so the index starts after it.
   const shown = headings[0]?.textContent === held.title ? headings.slice(1) : headings;
@@ -106,17 +159,30 @@ const drawIndex = (root: ShadowRoot, held: Document | Page): void => {
     // Inside the document only, so an id in it can never lead to the page around it.
     button.addEventListener("click", () => {
       closePanel();
-      heading.scrollIntoView({ behavior: "smooth", block: "start" });
+      heading.scrollIntoView({ block: "start" });
     });
     item.append(button);
     list.append(item);
+    marks.set(heading, button);
   }
-  const empty = list.childElementCount === 0 && element("pages").childElementCount === 0;
+  const empty = list.childElementCount === 0;
   element("panel-index").hidden = empty;
   // On a phone its button would open a dimmed screen with nothing on it.
   for (const button of element("dock").querySelectorAll<HTMLElement>('[data-panel="panel-index"]')) {
     button.hidden = empty;
   }
+  return followReading(marks);
+};
+
+// The arithmetic is frame.css's: it only needs what the panels measure, which no stylesheet can ask for.
+const measurePanels = (): void => {
+  const panels = element("panels");
+  const list = element("index");
+  new ResizeObserver(() => {
+    const height = panels.getBoundingClientRect().height;
+    panels.style.setProperty("--panels-height", `${height}px`);
+    panels.style.setProperty("--panels-rest", `${height - list.getBoundingClientRect().height}px`);
+  }).observe(panels);
 };
 
 const fact = (list: HTMLElement, name: string, value: string): void => {
@@ -158,8 +224,32 @@ const drawSeal = (held: Document, { verdict, fingerprint, diesOn }: Seal): void 
   element("dies-on").textContent = diesOn;
 };
 
+// A browser never says whether Tisty is installed, so every click also offers it, until the app takes the focus away.
+const offerTisty = (edit: HTMLElement): void => {
+  const notice = element("opening-tisty");
+  let leftForTheApp = false;
+  const close = (): void => {
+    notice.hidden = true;
+    leftForTheApp = false;
+  };
+  edit.addEventListener("click", () => {
+    leftForTheApp = false;
+    notice.hidden = false;
+  });
+  element("opening-tisty-close").addEventListener("click", close);
+  addEventListener("blur", () => {
+    leftForTheApp = !notice.hidden;
+  });
+  // Closed on coming back and not on leaving, because a system's own question also takes the focus and the reader still needs this.
+  addEventListener("focus", () => {
+    if (leftForTheApp) close();
+  });
+};
+
 const drawActions = (): void => {
-  element<HTMLAnchorElement>("open-in-tisty").href = `tisty://folio?link=${encodeURIComponent(location.href)}`;
+  const edit = element<HTMLAnchorElement>("edit-in-tisty");
+  edit.href = `tisty://edit?link=${encodeURIComponent(location.href)}`;
+  offerTisty(edit);
   const label = element("copy-link-text");
   const said = label.textContent;
   element("copy-link").addEventListener("click", async () => {
@@ -176,6 +266,7 @@ let opener: HTMLElement | null = null;
 const closePanel = (): void => {
   for (const panel of document.querySelectorAll<HTMLElement>(".panel[data-open]")) delete panel.dataset.open;
   element("scrim").hidden = true;
+  opener?.setAttribute("aria-expanded", "false");
   opener?.focus();
   opener = null;
 };
@@ -193,7 +284,11 @@ const drawDock = (): void => {
     panel.dataset.open = "";
     panel.tabIndex = -1;
     panel.focus();
+    // Only now: a list that was hidden has no measures, so it could not follow the reading until it is shown.
+    const reading = panel.querySelector<HTMLElement>('[aria-current="location"]');
+    if (reading) centerInItsList(reading);
     opener = button;
+    button.setAttribute("aria-expanded", "true");
     element("scrim").hidden = false;
   });
   element("scrim").addEventListener("click", closePanel);
@@ -213,8 +308,6 @@ const tagsOf = (tags: string[]): HTMLElement => {
   return list;
 };
 
-const REFERENCE = /^tisty:(page|cited)\/(\d+)$/i;
-
 // Nothing here changes the address by itself: the part after its # holds the link key (contract, «links»).
 const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page: Page) => void): void => {
   const link = (event.target as Element).closest("a");
@@ -222,32 +315,33 @@ const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page:
   if (!where || link?.getAttribute("target") === "_blank") return;
   event.preventDefault();
   if (where.startsWith("#")) {
-    root.getElementById(where.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    root.getElementById(where.slice(1))?.scrollIntoView({ block: "start" });
     return;
   }
-  const [, kind, at] = REFERENCE.exec(where) ?? [];
-  if (kind?.toLowerCase() === "page") {
-    const page = held.pages?.find((one) => one.at === Number(at));
+  const reference = referenceOf(where);
+  if (reference?.kind === "page") {
+    const page = held.pages?.find((one) => one.at === reference.at);
     if (page) goTo(page);
-  } else if (kind?.toLowerCase() === "cited") {
-    const cited = held.cited?.[Number(at)];
+  } else if (reference?.kind === "cited") {
+    const cited = held.cited?.[reference.at];
     if (cited) location.assign(`/${encodeURIComponent(cited.document)}#${encodeURIComponent(cited.key ?? "")}`);
   }
 };
 
-const drawPages = (held: Document, goTo: (shown: Document | Page) => void): void => {
-  const list = element("pages");
-  const pages = held.pages ?? [];
+const nameOf = (shown: Document | Page): string => shown.title ?? "Sin título";
+
+// At the end of the document and on a card of their own, as Tisty shows them.
+const drawPages = (pages: Page[], goTo: (shown: Page) => void): void => {
   if (pages.length === 0) return;
-  for (const shown of [held, ...pages]) {
+  element("pages-card").hidden = false;
+  element("pages-count").textContent = String(pages.length);
+  const list = element("pages");
+  for (const shown of pages) {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = shown.title ?? "Sin título";
-    button.addEventListener("click", () => {
-      closePanel();
-      goTo(shown);
-    });
+    button.textContent = nameOf(shown);
+    button.addEventListener("click", () => goTo(shown));
     item.append(button);
     list.append(item);
   }
@@ -260,6 +354,15 @@ const markPage = (at: number): void => {
   }
 };
 
+// The way back to the document, in the bar so it is there however far down the page the reader goes.
+const drawWayBack = (held: Document, at: number, total: number, goTo: (shown: Document) => void): void => {
+  element("crumb").hidden = at < 0;
+  if (at < 0) return;
+  element("crumb-title").textContent = nameOf(held);
+  element("crumb-at").textContent = `${at + 1} de ${total}`;
+  element("crumb-back").onclick = () => goTo(held);
+};
+
 // What it draws is already clean: `wordsOf` gives what the cleaner gave back, never the HTML as it arrived.
 export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFragment, seal: Seal): void => {
   const host = element("sheet");
@@ -270,25 +373,39 @@ export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFra
   styles.href = sheetStyles;
   const sheet = document.createElement("article");
   sheet.className = "sheet";
+  sheet.tabIndex = -1;
   root.append(styles, sheet);
 
+  const pages = held.pages ?? [];
+  const withCards = cardsFor(held, wordsOf);
+  let reading: AbortController | undefined;
   const goTo = (shown: Document | Page): void => {
     sheet.lang = shown.lang ?? held.lang ?? "";
-    sheet.replaceChildren(...(shown.tags?.length ? [tagsOf(shown.tags)] : []), wordsOf(shown.html));
+    sheet.replaceChildren(...(shown.tags?.length ? [tagsOf(shown.tags)] : []), withCards(wordsOf(shown.html)));
     document.title = shown.title ? `${shown.title} · Folio` : "Folio by Tisty";
-    markPage(shown === held ? 0 : (held.pages ?? []).indexOf(shown as Page) + 1);
-    drawIndex(root, shown);
-    scrollTo({ top: 0 });
+    const at = pages.indexOf(shown as Page);
+    markPage(at);
+    drawWayBack(held, at, pages.length, turnTo);
+    reading?.abort();
+    reading = drawIndex(root, shown);
+    // At once: gliding back over a long page would only show everything the reader is leaving.
+    scrollTo({ top: 0, behavior: "instant" });
   };
-  root.addEventListener("click", (event) => followLink(event, root, held, goTo));
+  // What the reader clicked is gone with the old words, so a keyboard goes on from the new ones.
+  const turnTo = (shown: Document | Page): void => {
+    goTo(shown);
+    sheet.focus({ preventScroll: true });
+  };
+  root.addEventListener("click", (event) => followLink(event, root, held, turnTo));
 
-  drawPages(held, goTo);
+  drawPages(pages, turnTo);
   goTo(held);
   drawPaperPanel(host, held);
   drawDetails(root, held);
   drawSeal(held, seal);
   drawActions();
   drawDock();
+  measurePanels();
   element("loading").hidden = true;
   element("desk").hidden = false;
   document.body.dataset.state = "open";

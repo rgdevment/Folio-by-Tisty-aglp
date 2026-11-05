@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { Document } from "@tisty/contracts";
+import type { Document, Page } from "@tisty/contracts";
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { domPurifyCleaner } from "../src/page/ui/clean";
@@ -8,6 +8,15 @@ import { drawFrame } from "../src/page/ui/frame";
 
 const SEAL = { verdict: "holds", fingerprint: "1", diesOn: "mañana" } as const;
 const ADDRESS = "https://tisty.cl/k7Qm2xPa#THEKEY";
+
+const ENERO: Page = {
+  id: "p1",
+  page_of: "k7Qm2xPa",
+  at: 1,
+  title: "Enero",
+  html: '<h1 id="enero">Enero</h1>',
+  body: "",
+};
 
 const HELD: Document = {
   id: "k7Qm2xPa",
@@ -20,7 +29,7 @@ const HELD: Document = {
     '<p><a href="https://www.tisty.app/">web</a></p>',
     '<h2 id="rio">Río</h2>',
   ].join(""),
-  pages: [{ id: "p1", page_of: "k7Qm2xPa", at: 1, title: "Enero", html: '<h1 id="enero">Enero</h1>', body: "" }],
+  pages: [ENERO],
   cited: [{ document: "wordsOnly", key: "CITEDKEY" }],
 };
 
@@ -70,6 +79,14 @@ beforeEach(() => {
   vi.stubGlobal("location", { href: ADDRESS, hash: "#THEKEY", assign });
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("scrollTo", vi.fn());
+  vi.stubGlobal("addEventListener", vi.fn());
+  vi.stubGlobal("requestAnimationFrame", vi.fn());
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe(): void {}
+    },
+  );
 });
 
 afterEach(() => {
@@ -91,8 +108,20 @@ describe("a click on what the sheet links to", () => {
     expect(place.document.title).toBe("Enero · Folio");
     expect(root.querySelector("h1")?.id).toBe("enero");
     const marks = [...place.document.querySelectorAll("#pages button")].map((one) => one.getAttribute("aria-current"));
-    expect(marks).toEqual([null, "page"]);
+    expect(marks).toEqual(["page"]);
     expect(place.location.href).toBe(ADDRESS);
+  });
+
+  it("shows the way back above a page, and none above the document", () => {
+    const crumb = () => place.document.getElementById("crumb");
+    draw(HELD);
+    expect(crumb()?.hidden).toBe(true);
+    click("Enero");
+    expect(crumb()?.hidden).toBe(false);
+    expect(place.document.getElementById("crumb-at")?.textContent).toBe("1 de 1");
+    place.document.getElementById("crumb-back")?.click();
+    expect(crumb()?.hidden).toBe(true);
+    expect(place.document.title).toBe(`${HELD.title} · Folio`);
   });
 
   it("goes to what is cited, with its own key", () => {
@@ -112,6 +141,254 @@ describe("a click on what the sheet links to", () => {
     draw(HELD);
     expect(click("web")).toBe(false);
     expect(linkSaying("web")?.getAttribute("target")).toBe("_blank");
+  });
+});
+
+describe("a card in the words", () => {
+  const withWords = (html: string): Document => ({
+    ...HELD,
+    html,
+    pages: [{ ...ENERO, html: "<h1>Enero</h1><p>Un mes tranquilo.</p><p><b>Dos</b> frases.</p>" }],
+  });
+
+  it("is drawn whole when alone in its paragraph, and still turns to its page", () => {
+    draw(withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>'));
+    const card = root.querySelector("a.doc-card.is-page");
+    expect(card?.querySelector(".card-name")?.textContent).toBe("Enero");
+    expect(card?.querySelector(".card-blurb")?.textContent).toBe("Un mes tranquilo. · Dos frases.");
+    expect(card?.querySelector(".chip")?.textContent).toBe("Página 1 de 1");
+    card
+      ?.querySelector(".card-name")
+      ?.dispatchEvent(new place.MouseEvent("click", { bubbles: true, composed: true, cancelable: true }));
+    expect(place.document.title).toBe("Enero · Folio");
+  });
+
+  it("stays a word of the sentence it sits in", () => {
+    draw(withWords('<p>Mira <a class="card" href="tisty:page/1">Enero</a> ahí.</p>'));
+    expect(root.querySelector("a.doc-card")).toBeNull();
+    expect(root.querySelector("a.card")?.textContent).toBe("Enero");
+  });
+
+  it("names a document shared along by its title", () => {
+    const shared: Document = {
+      ...withWords('<p><a class="card" href="tisty:cited/0">Otro</a></p>'),
+      cited: [{ document: "wordsOnly", key: "CITEDKEY", title: "Sobre el río" }],
+    };
+    draw(shared);
+    expect(root.querySelector("a.doc-card .card-name")?.textContent).toBe("Sobre el río");
+    expect(root.querySelector("a.doc-card .chip")?.textContent).toBe("Documento");
+  });
+
+  it("is not drawn for a document that did not come along, which it could not open", () => {
+    draw(withWords('<p><a class="card" href="tisty:cited/5">Otro</a></p>'));
+    expect(root.querySelector("a.doc-card")).toBeNull();
+  });
+
+  const withPageWords = (html: string): Document => ({
+    ...withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>'),
+    pages: [{ ...ENERO, html }],
+  });
+
+  it("says each thing once in its summary", () => {
+    draw(withPageWords("<h1>Enero</h1><blockquote><p>Ojo</p></blockquote><ul><li><p>Uno</p></li></ul>"));
+    expect(root.querySelector(".card-blurb")?.textContent).toBe("Ojo · Uno");
+  });
+
+  it("does not repeat a title that is the page's first paragraph", () => {
+    draw(withPageWords("<p>Enero</p><p>Un mes tranquilo.</p>"));
+    expect(root.querySelector(".card-blurb")?.textContent).toBe("Un mes tranquilo.");
+  });
+
+  it("cuts no character in half when the summary runs long", () => {
+    draw(withPageWords(`<p>${"a".repeat(159)}😀b</p>`));
+    expect(root.querySelector(".card-blurb")?.textContent).toBe(`${"a".repeat(159)}😀`);
+  });
+
+  it("cleans a page once for its card, however many times the reader comes back", () => {
+    const cleaner = domPurifyCleaner(place);
+    const wordsOf = vi.fn((html: string) => finished(cleaner.clean(html), []));
+    drawFrame(withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>'), wordsOf, SEAL);
+    const cleanedOfEnero = () => wordsOf.mock.calls.filter(([html]) => html.includes("tranquilo")).length;
+    expect(cleanedOfEnero()).toBe(1);
+    root.querySelector<HTMLElement>("a.doc-card")?.click();
+    expect(cleanedOfEnero()).toBe(2);
+    place.document.getElementById("crumb-back")?.click();
+    expect(cleanedOfEnero()).toBe(2);
+  });
+
+  it("writes a title as words, never as HTML", () => {
+    const hostile = withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>');
+    draw({ ...hostile, pages: [{ ...ENERO, title: "<img src=x onerror=alert(1)>" }] });
+    expect(root.querySelector(".card-name")?.textContent).toBe("<img src=x onerror=alert(1)>");
+    expect(root.querySelector(".card-name img")).toBeNull();
+  });
+});
+
+describe("editing in Tisty", () => {
+  const notice = () => place.document.getElementById("opening-tisty") as HTMLElement;
+  const button = () => place.document.getElementById("edit-in-tisty") as HTMLAnchorElement;
+  let on: Record<string, () => void>;
+
+  beforeEach(() => {
+    on = {};
+    vi.stubGlobal("addEventListener", (name: string, run: () => void) => {
+      on[name] = run;
+    });
+    draw(HELD);
+    // jsdom cannot follow a link anyway.
+    button().addEventListener("click", (event) => event.preventDefault());
+  });
+
+  it("hands the whole link to Tisty, to edit it", () => {
+    expect(button().getAttribute("href")).toBe(`tisty://edit?link=${encodeURIComponent(ADDRESS)}`);
+    expect(button().textContent).toBe("Editar en Tisty");
+  });
+
+  it("offers Tisty on every click, since a browser never says whether it is installed", () => {
+    expect(notice().hidden).toBe(true);
+    button().click();
+    expect(notice().hidden).toBe(false);
+    expect(notice().querySelector("a")?.getAttribute("href")).toBe("https://www.tisty.app/");
+  });
+
+  it("stays while the focus is away, and closes when the reader comes back from the app", () => {
+    button().click();
+    on.blur?.();
+    expect(notice().hidden).toBe(false);
+    on.focus?.();
+    expect(notice().hidden).toBe(true);
+  });
+
+  it("stays if the focus never left, and closes when asked", () => {
+    button().click();
+    on.focus?.();
+    expect(notice().hidden).toBe(false);
+    place.document.getElementById("opening-tisty-close")?.click();
+    expect(notice().hidden).toBe(true);
+  });
+
+  it("does not close by itself on a later visit to the window, once it was closed by hand", () => {
+    button().click();
+    place.document.getElementById("opening-tisty-close")?.click();
+    on.blur?.();
+    on.focus?.();
+    button().click();
+    expect(notice().hidden).toBe(false);
+  });
+});
+
+describe("turning a page", () => {
+  it("leaves a keyboard on the new words, and asks nothing of it when the document first opens", () => {
+    draw(HELD);
+    expect(root.activeElement).toBeNull();
+    click("Enero");
+    expect(root.activeElement?.className).toBe("sheet");
+    place.document.getElementById("crumb-back")?.click();
+    expect(root.activeElement?.className).toBe("sheet");
+  });
+});
+
+describe("the paper", () => {
+  it("sets the width on the column, where the card of pages can see it too", () => {
+    draw(HELD);
+    const column = place.document.getElementById("sheet-column");
+    expect(column?.style.getPropertyValue("--page-width")).toBe("820px");
+    place.document.getElementById("sheets")?.click();
+    expect(column?.style.getPropertyValue("--page-width")).toBe("794px");
+  });
+});
+
+describe("following the reading", () => {
+  const LONG: Document = {
+    ...HELD,
+    html: [
+      '<h1 id="paseos">Paseos</h1>',
+      '<h2 id="uno">Uno</h2>',
+      '<h2 id="dos">Dos</h2>',
+      '<h2 id="tres">Tres</h2>',
+    ].join(""),
+  };
+  let tops: Record<string, number>;
+  let on: Record<string, () => void>;
+
+  const current = () => place.document.querySelector("#index [aria-current]")?.textContent;
+
+  beforeEach(() => {
+    tops = { paseos: -500, uno: 900, dos: 1500, tres: 2100 };
+    on = {};
+    place.Element.prototype.getBoundingClientRect = function (this: Element) {
+      return { top: tops[this.id] ?? 0 } as DOMRect;
+    };
+    vi.stubGlobal("innerHeight", 900);
+    vi.stubGlobal("scrollY", 0);
+    vi.stubGlobal("requestAnimationFrame", (run: () => void) => run());
+    vi.stubGlobal("addEventListener", (name: string, run: () => void) => {
+      on[name] = run;
+    });
+  });
+
+  it("marks nothing while no heading has been reached", () => {
+    draw(LONG);
+    expect(current()).toBeUndefined();
+  });
+
+  it("marks the last heading past the upper third of the window, and only that one", () => {
+    draw(LONG);
+    tops = { ...tops, uno: -100, dos: 250, tres: 800 };
+    on.scroll?.();
+    expect(current()).toBe("Dos");
+    expect(place.document.querySelectorAll("#index [aria-current]")).toHaveLength(1);
+  });
+
+  it("marks the last heading at the end of the page, however low it stayed", () => {
+    draw(LONG);
+    Object.defineProperty(place.document.documentElement, "scrollHeight", { value: 2000, configurable: true });
+    vi.stubGlobal("scrollY", 1100);
+    on.scroll?.();
+    expect(current()).toBe("Tres");
+  });
+
+  it("starts the list from its top on a new page, wherever the last one had got to", () => {
+    draw({ ...LONG, html: `<p><a href="tisty:page/1">Enero</a></p>${LONG.html}` });
+    const list = place.document.getElementById("index") as HTMLElement;
+    list.scrollTop = 400;
+    click("Enero");
+    expect(list.scrollTop).toBe(0);
+  });
+
+  it("leaves a row in its place in the list when the window changes", () => {
+    draw(LONG);
+    tops = { ...tops, uno: -100 };
+    on.scroll?.();
+    const list = place.document.getElementById("index") as HTMLElement;
+    const row = list.querySelector<HTMLElement>("[aria-current]");
+    if (row) Object.defineProperty(row, "offsetTop", { value: 500 });
+    Object.defineProperty(list, "clientHeight", { value: 200 });
+    on.resize?.();
+    expect(list.scrollTop).toBe(400);
+  });
+});
+
+describe("the panels' measures", () => {
+  it("are handed to the stylesheet, which does the arithmetic", () => {
+    let measure = (): void => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(run: () => void) {
+          measure = run;
+        }
+        observe(): void {}
+      },
+    );
+    draw(HELD);
+    place.Element.prototype.getBoundingClientRect = function (this: Element) {
+      return { height: this.id === "panels" ? 700 : 160 } as DOMRect;
+    };
+    measure();
+    const style = place.document.getElementById("panels")?.style;
+    expect(style?.getPropertyValue("--panels-height")).toBe("700px");
+    expect(style?.getPropertyValue("--panels-rest")).toBe("540px");
   });
 });
 
