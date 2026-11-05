@@ -190,7 +190,7 @@ body::before {
   letter-spacing: 0;
 }
 
-/* Tisty's own icon, drawn here so it paints with the first byte and changes with the theme. */
+/* Tisty's own icon, drawn here so it paints with the first byte, and white in both themes. */
 .brand-mark {
   flex: none;
   width: 32px;
@@ -205,22 +205,22 @@ body::before {
 .logo-back,
 .logo-front,
 .logo-fold {
-  stroke: light-dark(#b3ab9e, #5c564e);
+  stroke: #b3ab9e;
   stroke-width: 2;
 }
 
 .logo-back,
 .logo-fold {
-  fill: light-dark(#f1ede6, #25221e);
+  fill: #f1ede6;
 }
 
 .logo-front {
-  fill: light-dark(#ffffff, #36312c);
+  fill: #ffffff;
 }
 
 .logo-lines {
   fill: none;
-  stroke: light-dark(rgb(110 104 96 / 0.4), rgb(163 155 145 / 0.55));
+  stroke: rgb(110 104 96 / 0.4);
   stroke-width: 6;
 }
 
@@ -236,7 +236,7 @@ body::before {
 
 .logo-check {
   fill: none;
-  stroke: light-dark(#ffffff, #0e0d0b);
+  stroke: #ffffff;
   stroke-width: 4.5;
 }
 
