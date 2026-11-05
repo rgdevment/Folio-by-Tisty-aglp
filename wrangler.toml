@@ -19,7 +19,7 @@ region = "aws:us-east-1"
 [[d1_databases]]
 binding = "DB"
 database_name = "folio-private"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "767d0dce-dff0-41b0-9857-b3ddcf2d36ad"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
@@ -35,11 +35,11 @@ simple = { limit = 20, period = 60 }
 # ALERT_URL, HEARTBEAT_URL, SPEND_HEARTBEAT_URL, FOLIO_SECRET and CF_API_TOKEN are secrets. Filled in when the account exists. BILLING_DAY is the plan's renewal day, or 28 if it falls later (decision 118).
 [vars]
 BILLING_DAY = ""
-CF_ACCOUNT_ID = ""
+CF_ACCOUNT_ID = "239d64b3f31b26a9da33dd5b68209970"
 CF_ZONE_ID = ""
 CF_RULESET_ID = ""
 CF_RULE_ID = ""
-CF_DATABASE_ID = ""
+CF_DATABASE_ID = "767d0dce-dff0-41b0-9857-b3ddcf2d36ad"
 CF_SCRIPT_NAME = "folio-private"
 CF_BUCKET_NAME = "folio-private-envelopes"
 
