@@ -34,9 +34,9 @@ simple = { limit = 20, period = 60 }
 [vars]
 BILLING_DAY = ""
 CF_ACCOUNT_ID = "239d64b3f31b26a9da33dd5b68209970"
-CF_ZONE_ID = ""
-CF_RULESET_ID = ""
-CF_RULE_ID = ""
+CF_ZONE_ID = "56530808856fabd50bb1489615f3a031"
+CF_RULESET_ID = "fd140f2bc4e8460cb16cbf882f79c2fc"
+CF_RULE_ID = "49cfba980c6f46639cc6b9cb0960ee40"
 CF_DATABASE_ID = "767d0dce-dff0-41b0-9857-b3ddcf2d36ad"
 CF_SCRIPT_NAME = "folio-private"
 CF_BUCKET_NAME = "folio-private-envelopes"
