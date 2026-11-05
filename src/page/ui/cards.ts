@@ -1,4 +1,4 @@
-import type { Document, Page } from "@tisty/contracts";
+import type { Attachment, Document, Page } from "@tisty/contracts";
 import { bareUrl } from "./clean";
 
 const REFERENCE = /^tisty:(page|cited)\/(\d+)$/i;
@@ -15,6 +15,9 @@ const LEAF = [
   "M16 17H8",
 ];
 const GLIMPSE_CHARACTERS = 160;
+const SEEN_IN_TISTY = "Para ver este widget, ábrelo en Tisty.";
+const NOT_YET = "Este adjunto todavía no se puede descargar.";
+const WIDGET_FILE = /\.html?$/i;
 
 const piece = (link: Element, kind: string, said = ""): HTMLElement => {
   const one = link.ownerDocument.createElement("span");
@@ -42,6 +45,19 @@ const fill = (link: Element, name: string, under: string, paths: string[], chip:
   const meta = piece(link, "card-meta");
   meta.append(piece(link, "chip", chip), piece(link, "card-go", "›"));
   link.replaceChildren(tile, piece(link, "card-name", name), piece(link, "card-blurb", under), meta);
+};
+
+const isWidget = ({ kind, name }: Attachment): boolean => kind === "text/html" || WIDGET_FILE.test(name);
+
+// Its code is what would run, so it leaves here unread: the card is written from nothing that came in it.
+const drawWidgets = (words: DocumentFragment): void => {
+  for (const code of words.querySelectorAll("figure.code > pre > code.language-widget")) {
+    const figure = code.closest("figure") as Element;
+    const card = figure.ownerDocument.createElement("div");
+    fill(card, figure.querySelector("figcaption")?.textContent || "Widget", SEEN_IN_TISTY, LEAF, "Widget");
+    card.classList.add("doc-card", "is-still");
+    figure.replaceWith(card);
+  }
 };
 
 export const referenceOf = (href: string): { kind: "page" | "cited"; at: number } | undefined => {
@@ -72,6 +88,17 @@ const standsAlone = (link: Element, words: DocumentFragment): boolean => {
   );
 };
 
+const drawFiles = (words: DocumentFragment, held: Document): void => {
+  for (const link of words.querySelectorAll("a[data-file]")) {
+    const file = held.files?.find((one) => one.at === Number(link.getAttribute("data-file")));
+    const widget = file !== undefined && isWidget(file);
+    link.setAttribute("title", widget ? SEEN_IN_TISTY : NOT_YET);
+    if (!file || !link.matches("p > a.card") || !standsAlone(link, words)) continue;
+    fill(link, file.name, widget ? SEEN_IN_TISTY : NOT_YET, LEAF, widget ? "Widget" : "Adjunto");
+    link.classList.add("doc-card", "is-still");
+  }
+};
+
 // What it writes comes from the document that was already checked, always as words and never as HTML.
 export const cardsFor = (held: Document, wordsOf: (html: string) => DocumentFragment) => {
   const pages: Page[] = held.pages ?? [];
@@ -84,6 +111,8 @@ export const cardsFor = (held: Document, wordsOf: (html: string) => DocumentFrag
   };
 
   return (words: DocumentFragment): DocumentFragment => {
+    drawWidgets(words);
+    drawFiles(words, held);
     for (const link of words.querySelectorAll("p > a.card")) {
       if (!standsAlone(link, words)) continue;
       const reference = referenceOf(link.getAttribute("href") ?? "");
