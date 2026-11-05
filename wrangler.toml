@@ -3,8 +3,8 @@ main = "src/private/index.ts"
 compatibility_date = "2026-08-01"
 workers_dev = false
 
-# tisty.cl needs a proxied DNS record for this route to answer.
-routes = [{ pattern = "tisty.cl/*", zone_name = "tisty.cl" }]
+# A custom domain, so wrangler deploy creates its DNS record and certificate.
+routes = [{ pattern = "tisty.cl", custom_domain = true }]
 
 # Free and uncounted (decision 109): only the API wakes the Worker, and any other path gets the page.
 [assets]
