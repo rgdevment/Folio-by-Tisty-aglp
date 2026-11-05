@@ -66,8 +66,9 @@
       <div class="scrim" id="scrim" hidden></div>
       <aside class="panels" id="panels" aria-label="Sobre este documento">
         <section class="panel panel-actions">
-          <a class="action action-main" id="open-in-tisty" href="tisty://folio">Abrir en Tisty</a>
+          <a class="action action-main" id="edit-in-tisty" href="tisty://edit">Editar en Tisty</a>
           <button class="action" id="copy-link" type="button"><span id="copy-link-text">Copiar link</span></button>
+          <p class="actions-note">Editas tu copia; el original sigue igual.</p>
         </section>
 
         <section class="panel" id="panel-index" aria-labelledby="title-index">
@@ -124,6 +125,16 @@
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9M8.5 4l4 4-4 4" /></svg>
       </a>
     </footer>
+
+    <div class="opening-tisty" id="opening-tisty" role="status" hidden>
+      <p>
+        <span>Abriendo Tisty… ¿No lo tienes?</span>
+        <a href="https://www.tisty.app/" target="_blank" rel="noopener noreferrer">Conócelo e instálalo</a>
+      </p>
+      <button class="tool" id="opening-tisty-close" type="button" aria-label="Cerrar" title="Cerrar">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7" /></svg>
+      </button>
+    </div>
 
     <nav class="dock" id="dock" aria-label="Paneles" hidden>
       <button type="button" data-panel="panel-index">Índice</button>

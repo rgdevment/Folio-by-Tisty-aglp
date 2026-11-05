@@ -224,6 +224,59 @@ describe("a card in the words", () => {
   });
 });
 
+describe("editing in Tisty", () => {
+  const notice = () => place.document.getElementById("opening-tisty") as HTMLElement;
+  const button = () => place.document.getElementById("edit-in-tisty") as HTMLAnchorElement;
+  let on: Record<string, () => void>;
+
+  beforeEach(() => {
+    on = {};
+    vi.stubGlobal("addEventListener", (name: string, run: () => void) => {
+      on[name] = run;
+    });
+    draw(HELD);
+    // jsdom cannot follow a link anyway.
+    button().addEventListener("click", (event) => event.preventDefault());
+  });
+
+  it("hands the whole link to Tisty, to edit it", () => {
+    expect(button().getAttribute("href")).toBe(`tisty://edit?link=${encodeURIComponent(ADDRESS)}`);
+    expect(button().textContent).toBe("Editar en Tisty");
+  });
+
+  it("offers Tisty on every click, since a browser never says whether it is installed", () => {
+    expect(notice().hidden).toBe(true);
+    button().click();
+    expect(notice().hidden).toBe(false);
+    expect(notice().querySelector("a")?.getAttribute("href")).toBe("https://www.tisty.app/");
+  });
+
+  it("stays while the focus is away, and closes when the reader comes back from the app", () => {
+    button().click();
+    on.blur?.();
+    expect(notice().hidden).toBe(false);
+    on.focus?.();
+    expect(notice().hidden).toBe(true);
+  });
+
+  it("stays if the focus never left, and closes when asked", () => {
+    button().click();
+    on.focus?.();
+    expect(notice().hidden).toBe(false);
+    place.document.getElementById("opening-tisty-close")?.click();
+    expect(notice().hidden).toBe(true);
+  });
+
+  it("does not close by itself on a later visit to the window, once it was closed by hand", () => {
+    button().click();
+    place.document.getElementById("opening-tisty-close")?.click();
+    on.blur?.();
+    on.focus?.();
+    button().click();
+    expect(notice().hidden).toBe(false);
+  });
+});
+
 describe("turning a page", () => {
   it("leaves a keyboard on the new words, and asks nothing of it when the document first opens", () => {
     draw(HELD);

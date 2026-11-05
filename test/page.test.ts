@@ -150,6 +150,10 @@ describe("the contract's numbers", () => {
   const style = (CONTRACTS.style as { values: StyleValues }).values;
   const sheet = (CONTRACTS.sheet as { values: Record<string, unknown> }).values;
 
+  it("keep a diagram no wider than the sheet", () => {
+    expect(SHEET).toMatch(/figure\.diagram svg \{\s+max-width: 100%;/);
+  });
+
   it("are the ones the sheet's CSS writes", () => {
     expect(SHEET).toContain(`font-size: ${style.body.size}`);
     expect(SHEET).toContain(`line-height: ${style.body.line_height}`);

@@ -28,8 +28,8 @@ sus promesas. Sus links viven en tisty.cl, y su sitio es
   viene de ti.
 - **Caduca sola** después del tiempo sin actividad que elijas, de un día a 15
   como mucho. Tu documento se queda en tu Tisty.
-- **Un link se abre en cualquier navegador,** en tisty.cl, o en otro Tisty con
-  *Abrir en Tisty*.
+- **Un link se abre en cualquier navegador,** en tisty.cl, y se edita en otro
+  Tisty con *Editar en Tisty*.
 
 ## Sus documentos
 

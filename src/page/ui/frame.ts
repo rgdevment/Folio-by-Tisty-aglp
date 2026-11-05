@@ -224,8 +224,32 @@ const drawSeal = (held: Document, { verdict, fingerprint, diesOn }: Seal): void 
   element("dies-on").textContent = diesOn;
 };
 
+// A browser never says whether Tisty is installed, so every click also offers it, until the app takes the focus away.
+const offerTisty = (edit: HTMLElement): void => {
+  const notice = element("opening-tisty");
+  let leftForTheApp = false;
+  const close = (): void => {
+    notice.hidden = true;
+    leftForTheApp = false;
+  };
+  edit.addEventListener("click", () => {
+    leftForTheApp = false;
+    notice.hidden = false;
+  });
+  element("opening-tisty-close").addEventListener("click", close);
+  addEventListener("blur", () => {
+    leftForTheApp = !notice.hidden;
+  });
+  // Closed on coming back and not on leaving, because a system's own question also takes the focus and the reader still needs this.
+  addEventListener("focus", () => {
+    if (leftForTheApp) close();
+  });
+};
+
 const drawActions = (): void => {
-  element<HTMLAnchorElement>("open-in-tisty").href = `tisty://folio?link=${encodeURIComponent(location.href)}`;
+  const edit = element<HTMLAnchorElement>("edit-in-tisty");
+  edit.href = `tisty://edit?link=${encodeURIComponent(location.href)}`;
+  offerTisty(edit);
   const label = element("copy-link-text");
   const said = label.textContent;
   element("copy-link").addEventListener("click", async () => {

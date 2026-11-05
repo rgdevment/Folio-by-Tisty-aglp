@@ -25,6 +25,7 @@ const piece = (link: Element, kind: string, said = ""): HTMLElement => {
 
 const glyph = (link: Element, paths: string[]): SVGElement => {
   const drawn = link.ownerDocument.createElementNS(SVG, "svg");
+  drawn.setAttribute("class", "card-glyph");
   drawn.setAttribute("viewBox", "0 0 24 24");
   drawn.setAttribute("aria-hidden", "true");
   for (const shape of paths) {
