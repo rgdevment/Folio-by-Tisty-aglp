@@ -87,6 +87,13 @@ describe("opening a link", () => {
   });
 });
 
+describe("the foot of the page", () => {
+  it("promises nothing about a document that did not open", () => {
+    expect(HTML).toContain('class="page-foot-promise"');
+    expect(read("src/page/ui/frame.css")).toMatch(/\[data-state="closed"\] \.page-foot-promise \{\s+display: none;/);
+  });
+});
+
 describe("the panels", () => {
   it("say the verdict once, in the bar, outside the document", () => {
     expect(HTML).toContain('id="seal-text"');

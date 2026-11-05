@@ -1,7 +1,7 @@
 import type { Document, Page } from "@tisty/contracts";
 import { bareUrl } from "./clean";
 
-const REFERENCE = /^tisty:(page|cited)\/(\d+)$/;
+const REFERENCE = /^tisty:(page|cited)\/(\d+)$/i;
 const SVG = "http://www.w3.org/2000/svg";
 // The same drawings Tisty gives its cards.
 const BOOK = [
@@ -43,12 +43,22 @@ const fill = (link: Element, name: string, under: string, paths: string[], chip:
   link.replaceChildren(tile, piece(link, "card-name", name), piece(link, "card-blurb", under), meta);
 };
 
-const glimpsed = (words: DocumentFragment): string =>
-  [...words.querySelectorAll("p, li, blockquote")]
+export const referenceOf = (href: string): { kind: "page" | "cited"; at: number } | undefined => {
+  const [, kind, at] = REFERENCE.exec(bareUrl(href)) ?? [];
+  return kind ? { kind: kind.toLowerCase() as "page" | "cited", at: Number(at) } : undefined;
+};
+
+const BLOCKS = "p, li, blockquote";
+
+// Only the innermost blocks, so a paragraph inside a quote is not said twice, and whole characters, so no emoji is cut.
+const glimpsed = (words: DocumentFragment): string => {
+  const said = [...words.querySelectorAll(BLOCKS)]
+    .filter((one) => !one.querySelector(BLOCKS))
     .map((one) => one.textContent?.trim())
     .filter(Boolean)
-    .join(" · ")
-    .slice(0, GLIMPSE_CHARACTERS);
+    .join(" · ");
+  return [...said].slice(0, GLIMPSE_CHARACTERS).join("");
+};
 
 // A card alone in its paragraph is drawn whole, and one inside a sentence stays a word of it, as Tisty does.
 const standsAlone = (link: Element, words: DocumentFragment): boolean => {
@@ -61,27 +71,34 @@ const standsAlone = (link: Element, words: DocumentFragment): boolean => {
 };
 
 // What it writes comes from the document that was already checked, always as words and never as HTML.
-export const drawCards = (
-  words: DocumentFragment,
-  held: Document,
-  wordsOf: (html: string) => DocumentFragment,
-): DocumentFragment => {
+export const cardsFor = (held: Document, wordsOf: (html: string) => DocumentFragment) => {
   const pages: Page[] = held.pages ?? [];
-  for (const link of words.querySelectorAll("p > a.card")) {
-    if (!standsAlone(link, words)) continue;
-    const [, kind, at] = REFERENCE.exec(bareUrl(link.getAttribute("href") ?? "")) ?? [];
-    const said = link.textContent ?? "";
-    if (kind === "page") {
-      const page = pages.find((one) => one.at === Number(at));
-      if (!page) continue;
-      const chip = `Página ${pages.indexOf(page) + 1} de ${pages.length}`;
-      fill(link, page.title ?? said, glimpsed(wordsOf(page.html)), BOOK, chip);
-      link.classList.add("doc-card", "is-page");
-    } else if (kind === "cited") {
-      const title = held.cited?.[Number(at)]?.title ?? said;
-      fill(link, title, "", LEAF, "Documento");
-      link.classList.add("doc-card");
+  // A page is cleaned once for its card, however many times the reader comes back to the words that name it.
+  const glimpses = new Map<Page, string>();
+  const glimpseOf = (page: Page): string => {
+    const known = glimpses.get(page) ?? glimpsed(wordsOf(page.html));
+    glimpses.set(page, known);
+    return known;
+  };
+
+  return (words: DocumentFragment): DocumentFragment => {
+    for (const link of words.querySelectorAll("p > a.card")) {
+      if (!standsAlone(link, words)) continue;
+      const reference = referenceOf(link.getAttribute("href") ?? "");
+      const said = link.textContent ?? "";
+      if (reference?.kind === "page") {
+        const page = pages.find((one) => one.at === reference.at);
+        if (!page) continue;
+        const chip = `Página ${pages.indexOf(page) + 1} de ${pages.length}`;
+        fill(link, page.title ?? said, glimpseOf(page), BOOK, chip);
+        link.classList.add("doc-card", "is-page");
+      } else if (reference?.kind === "cited") {
+        const cited = held.cited?.[reference.at];
+        if (!cited) continue;
+        fill(link, cited.title ?? said, "", LEAF, "Documento");
+        link.classList.add("doc-card");
+      }
     }
-  }
-  return words;
+    return words;
+  };
 };

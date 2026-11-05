@@ -179,11 +179,64 @@ describe("a card in the words", () => {
     expect(root.querySelector("a.doc-card .chip")?.textContent).toBe("Documento");
   });
 
+  it("is not drawn for a document that did not come along, which it could not open", () => {
+    draw(withWords('<p><a class="card" href="tisty:cited/5">Otro</a></p>'));
+    expect(root.querySelector("a.doc-card")).toBeNull();
+  });
+
+  const withPageWords = (html: string): Document => ({
+    ...withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>'),
+    pages: [{ ...ENERO, html }],
+  });
+
+  it("says each thing once in its summary", () => {
+    draw(withPageWords("<h1>Enero</h1><blockquote><p>Ojo</p></blockquote><ul><li><p>Uno</p></li></ul>"));
+    expect(root.querySelector(".card-blurb")?.textContent).toBe("Ojo · Uno");
+  });
+
+  it("cuts no character in half when the summary runs long", () => {
+    draw(withPageWords(`<p>${"a".repeat(159)}😀b</p>`));
+    expect(root.querySelector(".card-blurb")?.textContent).toBe(`${"a".repeat(159)}😀`);
+  });
+
+  it("cleans a page once for its card, however many times the reader comes back", () => {
+    const cleaner = domPurifyCleaner(place);
+    const wordsOf = vi.fn((html: string) => finished(cleaner.clean(html), []));
+    drawFrame(withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>'), wordsOf, SEAL);
+    const cleanedOfEnero = () => wordsOf.mock.calls.filter(([html]) => html.includes("tranquilo")).length;
+    expect(cleanedOfEnero()).toBe(1);
+    root.querySelector<HTMLElement>("a.doc-card")?.click();
+    expect(cleanedOfEnero()).toBe(2);
+    place.document.getElementById("crumb-back")?.click();
+    expect(cleanedOfEnero()).toBe(2);
+  });
+
   it("writes a title as words, never as HTML", () => {
     const hostile = withWords('<p><a class="card" href="tisty:page/1">Enero</a></p>');
     draw({ ...hostile, pages: [{ ...ENERO, title: "<img src=x onerror=alert(1)>" }] });
     expect(root.querySelector(".card-name")?.textContent).toBe("<img src=x onerror=alert(1)>");
     expect(root.querySelector(".card-name img")).toBeNull();
+  });
+});
+
+describe("turning a page", () => {
+  it("leaves a keyboard on the new words, and asks nothing of it when the document first opens", () => {
+    draw(HELD);
+    expect(root.activeElement).toBeNull();
+    click("Enero");
+    expect(root.activeElement?.className).toBe("sheet");
+    place.document.getElementById("crumb-back")?.click();
+    expect(root.activeElement?.className).toBe("sheet");
+  });
+});
+
+describe("the paper", () => {
+  it("sets the width on the column, where the card of pages can see it too", () => {
+    draw(HELD);
+    const column = place.document.getElementById("sheet-column");
+    expect(column?.style.getPropertyValue("--page-width")).toBe("820px");
+    place.document.getElementById("sheets")?.click();
+    expect(column?.style.getPropertyValue("--page-width")).toBe("794px");
   });
 });
 

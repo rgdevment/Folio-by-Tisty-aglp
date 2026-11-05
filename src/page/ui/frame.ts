@@ -1,5 +1,5 @@
 import type { Document, Orientation, Page, Paper, Verdict } from "@tisty/contracts";
-import { drawCards } from "./cards";
+import { cardsFor, referenceOf } from "./cards";
 import { bareUrl } from "./clean";
 import sheetStyles from "./sheet.css?url";
 
@@ -46,7 +46,8 @@ const withLayout = (host: HTMLElement, sheets: boolean, paper: Paper, orientatio
   const across = orientation === "landscape" ? long : short;
   const down = orientation === "landscape" ? short : long;
   host.dataset.sheets = String(sheets);
-  host.style.setProperty("--page-width", `${sheets ? pixels(across) : LONG_PAGE_WIDTH_PIXELS}px`);
+  // On the column, because the card of pages under the sheet keeps its width too.
+  element("sheet-column").style.setProperty("--page-width", `${sheets ? pixels(across) : LONG_PAGE_WIDTH_PIXELS}px`);
   if (sheets) {
     host.style.setProperty("--page-height", `${pixels(down)}px`);
     host.style.setProperty("--margin-x", `${pixels(MARGIN_MILLIMETRES.x)}px`);
@@ -243,6 +244,9 @@ const drawDock = (): void => {
     panel.dataset.open = "";
     panel.tabIndex = -1;
     panel.focus();
+    // Only now: a list that was hidden has no measures, so it could not follow the reading until it is shown.
+    const reading = panel.querySelector<HTMLElement>('[aria-current="location"]');
+    if (reading) centerInItsList(reading);
     opener = button;
     button.setAttribute("aria-expanded", "true");
     element("scrim").hidden = false;
@@ -264,8 +268,6 @@ const tagsOf = (tags: string[]): HTMLElement => {
   return list;
 };
 
-const REFERENCE = /^tisty:(page|cited)\/(\d+)$/i;
-
 // Nothing here changes the address by itself: the part after its # holds the link key (contract, «links»).
 const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page: Page) => void): void => {
   const link = (event.target as Element).closest("a");
@@ -276,12 +278,12 @@ const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page:
     root.getElementById(where.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
-  const [, kind, at] = REFERENCE.exec(where) ?? [];
-  if (kind?.toLowerCase() === "page") {
-    const page = held.pages?.find((one) => one.at === Number(at));
+  const reference = referenceOf(where);
+  if (reference?.kind === "page") {
+    const page = held.pages?.find((one) => one.at === reference.at);
     if (page) goTo(page);
-  } else if (kind?.toLowerCase() === "cited") {
-    const cited = held.cited?.[Number(at)];
+  } else if (reference?.kind === "cited") {
+    const cited = held.cited?.[reference.at];
     if (cited) location.assign(`/${encodeURIComponent(cited.document)}#${encodeURIComponent(cited.key ?? "")}`);
   }
 };
@@ -331,28 +333,32 @@ export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFra
   styles.href = sheetStyles;
   const sheet = document.createElement("article");
   sheet.className = "sheet";
+  sheet.tabIndex = -1;
   root.append(styles, sheet);
 
   const pages = held.pages ?? [];
+  const withCards = cardsFor(held, wordsOf);
   let reading: AbortController | undefined;
   const goTo = (shown: Document | Page): void => {
     sheet.lang = shown.lang ?? held.lang ?? "";
-    sheet.replaceChildren(
-      ...(shown.tags?.length ? [tagsOf(shown.tags)] : []),
-      drawCards(wordsOf(shown.html), held, wordsOf),
-    );
+    sheet.replaceChildren(...(shown.tags?.length ? [tagsOf(shown.tags)] : []), withCards(wordsOf(shown.html)));
     document.title = shown.title ? `${shown.title} · Folio` : "Folio by Tisty";
     const at = pages.indexOf(shown as Page);
     markPage(at);
-    drawWayBack(held, at, pages.length, goTo);
+    drawWayBack(held, at, pages.length, turnTo);
     reading?.abort();
     reading = drawIndex(root, shown);
     // At once: gliding back over a long page would only show everything the reader is leaving.
     scrollTo({ top: 0, behavior: "instant" });
   };
-  root.addEventListener("click", (event) => followLink(event, root, held, goTo));
+  // What the reader clicked is gone with the old words, so a keyboard goes on from the new ones.
+  const turnTo = (shown: Document | Page): void => {
+    goTo(shown);
+    sheet.focus({ preventScroll: true });
+  };
+  root.addEventListener("click", (event) => followLink(event, root, held, turnTo));
 
-  drawPages(pages, goTo);
+  drawPages(pages, turnTo);
   goTo(held);
   drawPaperPanel(host, held);
   drawDetails(root, held);
