@@ -59,15 +59,23 @@ const REFUSAL_OF_CREATED: Partial<Record<Created, Refused["refused"]>> = {
   bad_ttl: "bad_upload",
 };
 
+const mayShare = async (
+  { id, now }: Uploading,
+  first: FirstUpload,
+  { limits, secret }: ReadTools,
+): Promise<Refused | null> => {
+  if (!first.adminToken || !(await startHolds(secret, id, first.start, now))) return { refused: "bad_upload" };
+  const proved = await proofIsFresh(secret, id, first.proof, limits.proofBits, now);
+  return proved ? null : askForProof(secret, id, limits.proofBits, now);
+};
+
 const share = async (
-  { id, now, first }: Uploading,
+  { id, now }: Uploading,
+  first: FirstUpload,
   { manifest }: ReadEnvelope,
   net: string,
-  { store, limits, secret }: ReadTools,
+  { store }: ReadTools,
 ): Promise<Refused | null> => {
-  if (!first?.adminToken || !(await startHolds(secret, id, first.start, now))) return { refused: "bad_upload" };
-  const proved = await proofIsFresh(secret, id, first.proof, limits.proofBits, now);
-  if (!proved) return askForProof(secret, id, limits.proofBits, now);
   const owner = manifest.owner as Owner;
   const created = await store.create(
     {
@@ -125,6 +133,13 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
   if (!(await limiter.allows(net))) return tooFast(now);
   const stage = await store.stage();
   if (stage === "no_uploads" || stage === "blocked") return { refused: "uploads_off" };
+  let held = await store.held(id);
+  const sharing = first && (!held || held.latest === 0) ? first : null;
+  if (!held && !sharing) return { refused: "missing" };
+  if (sharing) {
+    const refused = await mayShare(uploading, sharing, tools);
+    if (refused) return refused;
+  }
   const bytes = await uploading.bytes();
   if (!bytes || bytes.length > limits.envelopeBytesAtMost) return { refused: "too_big" };
 
@@ -136,18 +151,16 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
   if (floor !== null && isBelowVersion(manifest.contract, floor)) return { refused: "outdated" };
 
   const hash = toBase64Url(await sha256(bytes));
-  let held = await store.held(id);
   if (held?.latest === manifest.version && held.versions.at(-1)?.hash === hash) {
     return { stored: true, version: manifest.version };
   }
-  if (!held) {
-    if (!first) return { refused: "missing" };
+  if (sharing) {
     if (manifest.version !== 1) return { refused: "behind" };
-    const refused = await share(uploading, read, net, tools);
+    const refused = await share(uploading, sharing, read, net, tools);
     if (refused) return refused;
     held = await store.held(id);
-    if (!held) return { refused: "missing" };
   }
+  if (!held) return { refused: "missing" };
   if (!mayUpload(read, held)) return { refused: "not_yours" };
   const stopped = notNext(held, manifest.version);
   if (stopped) return stopped;
@@ -176,6 +189,7 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
       ownerMark: ownerMarkOf(owner),
     },
     today,
+    held,
   );
   return answerOf(uploaded, manifest.version, now);
 };

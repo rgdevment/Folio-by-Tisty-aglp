@@ -145,12 +145,12 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Stored" }
         "400":
-          description: The first version came without what it needs, or another document took that place.
+          description: The first version came without what it needs, with another number of days, or with an anchor that is not there.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BadUpload" }
         "403":
-          description: It is paused or blocked, or this signer may not send a version of it.
+          description: It is paused or blocked, this signer may not send a version of it, or its id is someone else's.
           content:
             application/json:
               schema:

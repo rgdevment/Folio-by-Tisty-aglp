@@ -36,6 +36,7 @@ export interface Held {
   owner: string;
   permit: string | null;
   ownerMark: string;
+  anchor: string | null;
   latest: number;
   versions: Version[];
   blocked: boolean;
@@ -109,7 +110,7 @@ export interface Swept {
 // What the rules need of wherever Folio runs, so the core never knows it is Cloudflare (decisions 16 and 108).
 export interface Store {
   create(doc: NewDoc, today: number): Promise<Created>;
-  upload(upload: Upload, today: number): Promise<Uploaded>;
+  upload(upload: Upload, today: number, held?: Held): Promise<Uploaded>;
   held(id: string): Promise<Held | null>;
   setPermit(id: string, permit: string | null): Promise<void>;
   admit(reading: Reading, today: number): Promise<Admitted>;

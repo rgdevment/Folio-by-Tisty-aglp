@@ -234,8 +234,16 @@ const UPLOADING: Scenario[] = [
     status: 413,
     refused: "too_big",
     upload: async () => new Uint8Array(LEVEL_ONE.envelopeBytesAtMost + 1),
+    ready: shareSigned,
   },
-  { method: "PUT", path: UPLOAD_PATH, status: 422, refused: "envelope", upload: async () => new Uint8Array(8) },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 422,
+    refused: "envelope",
+    upload: async () => new Uint8Array(8),
+    ready: shareSigned,
+  },
   { method: "PUT", path: UPLOAD_PATH, status: 429, refused: "slow", upload: envelope(1), braked: true },
   { method: "PUT", path: UPLOAD_PATH, status: 429, refused: "proof", upload: envelope(1), first: true, admin: TOKEN },
   {

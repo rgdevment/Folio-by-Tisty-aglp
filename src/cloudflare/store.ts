@@ -126,12 +126,12 @@ export class Cloud implements Store {
     return sameDocument && held.latest !== CLAIMED ? "same" : "taken";
   }
 
-  async upload(upload: Upload, today: number): Promise<Uploaded> {
-    const held = await this.#row(upload.id);
-    if (!held || held.latest === CLAIMED) return "missing";
-    if (held.blocked_at !== null) return "blocked";
-    if (held.paused_at !== null) return "paused";
-    const versions = JSON.parse(held.versions) as Version[];
+  async upload(upload: Upload, today: number, known?: Held): Promise<Uploaded> {
+    const held = known ?? (await this.held(upload.id));
+    if (!held) return "missing";
+    if (held.blocked) return "blocked";
+    if (held.paused) return "paused";
+    const { versions } = held;
     if (held.latest === upload.n && versions.at(-1)?.hash === upload.hash) return "same";
     if (upload.n !== held.latest + 1) return "behind";
 
@@ -207,6 +207,7 @@ export class Cloud implements Store {
       owner: row.owner,
       permit: row.permit,
       ownerMark: row.owner_mark,
+      anchor: row.anchor,
       latest: row.latest,
       versions: JSON.parse(row.versions) as Version[],
       blocked: row.blocked_at !== null,

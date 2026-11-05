@@ -5,7 +5,7 @@ import { Cloud } from "../src/cloudflare/store";
 import type { Bytes } from "../src/core/bytes";
 import { DAY_MS, dayOf, LEVEL_ONE, type Limits } from "../src/core/limits";
 import { latestVersion } from "../src/core/read";
-import { saltFor, solveProof, startNow, toBase64Url } from "../src/core/start";
+import { saltFor, solveProof, startNow, toBase64Url, tokenHash } from "../src/core/start";
 import type { Stage, Version } from "../src/core/store";
 import { type FirstUpload, uploadDoc } from "../src/core/upload";
 import { keptVersions, listFreesAt, uploadAllowedAt } from "../src/core/versions";
@@ -102,6 +102,18 @@ describe("sharing something new", () => {
     expect(await send(first.id, bytes, NOW, { ...first, adminToken: "" })).toEqual({ refused: "bad_upload" });
     expect(await send(first.id, bytes, NOW, { ...first, ttlDays: 2 })).toEqual({ refused: "bad_upload" });
     expect((await row(first.id))?.latest).toBeUndefined();
+  });
+
+  it("does not take a retry that brings another admin token, or the owner would lose the link", async () => {
+    const first = await started();
+    const bytes = await sealedEnvelope({ id: first.id, version: 1, owner: mario });
+    await store.create(
+      { id: first.id, owner: rootOf(mario), adminHash: await tokenHash("the admin token"), ttlDays: 3, net: "n" },
+      dayOf(NOW),
+    );
+    expect(await send(first.id, bytes, NOW, { ...first, adminToken: "another one" })).toEqual({ refused: "not_yours" });
+    expect((await row(first.id))?.latest).toBe(0);
+    expect(await send(first.id, bytes, NOW, first)).toEqual({ stored: true, version: 1 });
   });
 
   it("asks for the proof before it keeps anything", async () => {
@@ -219,6 +231,16 @@ describe("what is refused writes nothing", () => {
     expect((await counted())?.n).toBe(0);
   });
 
+  it("reads no body for a document that is not there, or a first one with no proof", async () => {
+    const bytes = vi.fn(async () => new Uint8Array(1));
+    await uploadDoc({ id: "AbCdEfGh", now: NOW, ip: "203.0.113.9", bytes }, tools);
+    const hard = { ...tools, limits: { ...LIMITS, proofBits: 24 } };
+    const first = await started();
+    await uploadDoc({ id: first.id, now: NOW, ip: "203.0.113.9", bytes, first }, hard);
+    await uploadDoc({ id: first.id, now: NOW, ip: "203.0.113.9", bytes, first: { ...first, start: "x" } }, tools);
+    expect(bytes).not.toHaveBeenCalled();
+  });
+
   it("reads no body for what the brake or the stage stop", async () => {
     const bytes = vi.fn(async () => new Uint8Array(1));
     const braked = { ...tools, limiter: { allows: async () => false } };
@@ -229,7 +251,8 @@ describe("what is refused writes nothing", () => {
   });
 
   it("refuses what says it is past the size, or does not fit", async () => {
-    const answer = await uploadDoc({ id: "AbCdEfGh", now: NOW, ip: "203.0.113.9", bytes: async () => null }, tools);
+    const id = await shared();
+    const answer = await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes: async () => null }, tools);
     expect(answer).toEqual({ refused: "too_big" });
   });
 });
