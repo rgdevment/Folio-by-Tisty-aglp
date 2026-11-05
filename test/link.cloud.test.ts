@@ -1,7 +1,7 @@
 import VECTORS from "@tisty/contracts/vectors.json";
 import { describe, expect, it } from "vitest";
 import type { Bytes } from "../src/core/bytes";
-import { keyOfFragment } from "../src/page/link";
+import { keyOfFragment, readingLink } from "../src/page/link";
 import { openLink } from "../src/page/read";
 import { worseOf } from "../src/page/verdict";
 import { EnvelopeRefused } from "../src/rules/envelope";
@@ -50,6 +50,8 @@ describe("opening a link", () => {
     expect(worseOf("retired", "holds")).toBe("retired");
     expect(worseOf("retired", "doubtful")).toBe("doubtful");
     expect(worseOf("holds", "holds")).toBe("holds");
+    expect(worseOf("holds", "refused")).toBe("refused");
+    expect(worseOf("unreadable", "doubtful")).toBe("unreadable");
   });
 
   it("takes the key from an edit link, and the token opens nothing", () => {
@@ -57,6 +59,13 @@ describe("opening a link", () => {
     expect(keyOfFragment(fragment)).toBe(SAMPLES.link_key);
     expect(keyOfFragment(SAMPLES.link_key)).toBe(SAMPLES.link_key);
     expect(keyOfFragment("")).toBe("");
+  });
+
+  it("writes the link to read as it was, with no token and no stray mark", () => {
+    const address = { origin: "https://tisty.cl", pathname: "/k7Qm2xPa" };
+    expect(readingLink({ ...address, hash: "#THEKEY.THETOKEN" })).toBe("https://tisty.cl/k7Qm2xPa#THEKEY");
+    expect(readingLink({ ...address, hash: "#THEKEY" })).toBe("https://tisty.cl/k7Qm2xPa#THEKEY");
+    expect(readingLink({ ...address, hash: "" })).toBe("https://tisty.cl/k7Qm2xPa");
   });
 
   it("opens what is public with nothing after the #", async () => {

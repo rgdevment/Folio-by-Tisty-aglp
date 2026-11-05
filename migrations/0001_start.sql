@@ -60,11 +60,11 @@ CREATE TABLE reports (
   doc TEXT NOT NULL,
   net TEXT NOT NULL,
   at INTEGER NOT NULL,
-  at_hour INTEGER NOT NULL DEFAULT 0,
+  at_hour INTEGER NOT NULL,
   category TEXT NOT NULL,
   detail TEXT,
   sealed_link TEXT,
-  asn INTEGER,
+  asn INTEGER NOT NULL,
   cleared INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (doc, net)
 ) WITHOUT ROWID;

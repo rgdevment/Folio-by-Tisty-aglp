@@ -25,7 +25,7 @@ Folio sin fines de lucro. Contacto: <rgdevment@tisty.app>.
 |---|---|---|
 | El documento cifrado, con sus versiones | Servirlo a quien tiene el link | Hasta el plazo sin actividad que elijas, de 15 días como mucho, o hasta que dejes de compartirlo. Con una denuncia seria o una orden, deja de servirse y queda hasta 180 días, o lo que la orden pida |
 | El manifiesto en claro: cuántas partes tiene, cuánto pesa cada una, de qué tipo son y su versión | Aplicar los topes sin leer el contenido | Lo mismo que el documento |
-| Los links de editar y administrar, guardados como resumen (hash) | Comprobar quién puede cambiar o borrar | Lo mismo que el documento |
+| El link de administrar, guardado como resumen (hash), y la llave pública del token del link de editar, que nunca llega al servidor | Comprobar quién puede cambiar o borrar | Lo mismo que el documento |
 | Si firmas, tu llave pública y su certificado | Que quien lee sepa que es tuyo | Lo mismo que el documento |
 | Cuántas veces se leyó, contando una vez por día y por visitante | Mostrarte las lecturas en Tisty | Lo mismo que el documento |
 | Una línea por cada lectura servida: el id del link (sin su llave, así que no abre nada), el país y el centro de datos de Cloudflare, nunca tu IP | Saber cuánto se lee cada documento y desde dónde, y dimensionar el servicio | 3 días, en los registros de Workers de Cloudflare |

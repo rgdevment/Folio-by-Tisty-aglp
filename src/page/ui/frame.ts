@@ -1,5 +1,5 @@
 import type { Document, Orientation, Page, Paper, Verdict } from "@tisty/contracts";
-import { keyOfFragment } from "../link";
+import { readingLink } from "../link";
 import { cardsFor, referenceOf } from "./cards";
 import { bareUrl } from "./clean";
 import sheetStyles from "./sheet.css?url";
@@ -221,8 +221,6 @@ const drawOwner = (held: Document, ownerFingerprint: string | null): void => {
   element("owner-fingerprint").textContent = ownerFingerprint ?? "";
 };
 
-const readingLink = (): string => `${location.origin}${location.pathname}#${keyOfFragment(location.hash.slice(1))}`;
-
 const drawSeal = (held: Document, { verdict, fingerprint, ownerFingerprint, diesOn }: Seal): void => {
   const { text, tone } = VERDICTS[verdict];
   const seal = element("seal");
@@ -264,7 +262,7 @@ const drawActions = (): void => {
   const label = element("copy-link-text");
   const said = label.textContent;
   element("copy-link").addEventListener("click", async () => {
-    await navigator.clipboard.writeText(readingLink());
+    await navigator.clipboard.writeText(readingLink(location));
     label.textContent = "Copiado";
     setTimeout(() => {
       label.textContent = said;

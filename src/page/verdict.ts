@@ -21,7 +21,7 @@ export const verdictOf = async (
   return received !== undefined && received < earliest ? "retired" : "doubtful";
 };
 
-const FROM_BEST_TO_WORST: Verdict[] = ["holds", "retired", "doubtful"];
+const FROM_BEST_TO_WORST: Verdict[] = ["holds", "retired", "doubtful", "unreadable", "refused"];
 
 export const worseOf = (one: Verdict, other: Verdict): Verdict =>
   FROM_BEST_TO_WORST.indexOf(one) >= FROM_BEST_TO_WORST.indexOf(other) ? one : other;

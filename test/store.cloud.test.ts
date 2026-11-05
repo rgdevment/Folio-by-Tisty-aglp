@@ -739,6 +739,7 @@ describe("creating", () => {
     expect(await store.create(newDoc("d1"), DAY)).toBe("same");
     expect(await store.create(newDoc("d1", { adminHash: "other" }), DAY)).toBe("taken");
     expect(await store.create(newDoc("d1", { owner: "o2" }), DAY)).toBe("taken");
+    expect(await store.create(newDoc("d1", { permit: "another-key" }), DAY)).toBe("taken");
     expect((await quota())?.docs).toBe(1);
   });
 
