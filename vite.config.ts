@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { CONTRACTS } from "@tisty/contracts";
 import { defineConfig, type Plugin } from "vite";
 
@@ -24,12 +25,28 @@ const tokens = (): Plugin => ({
   },
 });
 
+const dompurifyFile = (name: string): string => readFileSync(`node_modules/dompurify/${name}`, "utf8");
+
+// DOMPurify travels minified in what every reader downloads, and both its licenses ask for their notices to go with it.
+const licenses = (): Plugin => ({
+  name: "folio-licenses",
+  generateBundle() {
+    const { version } = JSON.parse(dompurifyFile("package.json")) as { version: string };
+    this.emitFile({
+      type: "asset",
+      fileName: "licenses.txt",
+      source: `DOMPurify ${version}, (c) Cure53 and other contributors\nUnder Apache-2.0 or MPL-2.0, at your choice.\nSource: https://github.com/cure53/DOMPurify\n\n${dompurifyFile("LICENSE")}\n${dompurifyFile("LICENSE-MPL")}`,
+    });
+  },
+});
+
 export default defineConfig({
   root: "src/page",
-  plugins: [tokens()],
+  plugins: [tokens(), licenses()],
   build: {
     outDir: "../../dist/page",
     emptyOutDir: true,
     target: "es2022",
+    modulePreload: { polyfill: false },
   },
 });

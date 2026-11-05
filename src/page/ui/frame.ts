@@ -1,4 +1,5 @@
-import type { Document, Orientation, Paper, Verdict } from "@tisty/contracts";
+import type { Document, Orientation, Page, Paper, Verdict } from "@tisty/contracts";
+import { bareUrl } from "./clean";
 import sheetStyles from "./sheet.css?url";
 
 const element = <T extends HTMLElement>(id: string): T => {
@@ -90,8 +91,9 @@ const drawPaperPanel = (host: HTMLElement, held: Document): void => {
   apply();
 };
 
-const drawIndex = (root: ShadowRoot, held: Document): void => {
+const drawIndex = (root: ShadowRoot, held: Document | Page): void => {
   const list = element("index");
+  list.replaceChildren();
   const headings = [...root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")];
   // The title is already the first thing on the sheet, so the index starts after it.
   const shown = headings[0]?.textContent === held.title ? headings.slice(1) : headings;
@@ -109,7 +111,12 @@ const drawIndex = (root: ShadowRoot, held: Document): void => {
     item.append(button);
     list.append(item);
   }
-  element("panel-index").hidden = list.childElementCount === 0;
+  const empty = list.childElementCount === 0 && element("pages").childElementCount === 0;
+  element("panel-index").hidden = empty;
+  // On a phone its button would open a dimmed screen with nothing on it.
+  for (const button of element("dock").querySelectorAll<HTMLElement>('[data-panel="panel-index"]')) {
+    button.hidden = empty;
+  }
 };
 
 const fact = (list: HTMLElement, name: string, value: string): void => {
@@ -195,37 +202,89 @@ const drawDock = (): void => {
   });
 };
 
-// The sheet goes in a shadow root, which keeps its CSS, ids and classes apart in both directions.
-const drawSheet = (host: HTMLElement, held: Document, words: DocumentFragment): ShadowRoot => {
+const tagsOf = (tags: string[]): HTMLElement => {
+  const list = document.createElement("p");
+  list.className = "tags";
+  for (const tag of tags) {
+    const one = document.createElement("span");
+    one.textContent = `#${tag}`;
+    list.append(one);
+  }
+  return list;
+};
+
+const REFERENCE = /^tisty:(page|cited)\/(\d+)$/i;
+
+// Nothing here changes the address by itself: the part after its # holds the link key (contract, «links»).
+const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page: Page) => void): void => {
+  const link = (event.target as Element).closest("a");
+  const where = bareUrl(link?.getAttribute("href") ?? "");
+  if (!where || link?.getAttribute("target") === "_blank") return;
+  event.preventDefault();
+  if (where.startsWith("#")) {
+    root.getElementById(where.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const [, kind, at] = REFERENCE.exec(where) ?? [];
+  if (kind?.toLowerCase() === "page") {
+    const page = held.pages?.find((one) => one.at === Number(at));
+    if (page) goTo(page);
+  } else if (kind?.toLowerCase() === "cited") {
+    const cited = held.cited?.[Number(at)];
+    if (cited) location.assign(`/${encodeURIComponent(cited.document)}#${encodeURIComponent(cited.key ?? "")}`);
+  }
+};
+
+const drawPages = (held: Document, goTo: (shown: Document | Page) => void): void => {
+  const list = element("pages");
+  const pages = held.pages ?? [];
+  if (pages.length === 0) return;
+  for (const shown of [held, ...pages]) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = shown.title ?? "Sin título";
+    button.addEventListener("click", () => {
+      closePanel();
+      goTo(shown);
+    });
+    item.append(button);
+    list.append(item);
+  }
+};
+
+const markPage = (at: number): void => {
+  for (const [place, button] of element("pages").querySelectorAll("button").entries()) {
+    if (place === at) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+};
+
+// What it draws is already clean: `wordsOf` gives what the cleaner gave back, never the HTML as it arrived.
+export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFragment, seal: Seal): void => {
+  const host = element("sheet");
+  // The sheet goes in a shadow root, which keeps its CSS, ids and classes apart in both directions.
   const root = host.attachShadow({ mode: "closed" });
   const styles = document.createElement("link");
   styles.rel = "stylesheet";
   styles.href = sheetStyles;
   const sheet = document.createElement("article");
   sheet.className = "sheet";
-  if (held.lang) sheet.lang = held.lang;
-  if (held.tags?.length) {
-    const tags = document.createElement("p");
-    tags.className = "tags";
-    for (const tag of held.tags) {
-      const one = document.createElement("span");
-      one.textContent = `#${tag}`;
-      tags.append(one);
-    }
-    sheet.append(tags);
-  }
-  sheet.append(words);
   root.append(styles, sheet);
-  return root;
-};
 
-// What it draws is already clean: `words` is what the cleaner gave back, never the HTML as it arrived.
-export const drawFrame = (held: Document, words: DocumentFragment, seal: Seal): void => {
-  const host = element("sheet");
-  const root = drawSheet(host, held, words);
-  document.title = held.title ? `${held.title} · Folio` : "Folio by Tisty";
+  const goTo = (shown: Document | Page): void => {
+    sheet.lang = shown.lang ?? held.lang ?? "";
+    sheet.replaceChildren(...(shown.tags?.length ? [tagsOf(shown.tags)] : []), wordsOf(shown.html));
+    document.title = shown.title ? `${shown.title} · Folio` : "Folio by Tisty";
+    markPage(shown === held ? 0 : (held.pages ?? []).indexOf(shown as Page) + 1);
+    drawIndex(root, shown);
+    scrollTo({ top: 0 });
+  };
+  root.addEventListener("click", (event) => followLink(event, root, held, goTo));
+
+  drawPages(held, goTo);
+  goTo(held);
   drawPaperPanel(host, held);
-  drawIndex(root, held);
   drawDetails(root, held);
   drawSeal(held, seal);
   drawActions();
@@ -233,9 +292,4 @@ export const drawFrame = (held: Document, words: DocumentFragment, seal: Seal): 
   element("loading").hidden = true;
   element("desk").hidden = false;
   document.body.dataset.state = "open";
-};
-
-export const drawClosed = (said: string): void => {
-  element("loading-text").textContent = said;
-  document.body.dataset.state = "closed";
 };

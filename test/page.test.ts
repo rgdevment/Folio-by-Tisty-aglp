@@ -32,6 +32,7 @@ describe("the page's headers", () => {
     expect(csp).toContain("script-src 'self'");
     expect(csp).toContain("style-src 'self'");
     expect(csp).toContain("img-src 'self' blob:");
+    expect(csp).toContain("worker-src 'self'");
     expect(csp).toContain("base-uri 'none'");
     expect(csp).toContain("form-action 'none'");
     expect(csp).not.toMatch(/https?:|unsafe|\*/);
@@ -48,6 +49,21 @@ describe("what the page loads", () => {
     expect(HTML).not.toMatch(/<(script|link|img)[^>]+(src|href)="https?:/);
     expect(SHEET).not.toMatch(/url\(|@import/);
     expect(read("src/page/ui/frame.css")).not.toMatch(/url\(|@import/);
+  });
+});
+
+describe("opening a link", () => {
+  const main = read("src/page/ui/main.ts");
+
+  it("asks for the envelope before loading the code that reads it", () => {
+    expect(main).toContain('import { askFor } from "./ask"');
+    expect(main).not.toMatch(/from "\.\/(frame|show|clean)"/);
+    expect(main.indexOf("askFor(id)")).toBeLessThan(main.indexOf('import("./show")'));
+  });
+
+  it("says something even when the code that reads it could not load", () => {
+    expect(main).toContain('from "./closed"');
+    expect(main).toMatch(/showAsked\([^)]*\)[^;]*\.catch/);
   });
 });
 

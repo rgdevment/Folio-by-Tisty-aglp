@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { constants, brotliCompressSync } from "node:zlib";
 
@@ -9,6 +9,8 @@ const BROTLI_QUALITY = 4;
 const ASSETS = "dist/page/assets";
 // A word only the sample has: it is for building the frame, and it must not reach anyone.
 const ONLY_IN_THE_SAMPLE = "Camila";
+// A word only the whole contract has: the page takes its light entry, and the whole one would still fit under the limit.
+const ONLY_IN_THE_WHOLE_CONTRACT = "reader_refuses";
 
 const squeezed = (data) =>
   brotliCompressSync(data, { params: { [constants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY } }).length;
@@ -26,6 +28,14 @@ console.log(`${String(total).padStart(7)}  scripts, of ${SCRIPTS_AT_MOST}`);
 
 if (scripts.some(({ data }) => data.includes(ONLY_IN_THE_SAMPLE))) {
   console.error("x  the sample document was built into the page");
+  process.exit(1);
+}
+if (scripts.some(({ data }) => data.includes(ONLY_IN_THE_WHOLE_CONTRACT))) {
+  console.error("x  the whole contract was built into the page, and not its check entry");
+  process.exit(1);
+}
+if (!existsSync("dist/page/licenses.txt")) {
+  console.error("x  DOMPurify's licenses do not go with the page");
   process.exit(1);
 }
 if (total > SCRIPTS_AT_MOST) {

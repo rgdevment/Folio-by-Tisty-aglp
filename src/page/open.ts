@@ -1,10 +1,10 @@
 import type { Document, Picture } from "@tisty/contracts";
 import { check, checkHtml, picturesIn, referencesIn } from "@tisty/contracts/check";
-import { fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
+import { type Bytes, fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
 import { type Asked, asRefusal, jsonIn, type ReadEnvelope, readEnvelope, refuse } from "../rules/envelope";
 
 export interface OpenEnvelope extends ReadEnvelope {
-  opened: Uint8Array[];
+  opened: Bytes[];
 }
 
 // This reader's own limit: a manifest only says how much will come, and six pages at their tops fit well under it.
@@ -12,11 +12,11 @@ const OPENS_AT_MOST = 32 * 1024 * 1024;
 const NONCE_BYTES = 12;
 const NONCE_NUMBER_AT = 8;
 
-const inflated = async (bytes: Uint8Array, size: number): Promise<Uint8Array> => {
+const inflated = async (bytes: Bytes, size: number): Promise<Bytes> => {
   if (size > OPENS_AT_MOST) refuse("damaged", "it says more than this reader holds");
   const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
   // Nothing set aside by what the manifest says, and stopped as soon as it passes: a bomb costs only what it gave so far.
-  const pieces: Uint8Array[] = [];
+  const pieces: Bytes[] = [];
   let held = 0;
   for (;;) {
     const { done, value } = await reader.read();
@@ -26,13 +26,13 @@ const inflated = async (bytes: Uint8Array, size: number): Promise<Uint8Array> =>
       await reader.cancel();
       refuse("damaged", "a part gives more than it says");
     }
-    pieces.push(value);
+    pieces.push(value as Bytes);
   }
   if (held !== size) refuse("damaged", "a part gives less than it says");
   return joined(...pieces);
 };
 
-const envelopeKey = async ({ head, commitment }: ReadEnvelope["manifest"], linkKey: Uint8Array): Promise<CryptoKey> => {
+const envelopeKey = async ({ head, commitment }: ReadEnvelope["manifest"], linkKey: Bytes): Promise<CryptoKey> => {
   const salt = fromBase64Url(head as string);
   const signing = await crypto.subtle.importKey("raw", linkKey, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
   const committed = await crypto.subtle.verify(
@@ -52,22 +52,22 @@ const envelopeKey = async ({ head, commitment }: ReadEnvelope["manifest"], linkK
   );
 };
 
-const nonceOf = (number: number): Uint8Array => {
+const nonceOf = (number: number): Bytes => {
   const nonce = new Uint8Array(NONCE_BYTES);
   new DataView(nonce.buffer).setUint32(NONCE_NUMBER_AT, number);
   return nonce;
 };
 
-const opening = async (bytes: Uint8Array, asked: Asked, linkKey?: Uint8Array): Promise<OpenEnvelope> => {
+const opening = async (bytes: Bytes, asked: Asked, linkKey?: Bytes): Promise<OpenEnvelope> => {
   const read = await readEnvelope(bytes, asked);
   const { manifest, manifestBytes, parts } = read;
   if (linkKey && !manifest.sealed) refuse("damaged", "a key answers only for what is sealed");
   if (manifest.sealed && !linkKey) refuse("key", "it is sealed, and this link brings no key");
-  const key = manifest.sealed ? await envelopeKey(manifest, linkKey as Uint8Array) : null;
+  const key = manifest.sealed ? await envelopeKey(manifest, linkKey as Bytes) : null;
 
-  const opened: Uint8Array[] = [];
+  const opened: Bytes[] = [];
   for (const [number, part] of manifest.parts.entries()) {
-    const travelled = parts[number] as Uint8Array;
+    const travelled = parts[number] as Bytes;
     const held = key
       ? new Uint8Array(
           await crypto.subtle.decrypt(
@@ -83,7 +83,7 @@ const opening = async (bytes: Uint8Array, asked: Asked, linkKey?: Uint8Array): P
   return { ...read, opened };
 };
 
-export const openEnvelope = (bytes: Uint8Array, asked: Asked, linkKey?: Uint8Array): Promise<OpenEnvelope> =>
+export const openEnvelope = (bytes: Bytes, asked: Asked, linkKey?: Bytes): Promise<OpenEnvelope> =>
   asRefusal(() => opening(bytes, asked, linkKey));
 
 const atsOf = (list: { at: number }[] | undefined): number[] => (list ?? []).map((one) => one.at);
@@ -109,8 +109,8 @@ const holdsHtml = (held: Document, pictures: Picture[], html: string): void => {
 };
 
 const documentFrom = ({ manifest, opened }: OpenEnvelope): Document => {
-  const first = jsonIn<Record<string, unknown>>(opened[0] as Uint8Array);
-  const rest = jsonIn<Record<string, unknown>>(opened[1] as Uint8Array);
+  const first = jsonIn<Record<string, unknown>>(opened[0] as Bytes);
+  const rest = jsonIn<Record<string, unknown>>(opened[1] as Bytes);
   if ("body" in first || "pages" in first) refuse("damaged", "the first part holds more than it should");
   if (Object.keys(rest).some((one) => one !== "body" && one !== "pages")) {
     refuse("damaged", "the rest holds more than it should");
@@ -141,12 +141,7 @@ const documentFrom = ({ manifest, opened }: OpenEnvelope): Document => {
 // Everything only a reader can check: a writer's word counts for nothing, so its words are not shown if this fails.
 export const documentIn = (open: OpenEnvelope): Promise<Document> => asRefusal(async () => documentFrom(open));
 
-export const openFiles = (
-  held: Document,
-  bytes: Uint8Array,
-  asked: Asked,
-  linkKey?: Uint8Array,
-): Promise<OpenEnvelope> =>
+export const openFiles = (held: Document, bytes: Bytes, asked: Asked, linkKey?: Bytes): Promise<OpenEnvelope> =>
   asRefusal(async () => {
     const files = await opening(bytes, asked, linkKey);
     const hash = await sha256(files.manifestBytes, files.index);
@@ -165,7 +160,7 @@ export const openFiles = (
 
 const PNG_MARK = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
-const pngHolds = (bytes: Uint8Array, view: DataView, { width, height }: Picture): boolean => {
+const pngHolds = (bytes: Bytes, view: DataView, { width, height }: Picture): boolean => {
   if (!PNG_MARK.every((byte, at) => bytes[at] === byte)) return false;
   let said: number[] | null = null;
   for (let at = PNG_MARK.length; at + 12 <= bytes.length; ) {
@@ -182,7 +177,7 @@ const pngHolds = (bytes: Uint8Array, view: DataView, { width, height }: Picture)
 
 const jpegSizeMark = (mark: number): boolean => mark >= 0xc0 && mark <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(mark);
 
-const jpegHolds = (bytes: Uint8Array, view: DataView, { width, height }: Picture): boolean => {
+const jpegHolds = (bytes: Bytes, view: DataView, { width, height }: Picture): boolean => {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) return false;
   let said: number[] | null = null;
   for (let at = 2; at + 1 < bytes.length; ) {
@@ -200,7 +195,7 @@ const jpegHolds = (bytes: Uint8Array, view: DataView, { width, height }: Picture
 };
 
 // What the page looks at before it draws one. One that fails shows its alt, and the words still read.
-export const pictureHolds = (bytes: Uint8Array, picture: Picture): boolean => {
+export const pictureHolds = (bytes: Bytes, picture: Picture): boolean => {
   if (bytes.length !== picture.size) return false;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return picture.kind === "image/png" ? pngHolds(bytes, view, picture) : jpegHolds(bytes, view, picture);

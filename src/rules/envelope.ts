@@ -1,6 +1,6 @@
 import type { Envelope, EnvelopeKind, Opening, Signature } from "@tisty/contracts";
 import { check, VERSION } from "@tisty/contracts/check";
-import { bigEndian, fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
+import { type Bytes, bigEndian, fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
 
 export type EnvelopeRefusal = "newer" | "older" | "damaged" | "unsigned" | "key";
 
@@ -21,10 +21,10 @@ export type Asked = Pick<Opening, "id" | "kind">;
 
 export interface ReadEnvelope {
   manifest: Envelope;
-  manifestBytes: Uint8Array;
+  manifestBytes: Bytes;
   signature: Signature;
-  index: Uint8Array;
-  parts: Uint8Array[];
+  index: Bytes;
+  parts: Bytes[];
 }
 
 const MARK = words("TENV");
@@ -34,7 +34,7 @@ const SIGNATURE_BYTES_AT_MOST = 2048;
 const LENGTH_BYTES = 4;
 
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
-export const jsonIn = <T>(bytes: Uint8Array): T => JSON.parse(decoder.decode(bytes)) as T;
+export const jsonIn = <T>(bytes: Bytes): T => JSON.parse(decoder.decode(bytes)) as T;
 
 const majorOf = (version: string): number => Number(version.split(".")[0]);
 
@@ -69,14 +69,14 @@ const holdsManifest = (manifest: Envelope, { id, kind }: { id: string; kind: Env
   if (!partsInOrder(manifest)) refuse("damaged", "its parts are out of their order");
 };
 
-const verified = async (key: Uint8Array, signature: Uint8Array, ...signed: Uint8Array[]): Promise<boolean> => {
+const verified = async (key: Bytes, signature: Bytes, ...signed: Bytes[]): Promise<boolean> => {
   const held = await crypto.subtle.importKey("raw", key, "Ed25519", false, ["verify"]);
   return crypto.subtle.verify("Ed25519", held, signature, joined(...signed));
 };
 
-const secondsOf = (moment: string): Uint8Array => bigEndian(Date.parse(moment) / 1000);
+const secondsOf = (moment: string): Bytes => bigEndian(Date.parse(moment) / 1000);
 
-const holdsSignature = async (signature: Signature, manifestBytes: Uint8Array, index: Uint8Array): Promise<void> => {
+const holdsSignature = async (signature: Signature, manifestBytes: Bytes, index: Bytes): Promise<void> => {
   const amiss = check("signature", signature);
   if (amiss.length > 0) refuse("unsigned", `its signature: ${amiss[0]}`);
   const root = fromBase64Url(signature.root);
@@ -105,16 +105,16 @@ const holdsSignature = async (signature: Signature, manifestBytes: Uint8Array, i
   if (!signed) refuse("unsigned", "its machine did not sign it");
 };
 
-const readBytes = async (bytes: Uint8Array, asked: Asked): Promise<ReadEnvelope> => {
+const readBytes = async (bytes: Bytes, asked: Asked): Promise<ReadEnvelope> => {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let at = MARK.length;
   if (!sameBytes(bytes.subarray(0, at), MARK)) refuse("damaged", "it does not carry the mark");
-  const piece = (size: number): Uint8Array => {
+  const piece = (size: number): Bytes => {
     if (at + size > bytes.length) refuse("damaged", "it is shorter than it says");
     at += size;
     return bytes.subarray(at - size, at);
   };
-  const sized = (atMost: number, what: string): Uint8Array => {
+  const sized = (atMost: number, what: string): Bytes => {
     const size = view.getUint32(at);
     at += LENGTH_BYTES;
     if (size > atMost) refuse("damaged", `its ${what} is past its size`);
@@ -129,7 +129,7 @@ const readBytes = async (bytes: Uint8Array, asked: Asked): Promise<ReadEnvelope>
   const index = piece(HASH_BYTES * manifest.parts.length);
   await holdsSignature(signature, manifestBytes, index);
 
-  const parts: Uint8Array[] = [];
+  const parts: Bytes[] = [];
   for (const [number, part] of manifest.parts.entries()) {
     const travelled = piece(part.sealed_size);
     const said = index.subarray(HASH_BYTES * number, HASH_BYTES * (number + 1));
@@ -151,7 +151,7 @@ export const asRefusal = async <T>(work: () => Promise<T>): Promise<T> => {
 };
 
 // All the server can check, with nothing open (decisions 34 and 135). The page checks it again.
-export const readEnvelope = (bytes: Uint8Array, asked: Asked): Promise<ReadEnvelope> =>
+export const readEnvelope = (bytes: Bytes, asked: Asked): Promise<ReadEnvelope> =>
   asRefusal(() => readBytes(bytes, asked));
 
 export const revocationHolds = (said: {
