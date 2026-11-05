@@ -25,7 +25,7 @@ const streakOf = (own: Version[], limits: Limits): number => {
 
 // Past its size nothing leaves until the oldest one that could leave has been replaced long enough.
 export const listFreesAt = (versions: Version[], now: number, limits: Limits): number | null => {
-  const next: Version = { n: 0, hash: "", bytes: 0, at: now, signer: "", contract: "" };
+  const next: Version = { n: 0, hash: "", bytes: 0, at: now, signer: "", machine: "", contract: "" };
   const kept = keptVersions([...versions, next], now, limits);
   if (kept.length <= limits.versionsListedAtMost) return null;
   const oldest = versions.indexOf(kept[0] as Version);

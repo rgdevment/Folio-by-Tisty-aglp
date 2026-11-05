@@ -154,6 +154,7 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
   if (held?.latest === manifest.version && held.versions.at(-1)?.hash === hash) {
     return { stored: true, version: manifest.version };
   }
+  if (await store.isRevoked(signature.root, signature.machine, now)) return { refused: "revoked" };
   if (sharing) {
     if (manifest.version !== 1) return { refused: "behind" };
     const refused = await share(uploading, sharing, read, net, tools);
@@ -183,6 +184,7 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
       net,
       at: now,
       signer: signature.root,
+      machine: signature.machine,
       contract: manifest.contract,
       byOwner: signature.root === held.owner,
       permit: held.permit,

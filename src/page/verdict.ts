@@ -1,4 +1,5 @@
 import type { Served, Signature, Verdict } from "@tisty/contracts";
+import { check } from "@tisty/contracts/check";
 import { fromBase64Url, sha256, words } from "../core/bytes";
 import { revocationHolds } from "../rules/envelope";
 
@@ -14,7 +15,14 @@ export const verdictOf = async (
 ): Promise<Verdict> => {
   const counting: string[] = [];
   for (const one of revocations) {
-    if (one.root === root && one.machine === machine && (await revocationHolds(one))) counting.push(one.at);
+    if (
+      check("revocation", one).length === 0 &&
+      one.root === root &&
+      one.machine === machine &&
+      (await revocationHolds(one))
+    ) {
+      counting.push(one.at);
+    }
   }
   const [earliest] = counting.sort();
   if (earliest === undefined) return "holds";

@@ -1,4 +1,6 @@
+import type { Revocation } from "@tisty/contracts";
 import { DAY_MS, GRAVE_REPORTS, LEVEL_ONE, type Limits } from "../core/limits";
+import { momentOf } from "../core/moment";
 import { toBase64Url } from "../core/start";
 import type {
   Admitted,
@@ -19,6 +21,14 @@ import type {
   Version,
 } from "../core/store";
 import { keptVersions } from "../core/versions";
+
+// Two rows by their key at most: the machine that signed the last version and its owner's, the start of owner_mark.
+const REVOCATIONS_OF_THE_LAST_VERSION = `(
+  SELECT json_group_array(json_object('root', r.root, 'machine', r.machine, 'at', r.at, 'signed', r.signed))
+  FROM revocations r
+  WHERE (r.root = json_extract(d.versions, '$[#-1].signer') AND r.machine = json_extract(d.versions, '$[#-1].machine'))
+    OR (r.root = d.owner AND r.machine = substr(d.owner_mark, 1, instr(d.owner_mark, '.') - 1))
+)`;
 
 export interface Bindings {
   DB: D1Database;
@@ -142,6 +152,7 @@ export class Cloud implements Store {
       bytes,
       at: upload.at,
       signer: upload.signer,
+      machine: upload.machine,
       contract: upload.contract,
     };
     const all = [...versions, version];
@@ -189,6 +200,16 @@ export class Cloud implements Store {
               .bind(today, held.anchor, upload.id, upload.n),
           ]
         : []),
+      ...(upload.byOwner
+        ? []
+        : [
+            this.#db
+              .prepare(
+                `INSERT OR IGNORE INTO editors (doc, root)
+                 SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND latest = ?3)`,
+              )
+              .bind(upload.id, upload.signer, upload.n),
+          ]),
     ]);
     if ((moved?.meta.changes ?? 0) === 0) {
       await this.#giveQuotaBack(upload.net, 0, bytes, today);
@@ -217,6 +238,42 @@ export class Cloud implements Store {
 
   async setPermit(id: string, permit: string | null): Promise<void> {
     await this.#db.prepare("UPDATE docs SET permit = ?2 WHERE id = ?1").bind(id, permit).run();
+  }
+
+  // The earliest one found counts, so a later note cannot move a theft forward (contract, revocation).
+  async revoke(revocations: Revocation[]): Promise<void> {
+    await this.#db.batch(
+      revocations.map(({ root, machine, at, signed }) =>
+        this.#db
+          .prepare(
+            `INSERT INTO revocations (root, machine, at, signed) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (root, machine) DO UPDATE SET at = excluded.at, signed = excluded.signed
+             WHERE excluded.at < revocations.at`,
+          )
+          .bind(root, machine, Date.parse(at) / 1000, signed),
+      ),
+    );
+  }
+
+  async isRevoked(root: string, machine: string, now: number): Promise<boolean> {
+    const found = await this.#db
+      .prepare("SELECT 1 AS revoked FROM revocations WHERE root = ?1 AND machine = ?2 AND at <= ?3")
+      .bind(root, machine, Math.floor(now / 1000))
+      .first<{ revoked: number }>();
+    return found !== null;
+  }
+
+  async haveSigned(roots: string[]): Promise<boolean> {
+    const asked = [...new Set(roots)];
+    const found = await this.#db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM json_each(?1) j
+         WHERE EXISTS (SELECT 1 FROM docs d WHERE d.owner = j.value AND d.latest > 0)
+           OR EXISTS (SELECT 1 FROM editors e WHERE e.root = j.value)`,
+      )
+      .bind(JSON.stringify(asked))
+      .first<{ n: number }>();
+    return found?.n === asked.length;
   }
 
   async #lostTheRace(upload: Upload, key: string): Promise<Uploaded> {
@@ -323,6 +380,7 @@ export class Cloud implements Store {
     const row = await this.#db
       .prepare(
         `SELECT d.owner, d.latest, json_extract(d.versions, '$[#-1]') AS last_version, d.dies_on, d.paused_at, d.blocked_at,
+           ${REVOCATIONS_OF_THE_LAST_VERSION} AS revocations,
            CASE WHEN d.paused_at IS NOT NULL AND d.dies_on < ?2 THEN 0
              ELSE EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id) OR CASE WHEN a.id IS NULL THEN d.dies_on >= ?2
                ELSE a.latest <> ${CLAIMED} AND a.blocked_at IS NULL AND a.paused_at IS NULL
@@ -337,6 +395,7 @@ export class Cloud implements Store {
         dies_on: number;
         paused_at: number | null;
         blocked_at: number | null;
+        revocations: string;
         alive: number;
       }>();
     if (!row) return null;
@@ -347,6 +406,10 @@ export class Cloud implements Store {
       alive: row.alive === 1,
       pausedAt: row.paused_at,
       blockedAt: row.blocked_at,
+      revocations: (JSON.parse(row.revocations) as (Omit<Revocation, "at"> & { at: number })[]).map((one) => ({
+        ...one,
+        at: momentOf(one.at * 1000),
+      })),
     };
   }
 
@@ -377,15 +440,15 @@ export class Cloud implements Store {
     }
   }
 
-  async takeHourly(net: string, action: string, hour: number, atMost: number): Promise<boolean> {
+  async takeHourly(net: string, action: string, hour: number, atMost: number, taking = 1): Promise<boolean> {
     const taken = await this.#db
       .prepare(
-        `INSERT INTO net_hour (net, action, hour, n) VALUES (?1, ?2, ?3, 1)
+        `INSERT INTO net_hour (net, action, hour, n) SELECT ?1, ?2, ?3, ?5 WHERE ?5 <= ?4
          ON CONFLICT (net, action) DO UPDATE
-           SET n = CASE WHEN hour = excluded.hour THEN n + 1 ELSE 1 END, hour = excluded.hour
-           WHERE hour <> excluded.hour OR n < ?4`,
+           SET n = CASE WHEN hour = excluded.hour THEN n + ?5 ELSE ?5 END, hour = excluded.hour
+           WHERE hour <> excluded.hour OR n + ?5 <= ?4`,
       )
-      .bind(net, action, hour, atMost)
+      .bind(net, action, hour, atMost, taking)
       .run();
     return taken.meta.changes > 0;
   }
@@ -707,6 +770,7 @@ export class Cloud implements Store {
         )
         .bind(ids),
       this.#db.prepare("DELETE FROM docs WHERE id IN (SELECT value FROM json_each(?))").bind(ids),
+      this.#db.prepare("DELETE FROM editors WHERE doc IN (SELECT value FROM json_each(?))").bind(ids),
     ]);
     return deleted?.meta.changes ?? 0;
   }

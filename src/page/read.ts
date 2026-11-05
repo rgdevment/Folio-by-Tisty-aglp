@@ -1,5 +1,6 @@
-import type { Document, Verdict } from "@tisty/contracts";
+import type { Document, Revocation, Verdict } from "@tisty/contracts";
 import { type Bytes, fromBase64Url } from "../core/bytes";
+import { momentOf } from "../core/moment";
 import { refuse } from "../rules/envelope";
 import { documentIn, openEnvelope } from "./open";
 import { fingerprintOf, verdictOf, worseOf } from "./verdict";
@@ -8,6 +9,7 @@ export interface Arrived {
   bytes: Bytes;
   arrivedAt: number;
   diesOn: number;
+  revocations?: Revocation[];
 }
 
 export interface Opened {
@@ -30,13 +32,10 @@ const keyIn = (said: string): Bytes | undefined => {
   }
 };
 
-// The same form as what a revocation says, or the two would not sort as they read (decision 134).
-const momentOf = (milliseconds: number): string => new Date(milliseconds).toISOString().replace(/\.\d+Z$/, "Z");
-
 export const openLink = async (id: string, linkKey: string, arrived: Arrived): Promise<Opened> => {
   const open = await openEnvelope(arrived.bytes, { id, kind: "main" }, keyIn(linkKey));
   const held = await documentIn(open);
-  const served = { received: momentOf(arrived.arrivedAt) };
+  const served = { received: momentOf(arrived.arrivedAt), revocations: arrived.revocations ?? [] };
   const { signature, manifest } = open;
   const signer = await verdictOf(signature, served);
   const owner = manifest.owner;

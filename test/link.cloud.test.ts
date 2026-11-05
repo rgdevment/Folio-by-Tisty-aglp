@@ -1,3 +1,4 @@
+import type { Revocation } from "@tisty/contracts";
 import VECTORS from "@tisty/contracts/vectors.json";
 import { describe, expect, it } from "vitest";
 import type { Bytes } from "../src/core/bytes";
@@ -38,6 +39,25 @@ describe("opening a link", () => {
     const opened = await openLink(editing.id, SAMPLES.link_key, arrivedWith(editorSigned.envelope));
     expect(opened.ownerFingerprint).not.toBeNull();
     expect(opened.ownerFingerprint).not.toBe(opened.fingerprint);
+  });
+
+  it("says what its server says of a machine taken back", async () => {
+    const said = SAMPLES.revocation;
+    const after = await openLink(ID, SAMPLES.link_key, { ...MAIN, revocations: [said] });
+    expect(after.verdict).toBe("doubtful");
+    const arrivedAt = Date.parse(said.at) - 1000;
+    const before = await openLink(ID, SAMPLES.link_key, { ...MAIN, arrivedAt, revocations: [said] });
+    expect(before.verdict).toBe("retired");
+  });
+
+  it("opens the document whatever comes in place of a note", async () => {
+    const revocations = [null, 5, "x", [], {}] as unknown as Revocation[];
+    expect((await openLink(ID, SAMPLES.link_key, { ...MAIN, revocations })).verdict).toBe("holds");
+  });
+
+  it("does not believe a note that does not hold", async () => {
+    const forged = { ...SAMPLES.revocation, signed: "A".repeat(86) };
+    expect((await openLink(ID, SAMPLES.link_key, { ...MAIN, revocations: [forged] })).verdict).toBe("holds");
   });
 
   it("names no owner apart when the owner signed this version", async () => {

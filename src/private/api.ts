@@ -4,6 +4,7 @@ import { netDigest } from "../core/net";
 import { type Asked, latestVersion, readDoc, type SyncTools } from "../core/read";
 import { type Refused, tooFast } from "../core/refused";
 import { type ReportTools, reportDoc, saidOf } from "../core/report";
+import { takeRevocations } from "../core/revocations";
 import { startNow } from "../core/start";
 import { type FirstUpload, uploadDoc } from "../core/upload";
 
@@ -11,6 +12,7 @@ const PREFIX = "/api/v1/";
 const DOC_PATH = /^docs\/([A-Za-z0-9]{8})(?:\/(report|admin|pause|resume|appeal|latest|permit))?$/;
 const REPORT_BYTES_AT_MOST = 16 * 1024;
 const PERMIT_BYTES_AT_MOST = 256;
+const REVOCATIONS_BYTES_AT_MOST = 8 * 1024;
 
 export const STATUS: Record<Refused["refused"], number> = {
   missing: 404,
@@ -31,6 +33,8 @@ export const STATUS: Record<Refused["refused"], number> = {
   uploads_off: 503,
   outdated: 426,
   envelope: 422,
+  revoked: 403,
+  bad_revocation: 400,
 };
 
 const ADMIN_ROUTES: Record<string, AdminAction> = {
@@ -90,6 +94,7 @@ const answerRead = async (request: Request, id: string, { tools, waitUntil, now 
       "Folio-Hash": answer.version.hash,
       "Folio-Arrived": String(answer.version.at),
       "Folio-Dies-On": String(answer.diesOn),
+      "Folio-Revocations": JSON.stringify(answer.revocations),
     },
   });
 };
@@ -163,6 +168,13 @@ const answerPermit = async (request: Request, id: string, api: Api): Promise<Res
   return "refused" in answer ? refusal(answer, now) : json(200, answer);
 };
 
+const answerRevocations = async (request: Request, { tools, now }: Api): Promise<Response> => {
+  const text = await textUpTo(request, REVOCATIONS_BYTES_AT_MOST);
+  if (text === null) return refusal({ refused: "too_big" }, now);
+  const answer = await takeRevocations({ said: jsonOf(text), ip: ipOf(request), now }, tools);
+  return "refused" in answer ? refusal(answer, now) : json(200, answer);
+};
+
 const answerReport = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
   const text = await textUpTo(request, REPORT_BYTES_AT_MOST);
   if (text === null) return refusal({ refused: "too_big" }, now);
@@ -201,6 +213,7 @@ const route = async (request: Request, api: Api): Promise<Response> => {
   const path = pathname.slice(PREFIX.length);
 
   if (path === "start" && request.method === "POST") return answerStart(request, api);
+  if (path === "revocations" && request.method === "POST") return answerRevocations(request, api);
   const [, id, part = ""] = DOC_PATH.exec(path) ?? [];
   if (!id) return json(404, { refused: "missing" });
 

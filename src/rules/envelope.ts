@@ -237,7 +237,7 @@ export const asRefusal = async <T>(work: () => Promise<T>): Promise<T> => {
 export const readEnvelope = (bytes: Bytes, asked: Asked): Promise<ReadEnvelope> =>
   asRefusal(() => readBytes(bytes, asked));
 
-export const revocationHolds = (said: {
+export const revocationHolds = async (said: {
   root: string;
   machine: string;
   at: string;

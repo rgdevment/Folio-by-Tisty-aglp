@@ -1,3 +1,4 @@
+import type { Revocation } from "@tisty/contracts";
 import { isBelowVersion } from "../rules/envelope";
 import { dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
@@ -39,6 +40,7 @@ export interface Served {
   version: Version;
   diesOn: number;
   body: ReadableStream;
+  revocations: Revocation[];
   // What is written once the answer left, so a read never waits for a write (decision 105).
   note?: Reading;
 }
@@ -93,6 +95,7 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
     version: shown.version,
     diesOn: shown.diesOn,
     body,
+    revocations: shown.revocations,
     ...(admitted === "new" ? { note: reading } : {}),
   };
 };

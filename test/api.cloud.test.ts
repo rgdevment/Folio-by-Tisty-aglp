@@ -4,12 +4,12 @@ import { load } from "js-yaml";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import written from "../docs/openapi.yaml?raw";
 import { Cloud } from "../src/cloudflare/store";
-import type { Bytes } from "../src/core/bytes";
+import { type Bytes, words } from "../src/core/bytes";
 import { dayOf, GRAVE_REPORTS, LEVEL_ONE } from "../src/core/limits";
 import { hourOf, macOf, proofHolds, tokenHash } from "../src/core/start";
 import { STATUS } from "../src/private/api";
 import worker from "../src/private/index";
-import { newPerson, type Person, rootOf, SIGNED_BY_THE_OWNER, sealedEnvelope } from "./sealed";
+import { machineOf, newPerson, type Person, revocationBy, rootOf, SIGNED_BY_THE_OWNER, sealedEnvelope } from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -149,6 +149,7 @@ const shareSigned = async () => {
     net: "n",
     at: Date.now() - 86_400_000,
     signer: rootOf(owner),
+    machine: machineOf(owner),
   };
   await store.create({ id: ID, owner: rootOf(owner), adminHash: await tokenHash(TOKEN), ttlDays: 3, net: "n" }, TODAY);
   await store.upload(asOwner, TODAY);
@@ -162,6 +163,7 @@ const listFull = async () => {
     bytes: 1,
     at: Date.now() - 86_400_000,
     signer: "someone else",
+    machine: "another machine",
     contract: "1.2.0",
   }));
   await testEnv.DB.prepare(`UPDATE docs SET latest = ?, versions = ? WHERE id = '${ID}'`)
@@ -193,7 +195,37 @@ const adminRoute = (method: string, path: string, blockable = true): Scenario[] 
   { method, path, status: 500, refused: "failed", admin: TOKEN, broken: true },
 ];
 
+const REVOCATIONS_PATH = "/revocations";
+const aRevocation = async () => words(JSON.stringify([await revocationBy(owner, "2026-11-01T10:00:00Z")]));
 const UPLOADING: Scenario[] = [
+  { method: "POST", path: REVOCATIONS_PATH, status: 200, upload: aRevocation, ready: shareSigned },
+  { method: "POST", path: REVOCATIONS_PATH, status: 400, refused: "bad_revocation", body: "[]" },
+  { method: "POST", path: REVOCATIONS_PATH, status: 413, refused: "too_big", body: "x".repeat(9000) },
+  { method: "POST", path: REVOCATIONS_PATH, status: 429, refused: "slow", upload: aRevocation, braked: true },
+  {
+    method: "POST",
+    path: REVOCATIONS_PATH,
+    status: 429,
+    refused: "quota",
+    upload: aRevocation,
+    ready: async () => {
+      await shareSigned();
+      LEVEL_ONE.revocationsAnHour = 1;
+      await send({ method: "POST", path: REVOCATIONS_PATH, status: 200, upload: aRevocation });
+    },
+  },
+  { method: "POST", path: REVOCATIONS_PATH, status: 500, refused: "failed", upload: aRevocation, broken: true },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 403,
+    refused: "revoked",
+    upload: envelope(2),
+    ready: async () => {
+      await shareSigned();
+      await store.revoke([await revocationBy(owner, "2026-11-01T10:00:00Z")]);
+    },
+  },
   { method: "PUT", path: UPLOAD_PATH, status: 200, upload: envelope(2), ready: shareSigned },
   { method: "PUT", path: UPLOAD_PATH, status: 400, refused: "bad_upload", upload: envelope(1), first: true, admin: "" },
   {
@@ -409,7 +441,8 @@ afterEach(() => {
 beforeEach(async () => {
   LEVEL_ONE.oldestContractTaken = null;
   LEVEL_ONE.oldestContractServed = null;
-  for (const table of ["docs", "net_day", "net_hour", "reports", "holds", "service_stage"]) {
+  LEVEL_ONE.revocationsAnHour = 30;
+  for (const table of ["docs", "net_day", "net_hour", "reports", "holds", "service_stage", "revocations", "editors"]) {
     await testEnv.DB.prepare(`DELETE FROM ${table}`).run();
   }
   const tables = await testEnv.DB.prepare("SELECT name FROM sqlite_master WHERE name GLOB 'seen_[0-9]*'").all<{
@@ -474,6 +507,15 @@ describe("the written API", () => {
     expect(report.category.enum).toEqual(GRAVE_REPORTS);
     expect(report.detail.maxLength).toBe(LEVEL_ONE.reportDetailAtMost);
     expect(report.sealedLink.maxLength).toBe(LEVEL_ONE.sealedLinkAtMost);
+  });
+
+  it("tells a reader what was taken back, in its header", async () => {
+    await shareSigned();
+    const said = await revocationBy(owner, "2026-11-01T10:00:00Z");
+    await store.revoke([said]);
+    const response = await send({ method: "GET", path: "/docs/{id}", status: 200 });
+    await response.body?.cancel();
+    expect(JSON.parse(response.headers.get("Folio-Revocations") ?? "null")).toEqual([said]);
   });
 
   it("says the fields the status really has", async () => {

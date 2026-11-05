@@ -53,6 +53,23 @@ export const newToken = async (): Promise<{ pair: CryptoKeyPair; permit: string 
 
 export const rootOf = ({ rootBytes }: Person): string => b64(rootBytes);
 
+export const machineOf = ({ machineBytes }: Person): string => b64(machineBytes);
+
+export const revocationBy = async ({ root, rootBytes, machineBytes }: Person, at: string) => ({
+  root: b64(rootBytes),
+  machine: b64(machineBytes),
+  at,
+  signed: b64(
+    await signedBy(
+      root.privateKey,
+      words("tisty-share.revocation.v1\0"),
+      rootBytes,
+      machineBytes,
+      bigEndian(Date.parse(at) / 1000),
+    ),
+  ),
+});
+
 interface Sealing {
   id: string;
   version: number;
@@ -175,6 +192,7 @@ export const sealedEnvelope = async (sealing: Sealing): Promise<Bytes> => {
 
 export const SIGNED_BY_THE_OWNER = {
   signer: "o1",
+  machine: "m1",
   contract: VERSION,
   byOwner: true,
   permit: null,

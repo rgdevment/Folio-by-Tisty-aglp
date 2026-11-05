@@ -28,6 +28,7 @@ const TABLES = [
   "net_hour",
   "reports",
   "revocations",
+  "editors",
   "holds",
   "openings",
 ];
