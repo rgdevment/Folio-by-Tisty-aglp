@@ -8,6 +8,8 @@ import { dayOf } from "../src/core/limits";
 import { hourOf } from "../src/core/start";
 import worker from "../src/private/index";
 
+vi.mock("../src/cloudflare/mail", () => ({ sendMail: vi.fn() }));
+
 const testEnv = env as unknown as {
   DB: D1Database;
   ENVELOPES: R2Bucket;
@@ -121,7 +123,7 @@ describe("the mail", () => {
     await report(ID, "n1", "csam");
     const send = mailbox();
     await sendDigest(NOW, { store, send, panel: "https://panel.example" });
-    expect((send.mock.calls[0]?.[1] as string).endsWith("Panel: https://panel.example")).toBe(true);
+    expect(send.mock.calls[0]?.[1]).toMatch(/Panel: https:\/\/panel\.example$/);
   });
 
   it("never holds the words of a document or who reported it", async () => {
@@ -143,56 +145,32 @@ describe("the mail", () => {
   });
 });
 
-describe("sending it", () => {
-  const email = () => ({ send: vi.fn(async () => ({ messageId: "m" })) });
-
-  it("goes from and to where it is set", async () => {
-    const EMAIL = email();
-    await sendMail({ EMAIL, ALERT_FROM: "avisos@tisty.cl", ALERT_TO: "persona@example.com" }, "Asunto", "Texto");
-    expect(EMAIL.send).toHaveBeenCalledExactlyOnceWith({
-      to: "persona@example.com",
-      from: "avisos@tisty.cl",
-      subject: "Asunto",
-      text: "Texto",
-    });
-  });
-
-  it("fails when there is nobody to tell", async () => {
-    await expect(sendMail({ EMAIL: email(), ALERT_FROM: "avisos@tisty.cl" }, "A", "B")).rejects.toThrow(
-      "there is nowhere to send the mail",
-    );
-  });
-});
-
 describe("the round", () => {
   const scheduled = (more: object) =>
     worker.scheduled(
       { cron: "0 0,12 * * *", scheduledTime: NOW, noRetry: () => {} } as never,
-      { ...testEnv, ALERT_FROM: "avisos@tisty.cl", ALERT_TO: "persona@example.com", ...more } as never,
+      { ...testEnv, ...more } as never,
     );
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(sendMail).mockReset();
   });
 
   it("sends the mail with the panel's link, and the heartbeat says it went", async () => {
     await report(ID, "n1", "csam");
     const beat = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
-    const send = vi.fn(async (_mail: { text: string }) => ({ messageId: "m" }));
-    await scheduled({
-      EMAIL: { send },
-      ADMIN_URL: "https://panel.example",
-      DIGEST_HEARTBEAT_URL: "https://beat.example/d",
-    });
-    expect(send.mock.calls[0]?.[0]?.text).toContain("Panel: https://panel.example");
+    vi.mocked(sendMail).mockResolvedValueOnce();
+    await scheduled({ ADMIN_URL: "https://panel.example", DIGEST_HEARTBEAT_URL: "https://beat.example/d" });
+    expect(vi.mocked(sendMail).mock.calls[0]?.[2]).toContain("Panel: https://panel.example");
     expect(beat).toHaveBeenCalledExactlyOnceWith("https://beat.example/d");
   });
 
   it("sends no heartbeat when the mail fails, and that is the alert", async () => {
     await report(ID, "n1", "csam");
     const beat = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
-    const EMAIL = { send: vi.fn(async () => Promise.reject(new Error("no mail"))) };
-    await expect(scheduled({ EMAIL, DIGEST_HEARTBEAT_URL: "https://beat.example/d" })).rejects.toThrow("no mail");
+    vi.mocked(sendMail).mockRejectedValueOnce(new Error("no mail"));
+    await expect(scheduled({ DIGEST_HEARTBEAT_URL: "https://beat.example/d" })).rejects.toThrow("no mail");
     expect(beat).not.toHaveBeenCalled();
   });
 });

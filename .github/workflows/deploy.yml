@@ -142,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           npx --no-install wrangler secret list --format json > "$RUNNER_TEMP/secrets.json"
-          for name in FOLIO_SECRET CF_API_TOKEN ALERT_TO HEARTBEAT_URL SPEND_HEARTBEAT_URL DIGEST_HEARTBEAT_URL; do
+          for name in FOLIO_SECRET CF_API_TOKEN MAIL_USER MAIL_PASSWORD ALERT_TO HEARTBEAT_URL SPEND_HEARTBEAT_URL DIGEST_HEARTBEAT_URL; do
             jq -e --arg name "$name" 'any(.[]; .name == $name)' "$RUNNER_TEMP/secrets.json" > /dev/null \
               || { echo "::error::the Worker has no $name secret: put it with wrangler secret put"; exit 1; }
           done
