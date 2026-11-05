@@ -16,9 +16,9 @@ export const verdictOf = async (
   const counting: string[] = [];
   for (const one of revocations) {
     if (
+      check("revocation", one).length === 0 &&
       one.root === root &&
       one.machine === machine &&
-      check("revocation", one).length === 0 &&
       (await revocationHolds(one))
     ) {
       counting.push(one.at);

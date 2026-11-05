@@ -88,17 +88,14 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
   const admitted = await store.admit(reading, today);
   if (admitted === "over") return askForProof(secret, scope, limits.proofBits, now);
 
-  const [body, revocations] = await Promise.all([
-    store.envelope(id, shown.version),
-    store.revocationsOf([shown.version.signer, shown.owner]),
-  ]);
+  const body = await store.envelope(id, shown.version);
   if (!body) return { refused: "missing" };
   return {
     served: true,
     version: shown.version,
     diesOn: shown.diesOn,
     body,
-    revocations,
+    revocations: shown.revocations,
     ...(admitted === "new" ? { note: reading } : {}),
   };
 };

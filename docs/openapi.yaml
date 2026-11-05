@@ -55,8 +55,9 @@ paths:
       operationId: revoke
       summary: Keeps what a root says of its machines, for whoever reads what they signed.
       description: |
-        Each one is signed by its root, and the server checks that. The earliest moment found for a machine
-        counts. From that moment, the server takes no version signed by it. It deletes nothing.
+        Each one is signed by its root, and the server checks that. A root keeps them only while it owns or
+        signed something the server holds. The earliest moment found for a machine counts. From that moment,
+        the server takes no version signed by it. It deletes nothing.
       requestBody:
         required: true
         content:
@@ -69,7 +70,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Done" }
         "400":
-          description: One of them is not a revocation, or it does not hold.
+          description: One of them is not a revocation, does not hold, or comes from a root that signed nothing here.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BadRevocation" }
@@ -122,7 +123,7 @@ paths:
               required: true
               schema: { type: integer }
             Folio-Revocations:
-              description: What the root that signed it and the root of its owner took back, as JSON. A reader checks each one.
+              description: Whether the machine that signed it or its owner's was taken back, as JSON. A reader checks each one.
               required: true
               schema: { type: string }
           content:

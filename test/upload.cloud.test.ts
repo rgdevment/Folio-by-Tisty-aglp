@@ -4,13 +4,13 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
 import type { Bytes } from "../src/core/bytes";
 import { DAY_MS, dayOf, LEVEL_ONE, type Limits } from "../src/core/limits";
-import { latestVersion } from "../src/core/read";
+import { latestVersion, readDoc } from "../src/core/read";
 import { takeRevocations } from "../src/core/revocations";
 import { saltFor, solveProof, startNow, toBase64Url, tokenHash } from "../src/core/start";
 import type { Stage, Version } from "../src/core/store";
 import { type FirstUpload, uploadDoc } from "../src/core/upload";
 import { keptVersions, listFreesAt, uploadAllowedAt } from "../src/core/versions";
-import { newPerson, newToken, type Person, revocationBy, rootOf, sealedEnvelope } from "./sealed";
+import { machineOf, newPerson, newToken, type Person, revocationBy, rootOf, sealedEnvelope } from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -65,7 +65,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  for (const table of ["docs", "net_day", "net_hour", "service_stage", "revocations"]) {
+  for (const table of ["docs", "net_day", "net_hour", "service_stage", "revocations", "editors"]) {
     await testEnv.DB.prepare(`DELETE FROM ${table}`).run();
   }
 });
@@ -333,13 +333,25 @@ describe("what stops a version", () => {
 });
 
 const versionsAt = (signer: string, ...ats: number[]): Version[] =>
-  ats.map((at, index) => ({ n: index + 1, hash: `h${index}`, bytes: 1, at, signer, contract: "1.2.0" }));
+  ats.map((at, index) => ({ n: index + 1, hash: `h${index}`, bytes: 1, at, signer, machine: "m", contract: "1.2.0" }));
 const MINUTE = 60_000;
 
 describe("a machine its root took back", () => {
   const AT = "2026-11-01T10:00:00Z";
   const LATER_AT = "2026-11-02T10:00:00Z";
   const take = (said: unknown) => takeRevocations({ said, ip: "203.0.113.9", now: NOW }, tools);
+  const otherMachines = (person: Person, howMany: number) =>
+    Promise.all(
+      Array.from({ length: howMany }, () =>
+        revocationBy({ ...person, machineBytes: crypto.getRandomValues(new Uint8Array(32)) }, AT),
+      ),
+    );
+  const keptAt = async (person: Person) => {
+    const kept = await testEnv.DB.prepare("SELECT at FROM revocations WHERE root = ? AND machine = ?")
+      .bind(rootOf(person), machineOf(person))
+      .first<{ at: number }>();
+    return kept ? new Date(kept.at * 1000).toISOString().replace(".000", "") : null;
+  };
 
   it("no longer sends a version", async () => {
     const id = await shared();
@@ -361,25 +373,84 @@ describe("a machine its root took back", () => {
   it("stops only that person's machine", async () => {
     const { pair, permit } = await newToken();
     const id = await shared({ permit });
-    await take([await revocationBy(ana, AT)]);
-    const stopped = await sealedEnvelope({ id, version: 2, owner: mario, signer: ana, permit, token: pair });
+    const signed = await sealedEnvelope({ id, version: 2, owner: mario, signer: ana, permit, token: pair });
+    expect(await send(id, signed, LATER)).toEqual({ stored: true, version: 2 });
+    expect(await take([await revocationBy(ana, AT)])).toEqual({ done: true });
+    const stopped = await sealedEnvelope({ id, version: 3, owner: mario, signer: ana, permit, token: pair });
     expect(await send(id, stopped, LATER)).toEqual({ refused: "revoked" });
-    expect(await send(id, await sealedEnvelope({ id, version: 2, owner: mario, permit }), LATER)).toEqual({
+    expect(await send(id, await sealedEnvelope({ id, version: 3, owner: mario, permit }), LATER)).toEqual({
       stored: true,
-      version: 2,
+      version: 3,
     });
   });
 
+  it("finds its machine among all the others its root took back", async () => {
+    const id = await shared();
+    await store.revoke(await otherMachines(mario, 20));
+    await store.revoke([await revocationBy(mario, AT)]);
+    expect(await send(id, await sealedEnvelope({ id, version: 2, owner: mario }), LATER)).toEqual({
+      refused: "revoked",
+    });
+  });
+
+  it("takes no place when it shares something new", async () => {
+    await shared();
+    await take([await revocationBy(mario, AT)]);
+    const first = await started(LATER);
+    const bytes = await sealedEnvelope({ id: first.id, version: 1, owner: mario });
+    expect(await send(first.id, bytes, LATER, first)).toEqual({ refused: "revoked" });
+    expect(await row(first.id)).toBeNull();
+  });
+
+  it("is told to a reader for the machine that signed and the owner's, and no other", async () => {
+    const { pair, permit } = await newToken();
+    const id = await shared({ permit });
+    const edited = await sealedEnvelope({ id, version: 2, owner: mario, signer: ana, permit, token: pair });
+    expect(await send(id, edited, LATER)).toEqual({ stored: true, version: 2 });
+    const others = [...(await otherMachines(mario, 20)), ...(await otherMachines(ana, 20))];
+    await store.revoke(others);
+    const asked = [await revocationBy(mario, AT), await revocationBy(ana, AT)];
+    await store.revoke(asked);
+    const read = await readDoc({ id, ip: "203.0.113.9", now: LATER }, tools);
+    if (!("served" in read)) throw new Error(read.refused);
+    await read.body.cancel();
+    expect(read.revocations.map((one) => one.machine).sort()).toEqual(asked.map((one) => one.machine).sort());
+    expect(read.revocations.find((one) => one.root === rootOf(ana))).toEqual(asked[1]);
+  });
+
+  it("is not kept for a root that signed nothing here", async () => {
+    await shared();
+    expect(await take([await revocationBy(ana, AT)])).toEqual({ refused: "bad_revocation" });
+    expect(await take([await revocationBy(mario, AT), await revocationBy(ana, AT)])).toEqual({
+      refused: "bad_revocation",
+    });
+    expect(await keptAt(ana)).toBeNull();
+    expect(await keptAt(mario)).toBeNull();
+  });
+
+  it("counts each one against the quota, not each call", async () => {
+    await shared();
+    const quick = { ...tools, limits: { ...LIMITS, revocationsAnHour: 3 } };
+    const ask = async (howMany: number) =>
+      takeRevocations({ said: await otherMachines(mario, howMany), ip: "203.0.113.9", now: NOW }, quick);
+    expect(await ask(4)).toMatchObject({ refused: "quota" });
+    expect(await ask(2)).toEqual({ done: true });
+    expect(await ask(2)).toMatchObject({ refused: "quota" });
+    expect(await ask(1)).toEqual({ done: true });
+  });
+
   it("keeps the earliest moment, and a later note cannot move it", async () => {
+    await shared();
     await take([await revocationBy(mario, AT)]);
     await take([await revocationBy(mario, LATER_AT)]);
-    expect((await store.revocationsOf([rootOf(mario)]))[0]?.at).toBe(AT);
+    expect(await keptAt(mario)).toBe(AT);
     const earlier = "2026-10-20T10:00:00Z";
     await take([await revocationBy(mario, earlier)]);
-    expect((await store.revocationsOf([rootOf(mario)]))[0]?.at).toBe(earlier);
+    expect(await keptAt(mario)).toBe(earlier);
   });
 
   it("is said only by its own root, in what the contract allows", async () => {
+    await shared();
     const good = await revocationBy(mario, AT);
     for (const said of [
       [],
@@ -391,10 +462,11 @@ describe("a machine its root took back", () => {
     ]) {
       expect(await take(said)).toEqual({ refused: "bad_revocation" });
     }
-    expect(await store.revocationsOf([rootOf(mario)])).toEqual([]);
+    expect(await keptAt(mario)).toBeNull();
   });
 
   it("stops at its quota and at the brake", async () => {
+    await shared();
     const good = await revocationBy(mario, AT);
     const quick = { ...tools, limits: { ...LIMITS, revocationsAnHour: 1 } };
     const ask = (over = quick) => takeRevocations({ said: [good], ip: "203.0.113.9", now: NOW }, over);

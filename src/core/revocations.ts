@@ -22,12 +22,10 @@ export const takeRevocations = async (
   if (!revocations) return { refused: "bad_revocation" };
   const held = await Promise.all(revocations.map((one) => revocationHolds(one).catch(() => false)));
   if (held.includes(false)) return { refused: "bad_revocation" };
-  if (!(await store.takeHourly(net, "revocation", hourOf(now), limits.revocationsAnHour))) {
+  if (!(await store.takeHourly(net, "revocation", hourOf(now), limits.revocationsAnHour, revocations.length))) {
     return { refused: "quota", until: hourEnds(now) };
   }
+  if (!(await store.haveSigned(revocations.map((one) => one.root)))) return { refused: "bad_revocation" };
   await store.revoke(revocations);
   return { done: true };
 };
-
-export const isRevoked = (revocations: Revocation[], machine: string, now: number): boolean =>
-  revocations.some((one) => one.machine === machine && Date.parse(one.at) <= now);

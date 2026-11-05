@@ -1,3 +1,4 @@
+import type { Revocation } from "@tisty/contracts";
 import VECTORS from "@tisty/contracts/vectors.json";
 import { describe, expect, it } from "vitest";
 import type { Bytes } from "../src/core/bytes";
@@ -41,13 +42,17 @@ describe("opening a link", () => {
   });
 
   it("says what its server says of a machine taken back", async () => {
-    const { root, machine } = SAMPLES.signed_by;
-    const { verdict } = SAMPLES.verdicts.find((one: { verdict: string }) => one.verdict === "doubtful");
-    expect(verdict).toBe("doubtful");
     const said = SAMPLES.revocation;
-    expect([said.root, said.machine]).toEqual([root, machine]);
-    const opened = await openLink(ID, SAMPLES.link_key, { ...MAIN, revocations: [said] });
-    expect(["retired", "doubtful"]).toContain(opened.verdict);
+    const after = await openLink(ID, SAMPLES.link_key, { ...MAIN, revocations: [said] });
+    expect(after.verdict).toBe("doubtful");
+    const arrivedAt = Date.parse(said.at) - 1000;
+    const before = await openLink(ID, SAMPLES.link_key, { ...MAIN, arrivedAt, revocations: [said] });
+    expect(before.verdict).toBe("retired");
+  });
+
+  it("opens the document whatever comes in place of a note", async () => {
+    const revocations = [null, 5, "x", [], {}] as unknown as Revocation[];
+    expect((await openLink(ID, SAMPLES.link_key, { ...MAIN, revocations })).verdict).toBe("holds");
   });
 
   it("does not believe a note that does not hold", async () => {

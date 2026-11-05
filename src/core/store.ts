@@ -6,6 +6,7 @@ export interface Version {
   bytes: number;
   at: number;
   signer: string;
+  machine: string;
   contract: string;
 }
 
@@ -28,6 +29,7 @@ export interface Upload {
   net: string;
   at: number;
   signer: string;
+  machine: string;
   contract: string;
   byOwner: boolean;
   permit: string | null;
@@ -80,6 +82,7 @@ export interface Shown {
   alive: boolean;
   pausedAt: number | null;
   blockedAt: number | null;
+  revocations: Revocation[];
 }
 
 // What the admin link shows, and never an order that keeps a document (decision 42).
@@ -116,14 +119,15 @@ export interface Store {
   held(id: string): Promise<Held | null>;
   setPermit(id: string, permit: string | null): Promise<void>;
   revoke(revocations: Revocation[]): Promise<void>;
-  revocationsOf(roots: string[]): Promise<Revocation[]>;
+  isRevoked(root: string, machine: string, now: number): Promise<boolean>;
+  haveSigned(roots: string[]): Promise<boolean>;
   admit(reading: Reading, today: number): Promise<Admitted>;
   note(reading: Reading, today: number): Promise<void>;
   shown(id: string, today: number): Promise<Shown | null>;
   envelope(id: string, version: Version): Promise<ReadableStream | null>;
   dayKey(today: number): Promise<string>;
   evidenceKey(today: number): Promise<string>;
-  takeHourly(net: string, action: string, hour: number, atMost: number): Promise<boolean>;
+  takeHourly(net: string, action: string, hour: number, atMost: number, taking?: number): Promise<boolean>;
   report(report: Report, today: number, hour: number): Promise<Reported>;
   owned(id: string, today: number): Promise<Owned | null>;
   appeal(id: string, today: number, hour: number): Promise<void>;

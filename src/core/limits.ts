@@ -13,7 +13,6 @@ export interface Limits {
   uploadsAnHour: number;
   revocationsAnHour: number;
   revocationsAtOnce: number;
-  revocationsServedAtMost: number;
   uploadsOfARootAnHour: number;
   uploadWaitsMinutes: number[];
   uploadStreakResetMinutes: number;
@@ -52,7 +51,6 @@ export const LEVEL_ONE: Limits = {
   uploadsAnHour: 60,
   revocationsAnHour: 30,
   revocationsAtOnce: 8,
-  revocationsServedAtMost: 16,
   uploadsOfARootAnHour: 10,
   uploadWaitsMinutes: [1, 1, 1, 2, 4, 8, 15],
   uploadStreakResetMinutes: 30,

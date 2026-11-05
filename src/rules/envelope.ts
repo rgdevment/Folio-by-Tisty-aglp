@@ -237,10 +237,7 @@ export const asRefusal = async <T>(work: () => Promise<T>): Promise<T> => {
 export const readEnvelope = (bytes: Bytes, asked: Asked): Promise<ReadEnvelope> =>
   asRefusal(() => readBytes(bytes, asked));
 
-// The form a revocation is written in, so moments sort as they read (decision 134).
-export const momentOf = (milliseconds: number): string => new Date(milliseconds).toISOString().replace(/\.\d+Z$/, "Z");
-
-export const revocationHolds = (said: {
+export const revocationHolds = async (said: {
   root: string;
   machine: string;
   at: string;

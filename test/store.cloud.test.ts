@@ -22,6 +22,7 @@ const TABLES = [
   "net_hour",
   "reports",
   "revocations",
+  "editors",
   "holds",
   "openings",
 ];
@@ -332,6 +333,15 @@ describe("expiring", () => {
     expect(await row("gone")).toBeNull();
     expect(await objects("gone")).toEqual([]);
     expect(await row("read")).not.toBeNull();
+  });
+
+  it("forgets who edited it along with the document, and then that root has signed nothing here", async () => {
+    await store.create(newDoc("gone"), DAY);
+    await store.upload({ ...upload("gone", 1), signer: "editor", byOwner: false }, DAY);
+    expect(await store.haveSigned(["editor", "o1"])).toBe(true);
+    expect(await store.haveSigned(["editor", "nobody"])).toBe(false);
+    await store.sweep(DAY + 2);
+    expect(await store.haveSigned(["editor"])).toBe(false);
   });
 
   it("lasts between its days and one more, never less", async () => {

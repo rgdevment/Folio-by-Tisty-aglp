@@ -1,6 +1,7 @@
 import type { Document, Revocation, Verdict } from "@tisty/contracts";
 import { type Bytes, fromBase64Url } from "../core/bytes";
-import { momentOf, refuse } from "../rules/envelope";
+import { momentOf } from "../core/moment";
+import { refuse } from "../rules/envelope";
 import { documentIn, openEnvelope } from "./open";
 import { fingerprintOf, verdictOf, worseOf } from "./verdict";
 
