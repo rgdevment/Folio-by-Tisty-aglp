@@ -32,7 +32,7 @@ simple = { limit = 20, period = 60 }
 
 # ALERT_URL, HEARTBEAT_URL, SPEND_HEARTBEAT_URL, FOLIO_SECRET and CF_API_TOKEN are secrets. Filled in when the account exists. BILLING_DAY is the plan's renewal day, or 28 if it falls later (decision 118).
 [vars]
-BILLING_DAY = ""
+BILLING_DAY = "1"
 CF_ACCOUNT_ID = "239d64b3f31b26a9da33dd5b68209970"
 CF_ZONE_ID = "56530808856fabd50bb1489615f3a031"
 CF_RULESET_ID = "fd140f2bc4e8460cb16cbf882f79c2fc"
