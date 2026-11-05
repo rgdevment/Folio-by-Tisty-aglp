@@ -39,8 +39,9 @@ be met with legal threats.
 - **Pictures are cleaned before they leave.** They are written again, or, for a
   photo that needs no change, stripped down to the picture and its colour
   profile: no location, no comments, nothing hidden after them.
-- **Abuse costs.** Reserving, uploading and reporting each ask for a proof of
-  work.
+- **Abuse costs.** Reporting asks for a proof of work, and so does a new reader
+  past the day's free ones. Starting a share and reading have a speed limit per
+  network, and uploading has a daily quota per network.
 
 ## What it does not protect
 
@@ -53,8 +54,8 @@ be met with legal threats.
 - **What the service sees anyway:** sizes, times, the link's id, and for a few
   days the country and Cloudflare data center of each read. Cloudflare sees the
   reader's IP, as any web host does.
-- **A report that includes the full link** makes that document readable, in the
-  cases the [terms](TERMS.md) list.
+- **A report that includes the link to read it** makes that document readable,
+  in the cases the [terms](TERMS.md) list.
 
 ## Supported versions
 

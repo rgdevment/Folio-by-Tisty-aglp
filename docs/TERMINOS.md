@@ -1,6 +1,6 @@
 # Términos de uso de Folio by Tisty
 
-**Borrador del 29 de octubre de 2026.** Folio todavía no está abierto.
+**Borrador del 5 de noviembre de 2026.** Folio todavía no está abierto.
 
 ## En corto
 
@@ -26,7 +26,8 @@ La app Tisty tiene sus propios [términos](https://github.com/rgdevment/Tisty/bl
 
 ## Cómo funciona
 
-- **Se comparte solo desde Tisty**, y lo lee quien tiene el link.
+- **Se comparte solo desde Tisty**, y lo compartido es no listado: lo lee quien
+  tiene el link.
 - **Cada documento tiene tres links:** uno para leer, otro para editar y otro
   para administrar. Quien tiene un link tiene ese poder; cuídalos como una
   llave.
@@ -36,7 +37,8 @@ La app Tisty tiene sus propios [términos](https://github.com/rgdevment/Tisty/bl
   compartir, de un día a 15 días como mucho: sin lecturas, sin visitas tuyas y
   sin versiones nuevas. Al caducar, los links dejan de
   funcionar y la copia del servidor se borra. Tu documento sigue en Tisty y
-  puedes volver a compartirlo.
+  puedes volver a compartirlo. Con una denuncia seria o una orden, deja de
+  servirse, pero su copia queda hasta 180 días, o lo que la orden pida.
 - **Hay topes** de tamaño y de cantidad de imágenes, que el servicio puede
   cambiar. Tisty te avisa antes de compartir si algo no cabe.
 
@@ -57,8 +59,10 @@ responsabilidad. No se permite usar Folio para:
 ## Denuncias y retiro
 
 - **Cualquiera puede denunciar** un link desde la página donde se lee: con una
-  categoría, el porqué y, si quiere, el link para leerlo, nunca la parte que
-  permite editar.
+  categoría, el porqué y, si acepta, el link para leerlo, nunca la parte que
+  permite editar. Una denuncia seria (abuso infantil, amenazas o violencia,
+  incitación concreta, doxxing o imágenes íntimas) sin ese link queda registrada
+  pero no bloquea nada, porque nadie podría revisarla.
 - **Con tres denuncias** desde lugares distintos, el documento se bloquea: deja
   de servirse, pero no se borra. Quien lo compartió ve el bloqueo en su link de
   administración y puede reclamar ahí.
@@ -66,10 +70,11 @@ responsabilidad. No se permite usar Folio para:
   Fiscalía, y el phishing y el malware además a Google Safe Browsing y a
   Cloudflare. Los reclamos de derechos de autor los hace su titular, con orden
   judicial o con un aviso DMCA a través de Cloudflare.
-- **El operador solo abre lo cifrado** en tres casos y siempre con el link
-  completo: cuando quien lo compartió lo entrega para
-  demostrar que el bloqueo fue un error, para confirmar phishing o malware
-  antes de reportarlo, o por orden de un juez. Cada apertura queda registrada.
+- **El operador solo abre lo cifrado** en cuatro casos y siempre con el link
+  para leerlo: cuando quien lo compartió lo entrega para
+  demostrar que el bloqueo fue un error, para revisar una denuncia seria con el
+  link que entregó quien denunció, para confirmar phishing o malware antes de
+  reportarlo, o por orden de un juez. Cada apertura queda registrada.
   Las imágenes de una denuncia de abuso infantil no se abren nunca: el
   documento se bloquea, se conserva lo mínimo y se avisa a la PDI o a la
   Fiscalía con el link, para que lo abran ellos. En un navegador, el código que
