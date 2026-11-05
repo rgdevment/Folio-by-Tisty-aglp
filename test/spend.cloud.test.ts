@@ -63,15 +63,6 @@ describe("the stage", () => {
     await store.setStage("warned");
     expect(await store.stage()).toBe("warned");
   });
-
-  it("remembers apart what it last alerted of", async () => {
-    expect(await store.alerted()).toBe("open");
-    await store.setStage("blocked");
-    expect(await store.alerted()).toBe("open");
-    await store.setAlerted("blocked");
-    expect(await store.alerted()).toBe("blocked");
-    expect(await store.stage()).toBe("blocked");
-  });
 });
 
 describe("a block", () => {

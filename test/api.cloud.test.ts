@@ -82,7 +82,7 @@ const send = async ({ method, path, admin, body, braked, broken }: Scenario, pro
       unknown,
       IncomingRequestCfProperties
     >,
-    { ...testEnv, FOLIO_SECRET: "09".repeat(32), ALERT_URL: "https://alerts.example/folio", READS: { limit } } as never,
+    { ...testEnv, FOLIO_SECRET: "09".repeat(32), READS: { limit } } as never,
     context,
   );
   await waitOnExecutionContext(context);
@@ -167,7 +167,7 @@ const SCENARIOS: Scenario[] = [
     solves: true,
     ready: async () => {
       await share();
-      vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 503 }));
+      vi.spyOn(Cloud.prototype, "report").mockRejectedValueOnce(new Error("no database"));
     },
   },
   ...adminRoute("GET", "/docs/{id}/admin", false),
@@ -226,7 +226,6 @@ afterEach(() => {
 });
 
 beforeEach(async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
   for (const table of ["docs", "net_day", "net_hour", "reports", "holds"]) {
     await testEnv.DB.prepare(`DELETE FROM ${table}`).run();
   }

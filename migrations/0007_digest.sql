@@ -1,0 +1,1 @@
+ALTER TABLE service_stage ADD COLUMN digested_day INTEGER NOT NULL DEFAULT 0;

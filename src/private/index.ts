@@ -1,31 +1,27 @@
+import { type MailBindings, sendMail } from "../cloudflare/mail";
 import { CloudSpend, type SpendBindings } from "../cloudflare/spend";
 import { type Bindings, Cloud } from "../cloudflare/store";
+import { sendDigest } from "../core/digest";
 import { dayOf, LEVEL_ONE } from "../core/limits";
 import { DayKeys } from "../core/net";
 import { checkSpend } from "../core/spend";
 import { answer } from "./api";
 
-interface Env extends Bindings, SpendBindings {
+interface Env extends Bindings, SpendBindings, MailBindings {
   FOLIO_SECRET: string;
   READS: RateLimit;
   BILLING_DAY: string;
   HEARTBEAT_URL?: string;
   SPEND_HEARTBEAT_URL?: string;
-  ALERT_URL: string;
+  DIGEST_HEARTBEAT_URL?: string;
   FOLIO_TAG?: string;
 }
 
 const WEEKLY = "0 4 * * 0";
 const SPEND = "*/15 * * * *";
+const DAILY = "0 12 * * *";
 const dayKeys = new DayKeys();
 const evidenceKeys = new DayKeys();
-
-const sendAlert = async (env: Env, said: unknown): Promise<void> => {
-  // Failing is the alert here: a report of CSAM that answers well and tells nobody would be worse.
-  if (!env.ALERT_URL) throw new Error("there is nowhere to send an alert");
-  const alert = await fetch(env.ALERT_URL, { method: "POST", body: JSON.stringify(said) });
-  if (!alert.ok) throw new Error(`the alert was refused: ${alert.status}`);
-};
 
 const reviewSpend = async (now: number, env: Env): Promise<void> => {
   const spend = new CloudSpend(env);
@@ -33,10 +29,6 @@ const reviewSpend = async (now: number, env: Env): Promise<void> => {
     store: new Cloud(env),
     usageSince: (start, until) => spend.usageSince(start, until),
     setBlocked: (blocked) => spend.setBlocked(blocked),
-    notify: async (said) => {
-      console.log(JSON.stringify(said));
-      await sendAlert(env, said);
-    },
   });
   console.log(JSON.stringify({ stage }));
   // It stops arriving when the review fails, and that is the alert: without it nothing cuts the bill.
@@ -57,7 +49,6 @@ export default {
         limiter: { allows: async (key) => (await env.READS.limit({ key })).success },
         dayKey: (today) => dayKeys.of(today, (day) => store.dayKey(day)),
         evidenceKey: (today) => evidenceKeys.of(today, (day) => store.evidenceKey(day)),
-        alert: (said) => sendAlert(env, said),
       },
     });
     response.headers.set("Server-Timing", `total;dur=${Date.now() - started}`);
@@ -71,6 +62,16 @@ export default {
       return;
     }
     const store = new Cloud(env);
+    if (controller.cron === DAILY) {
+      const sent = await sendDigest(controller.scheduledTime, {
+        store,
+        send: (subject, text) => sendMail(env, subject, text),
+      });
+      console.log(JSON.stringify({ sent }));
+      // It stops arriving when the mail fails, and that is the alert.
+      if (env.DIGEST_HEARTBEAT_URL) await fetch(env.DIGEST_HEARTBEAT_URL);
+      return;
+    }
     if (controller.cron === WEEKLY) {
       console.log(JSON.stringify({ orphans: await store.forgetOrphans(controller.scheduledTime) }));
       return;

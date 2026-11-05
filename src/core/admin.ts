@@ -15,7 +15,7 @@ export interface Administering {
   action: AdminAction;
 }
 
-export type AdminTools = Pick<ReportTools, "store" | "limiter" | "dayKey" | "alert">;
+export type AdminTools = Pick<ReportTools, "store" | "limiter" | "dayKey">;
 export type AdminAnswer = { done: true } | { status: DocStatus } | Refused;
 
 const CHANGES: Record<"pause" | "resume" | "stop", (store: Store, id: string, today: number) => Promise<void>> = {
@@ -24,16 +24,14 @@ const CHANGES: Record<"pause" | "resume" | "stop", (store: Store, id: string, to
   stop: (store, id, today) => store.stop(id, today),
 };
 
-// The alert goes first, so one that fails leaves the appeal free to be sent again (decision 36).
 const appeal = async (
   id: string,
   { blockedAt, appealedAt }: DocStatus,
   today: number,
-  { store, alert }: AdminTools,
+  { store }: AdminTools,
 ): Promise<AdminAnswer> => {
   if (blockedAt === null) return { refused: "not_blocked" };
   if (appealedAt !== null) return { refused: "appealed" };
-  await alert({ doc: id, reason: "appeal" });
   await store.appeal(id, today);
   return { done: true };
 };

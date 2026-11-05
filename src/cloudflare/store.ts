@@ -4,6 +4,7 @@ import type {
   Admitted,
   Created,
   NewDoc,
+  News,
   Owned,
   Reading,
   Report,
@@ -12,7 +13,6 @@ import type {
   Stage,
   Store,
   Swept,
-  Telling,
   Upload,
   Uploaded,
   Version,
@@ -49,8 +49,6 @@ const COUNTED_REPORT = "r.cleared = 0 AND r.net NOT IN (SELECT net FROM false_re
 // What keeps a document past its days, not served and not deleted (decision 42). Reports leave once their days pass.
 const HELD_AS_EVIDENCE = (doc: string, today: string): string =>
   `(COALESCE(${doc}.legal_until, 0) >= ${today} OR EXISTS (SELECT 1 FROM reports r WHERE r.doc = ${doc}.id AND ${COUNTED_REPORT}))`;
-
-const TOLD_COLUMN: Record<Telling, string> = { csam: "told_csam", blocked: "told_blocked" };
 
 const HOURS_IN_A_DAY = 24;
 
@@ -358,8 +356,8 @@ export class Cloud implements Store {
   }
 
   async report(report: Report, today: number): Promise<Reported> {
-    if (!GRAVE_REPORTS.includes(report.category)) return { blocked: false, pending: [] };
-    const [, blocked, told] = await this.#db.batch([
+    if (!GRAVE_REPORTS.includes(report.category)) return { blocked: false };
+    const [, blocked] = await this.#db.batch([
       this.#db
         .prepare(
           `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn)
@@ -392,17 +390,8 @@ export class Cloud implements Store {
           this.#limits.reportsToBlock,
           this.#limits.reportOperatorsToBlock,
         ),
-      this.#db.prepare("SELECT blocked_at, told_csam, told_blocked FROM docs WHERE id = ?").bind(report.doc),
     ]);
-    const [doc] = (told?.results ?? []) as { blocked_at: number | null; told_csam: number; told_blocked: number }[];
-    const pending: Telling[] = [];
-    if (doc && report.category === "csam" && doc.told_csam === 0) pending.push("csam");
-    if (doc && doc.blocked_at !== null && doc.told_blocked === 0) pending.push("blocked");
-    return { blocked: (blocked?.meta.changes ?? 0) > 0, pending };
-  }
-
-  async told(id: string, what: Telling): Promise<void> {
-    await this.#db.prepare(`UPDATE docs SET ${TOLD_COLUMN[what]} = 1 WHERE id = ?`).bind(id).run();
+    return { blocked: (blocked?.meta.changes ?? 0) > 0 };
   }
 
   // Past its days and not blocked, it looks gone, or the admin link would give away an order that keeps it (decision 42).
@@ -468,7 +457,7 @@ export class Cloud implements Store {
         .bind(id),
       this.#db
         .prepare(
-          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL, told_blocked = 0,
+          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL,
              dies_on = CASE WHEN paused_at IS NULL THEN ?1 + ttl_days ELSE paused_at + ?2 END
            WHERE id = ?3 AND blocked_at IS NOT NULL`,
         )
@@ -683,14 +672,45 @@ export class Cloud implements Store {
     return row?.stage ?? "open";
   }
 
-  async alerted(): Promise<Stage> {
-    const row = await this.#db.prepare("SELECT alerted FROM service_stage WHERE id = 1").first<{ alerted: Stage }>();
-    return row?.alerted ?? "open";
+  async digested(): Promise<{ day: number; alerted: Stage }> {
+    const row = await this.#db
+      .prepare("SELECT digested_day, alerted FROM service_stage WHERE id = 1")
+      .first<{ digested_day: number; alerted: Stage }>();
+    return { day: row?.digested_day ?? 0, alerted: row?.alerted ?? "open" };
   }
 
-  // The stage is written first, so by now there is a row.
-  async setAlerted(stage: Stage): Promise<void> {
-    await this.#db.prepare("UPDATE service_stage SET alerted = ? WHERE id = 1").bind(stage).run();
+  async news(after: number, before: number, atMost: number): Promise<News> {
+    const [reports, blocked, appealed] = await this.#db.batch([
+      this.#db
+        .prepare(
+          `SELECT doc, category, COUNT(*) AS nets FROM reports
+           WHERE at > ?1 AND at < ?2 AND cleared = 0
+           GROUP BY doc, category ORDER BY category = 'csam' DESC, nets DESC, doc LIMIT ?3`,
+        )
+        .bind(after, before, atMost),
+      this.#db
+        .prepare("SELECT id FROM docs WHERE blocked_at > ?1 AND blocked_at < ?2 ORDER BY id LIMIT ?3")
+        .bind(after, before, atMost),
+      this.#db
+        .prepare("SELECT id FROM docs WHERE appealed_at > ?1 AND appealed_at < ?2 ORDER BY id LIMIT ?3")
+        .bind(after, before, atMost),
+    ]);
+    const ids = (rows: typeof blocked): string[] => ((rows?.results ?? []) as { id: string }[]).map(({ id }) => id);
+    return {
+      reports: (reports?.results ?? []) as News["reports"],
+      blocked: ids(blocked),
+      appealed: ids(appealed),
+    };
+  }
+
+  async setDigested(day: number, stage: Stage): Promise<void> {
+    await this.#db
+      .prepare(
+        `INSERT INTO service_stage (id, stage, alerted, digested_day) VALUES (1, ?1, ?1, ?2)
+         ON CONFLICT (id) DO UPDATE SET alerted = excluded.alerted, digested_day = excluded.digested_day`,
+      )
+      .bind(stage, day)
+      .run();
   }
 
   async setStage(stage: Stage): Promise<void> {

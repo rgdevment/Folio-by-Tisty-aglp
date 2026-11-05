@@ -26,14 +26,14 @@ migrations_dir = "migrations"
 binding = "ENVELOPES"
 bucket_name = "folio-private-envelopes"
 
-# Reads, starts and the admin link cost no writes here. It counts by location and is only a brake against floods (decision 116).
 [[ratelimits]]
 name = "READS"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
-# ALERT_URL, HEARTBEAT_URL, SPEND_HEARTBEAT_URL, FOLIO_SECRET and CF_API_TOKEN are secrets. Filled in when the account exists. BILLING_DAY is the plan's renewal day, or 28 if it falls later (decision 118).
+# BILLING_DAY is the plan's renewal day, or 28 if it falls later (decision 118).
 [vars]
+ALERT_FROM = "avisos@tisty.cl"
 BILLING_DAY = ""
 CF_ACCOUNT_ID = ""
 CF_ZONE_ID = ""
@@ -44,7 +44,10 @@ CF_SCRIPT_NAME = "folio-private"
 CF_BUCKET_NAME = "folio-private-envelopes"
 
 [triggers]
-crons = ["*/15 * * * *", "0 * * * *", "0 4 * * 0"]
+crons = ["*/15 * * * *", "0 * * * *", "0 12 * * *", "0 4 * * 0"]
+
+[[send_email]]
+name = "EMAIL"
 
 # What the code logs is kept, and the request itself never is (decision 98).
 [observability]
