@@ -1,7 +1,25 @@
+import type { EnvelopeRefusal } from "../rules/envelope";
 import { hourOf, saltFor } from "./start";
 
 export type Refused =
-  | { refused: "missing" | "paused" | "blocked" | "bad_report" | "too_big" | "not_blocked" | "appealed" | "failed" }
+  | {
+      refused:
+        | "missing"
+        | "paused"
+        | "blocked"
+        | "bad_report"
+        | "too_big"
+        | "not_blocked"
+        | "appealed"
+        | "failed"
+        | "behind"
+        | "not_yours"
+        | "shares_full"
+        | "bad_upload"
+        | "uploads_off"
+        | "outdated";
+    }
+  | { refused: "envelope"; why: EnvelopeRefusal }
   | { refused: "slow" | "quota"; until: number }
   | { refused: "proof"; salt: string; bits: number };
 

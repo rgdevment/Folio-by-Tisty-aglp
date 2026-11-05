@@ -8,6 +8,7 @@ import { netDigest } from "../src/core/net";
 import { type ReportTools, reportDoc } from "../src/core/report";
 import { proofHolds, tokenHash } from "../src/core/start";
 import worker from "../src/private/index";
+import { SIGNED_BY_THE_OWNER } from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -36,7 +37,7 @@ const share = async (id = ID, anchor?: string) => {
     },
     TODAY,
   );
-  await store.upload({ id, n: 1, hash: "h1", body: "sealed", net: "n", at: 1234 }, TODAY);
+  await store.upload({ ...SIGNED_BY_THE_OWNER, id, n: 1, hash: "h1", body: "sealed", net: "n", at: 1234 }, TODAY);
 };
 
 // The brake on reads is real here and lasts a minute, so each test comes from a network of its own.

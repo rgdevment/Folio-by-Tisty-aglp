@@ -2,6 +2,20 @@ export interface Limits {
   ttlChoices: number[];
   sharesAtMost: number;
   versionsKept: number;
+  replacedKeptDays: number;
+  versionsListedAtMost: number;
+  envelopeBytesAtMost: number;
+  picturesAtMost: number;
+  pictureBytesAtMost: number;
+  picturesBytesAtMost: number;
+  firstBytesAtMost: number;
+  restBytesAtMost: number;
+  uploadsAnHour: number;
+  uploadsOfARootAnHour: number;
+  uploadWaitsMinutes: number[];
+  uploadStreakResetMinutes: number;
+  oldestContractTaken: string | null;
+  oldestContractServed: string | null;
   newReadersFree: number;
   rowsPerOwnerADay: number;
   netDocsADay: number;
@@ -23,7 +37,21 @@ export interface Limits {
 export const LEVEL_ONE: Limits = {
   ttlChoices: [1, 3, 7, 15],
   sharesAtMost: 2,
-  versionsKept: 5,
+  versionsKept: 3,
+  replacedKeptDays: 7,
+  versionsListedAtMost: 300,
+  envelopeBytesAtMost: 24_000_000,
+  picturesAtMost: 10,
+  pictureBytesAtMost: 1_000_000,
+  picturesBytesAtMost: 5_000_000,
+  firstBytesAtMost: 2_512_000,
+  restBytesAtMost: 15_572_000,
+  uploadsAnHour: 60,
+  uploadsOfARootAnHour: 10,
+  uploadWaitsMinutes: [1, 1, 1, 2, 4, 8, 15],
+  uploadStreakResetMinutes: 30,
+  oldestContractTaken: null,
+  oldestContractServed: null,
   newReadersFree: 250,
   rowsPerOwnerADay: 5000,
   netDocsADay: 50,

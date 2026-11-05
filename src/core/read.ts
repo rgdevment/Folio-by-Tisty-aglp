@@ -1,3 +1,4 @@
+import { isBelowVersion } from "../rules/envelope";
 import { dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
 import { askForProof, type Refused, tooFast } from "./refused";
@@ -9,6 +10,12 @@ export interface Asked {
   ip: string;
   now: number;
   proof?: string;
+}
+
+export interface Asking {
+  id: string;
+  ip: string;
+  now: number;
 }
 
 export interface Limiter {
@@ -23,6 +30,10 @@ export interface ReadTools {
   dayKey: (today: number) => Promise<string>;
 }
 
+export interface SyncTools extends ReadTools {
+  syncLimiter: Limiter;
+}
+
 export interface Served {
   served: true;
   version: Version;
@@ -32,11 +43,25 @@ export interface Served {
   note?: Reading;
 }
 
-const refusalOfState = (shown: Shown | null): Refused | null => {
+const refusalOfState = (shown: Shown | null, { oldestContractServed: floor }: Limits): Refused | null => {
   if (!shown?.version) return { refused: "missing" };
   if (shown.blockedAt !== null) return { refused: "blocked" };
   if (!shown.alive) return { refused: "missing" };
+  if (floor !== null && isBelowVersion(shown.version.contract, floor)) return { refused: "outdated" };
   return shown.pausedAt === null ? null : { refused: "paused" };
+};
+
+export const latestVersion = async (
+  { id, ip, now }: Asking,
+  { store, limiter, syncLimiter, limits, dayKey }: SyncTools,
+): Promise<{ version: number; hash: string } | Refused> => {
+  const today = dayOf(now);
+  const net = await netDigest(await dayKey(today), ip);
+  if (!(await limiter.allows(net)) || !(await syncLimiter.allows(`${net}|${id}`))) return tooFast(now);
+  const shown = await store.shown(id, today);
+  const refused = refusalOfState(shown, limits);
+  if (refused || !shown?.version) return refused ?? { refused: "missing" };
+  return { version: shown.version.n, hash: shown.version.hash };
 };
 
 export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): Promise<Served | Refused> => {
@@ -46,7 +71,7 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
   if (!(await limiter.allows(net))) return tooFast(now);
 
   const shown = await store.shown(id, today);
-  const refused = refusalOfState(shown);
+  const refused = refusalOfState(shown, limits);
   if (refused || !shown?.version) return refused ?? { refused: "missing" };
 
   const scope = `read|${id}|${net}`;

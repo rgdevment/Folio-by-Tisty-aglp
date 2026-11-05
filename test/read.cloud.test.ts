@@ -7,6 +7,7 @@ import { netOf } from "../src/core/net";
 import { type Limiter, type ReadTools, readDoc } from "../src/core/read";
 import { startHolds } from "../src/core/start";
 import worker from "../src/private/index";
+import { SIGNED_BY_THE_OWNER } from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -44,7 +45,7 @@ const tools = (over: Partial<ReadTools> = {}): ReadTools => ({
 
 const share = async (id = ID) => {
   await store.create({ id, owner: "o1", adminHash: "a", ttlDays: 3, net: "n" }, TODAY);
-  await store.upload({ id, n: 1, hash: "h1", body: "sealed", net: "n", at: 1234 }, TODAY);
+  await store.upload({ ...SIGNED_BY_THE_OWNER, id, n: 1, hash: "h1", body: "sealed", net: "n", at: 1234 }, TODAY);
 };
 
 const get = async (over: RequestInit = {}, ip = "203.0.113.7", url = API) => {
@@ -145,7 +146,7 @@ describe("what a read refuses", () => {
     expect(await read()).toEqual({ refused: "missing" });
     await store.create({ id: ID, owner: "o1", adminHash: "a", ttlDays: 1, net: "n" }, TODAY);
     expect(await read()).toEqual({ refused: "missing" });
-    await store.upload({ id: ID, n: 1, hash: "h1", body: "x", net: "n", at: 1 }, TODAY);
+    await store.upload({ ...SIGNED_BY_THE_OWNER, id: ID, n: 1, hash: "h1", body: "x", net: "n", at: 1 }, TODAY);
     await testEnv.ENVELOPES.delete(`${ID}/1.h1`);
     expect(await read()).toEqual({ refused: "missing" });
   });

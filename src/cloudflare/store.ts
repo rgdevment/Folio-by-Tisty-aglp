@@ -3,6 +3,7 @@ import { toBase64Url } from "../core/start";
 import type {
   Admitted,
   Created,
+  Held,
   NewDoc,
   News,
   Owned,
@@ -17,6 +18,7 @@ import type {
   Uploaded,
   Version,
 } from "../core/store";
+import { keptVersions } from "../core/versions";
 
 export interface Bindings {
   DB: D1Database;
@@ -27,10 +29,12 @@ interface DocRow {
   owner: string;
   admin_hash: string;
   permit: string | null;
+  owner_mark: string;
   anchor: string | null;
   latest: number;
   versions: string;
   blocked_at: number | null;
+  paused_at: number | null;
 }
 
 // A document being forgotten: nothing can move it on from here, and the sweep finishes it even after failing halfway.
@@ -84,8 +88,8 @@ export class Cloud implements Store {
     if (!(await this.#takeQuota(doc.net, 1, 0, today))) return "quota";
     const inserted = await this.#db
       .prepare(
-        `INSERT OR IGNORE INTO docs (id, owner, anchor, permit, admin_hash, ttl_days, dies_on, active_day)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+        `INSERT OR IGNORE INTO docs (id, owner, anchor, permit, admin_hash, ttl_days, dies_on, active_day, owner_mark)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?10
          WHERE (?3 IS NOT NULL AND EXISTS (
            SELECT 1 FROM docs a WHERE a.id = ?3 AND a.owner = ?2 AND a.anchor IS NULL AND a.latest >= 0
          )) OR (?3 IS NULL AND (
@@ -105,6 +109,7 @@ export class Cloud implements Store {
         today + doc.ttlDays,
         today,
         this.#limits.sharesAtMost,
+        doc.ownerMark ?? "",
       )
       .run();
     if (inserted.meta.changes > 0) return "created";
@@ -121,17 +126,30 @@ export class Cloud implements Store {
     return sameDocument && held.latest !== CLAIMED ? "same" : "taken";
   }
 
-  async upload(upload: Upload, today: number): Promise<Uploaded> {
-    const held = await this.#row(upload.id);
-    if (!held || held.latest === CLAIMED) return "missing";
-    if (held.blocked_at !== null) return "blocked";
-    const versions = JSON.parse(held.versions) as Version[];
+  async upload(upload: Upload, today: number, known?: Held): Promise<Uploaded> {
+    const held = known ?? (await this.held(upload.id));
+    if (!held) return "missing";
+    if (held.blocked) return "blocked";
+    if (held.paused) return "paused";
+    const { versions } = held;
     if (held.latest === upload.n && versions.at(-1)?.hash === upload.hash) return "same";
     if (upload.n !== held.latest + 1) return "behind";
 
     const bytes = sizeOf(upload.body);
+    const version: Version = {
+      n: upload.n,
+      hash: upload.hash,
+      bytes,
+      at: upload.at,
+      signer: upload.signer,
+      contract: upload.contract,
+    };
+    const all = [...versions, version];
+    const trimmed = keptVersions(all, upload.at, this.#limits);
+    const kept = trimmed.length < all.length && (await this.#isEvidence(upload.id, today)) ? all : trimmed;
+    if (kept.length > this.#limits.versionsListedAtMost) return "list_full";
+
     if (!(await this.#takeQuota(upload.net, 0, bytes, today))) return "quota";
-    const version: Version = { n: upload.n, hash: upload.hash, bytes, at: upload.at };
     const key = objectKey(upload.id, version);
     try {
       await this.#envelopes.put(key, upload.body);
@@ -140,17 +158,14 @@ export class Cloud implements Store {
       throw error;
     }
 
-    const overflows = versions.length >= this.#limits.versionsKept;
-    // Five clean uploads must not be a way to erase what was reported.
-    const all = [...versions, version];
-    const kept = overflows && (await this.#isEvidence(upload.id, today)) ? all : all.slice(-this.#limits.versionsKept);
     const alive = `dies_on = CASE WHEN paused_at IS NULL THEN MAX(dies_on, ?1 + ttl_days) ELSE dies_on END,
                    active_day = MAX(active_day, ?1)`;
     const [moved] = await this.#db.batch([
       this.#db
         .prepare(
-          `UPDATE docs SET latest = ?2, versions = ?3, bytes = ?4, ${alive}
-           WHERE id = ?5 AND latest = ?6 AND blocked_at IS NULL`,
+          `UPDATE docs SET latest = ?2, versions = ?3, bytes = ?4,
+             owner_mark = CASE WHEN ?7 THEN ?8 ELSE owner_mark END, ${alive}
+           WHERE id = ?5 AND latest = ?6 AND blocked_at IS NULL AND paused_at IS NULL AND permit IS ?9`,
         )
         .bind(
           today,
@@ -159,6 +174,9 @@ export class Cloud implements Store {
           kept.reduce((sum, one) => sum + one.bytes, 0),
           upload.id,
           upload.n - 1,
+          upload.byOwner ? 1 : 0,
+          upload.ownerMark,
+          upload.permit,
         ),
       // A new version of a language is activity of the whole group (decisions 50 and 69 bis).
       ...(held.anchor
@@ -182,6 +200,25 @@ export class Cloud implements Store {
     return "stored";
   }
 
+  async held(id: string): Promise<Held | null> {
+    const row = await this.#row(id);
+    if (!row || row.latest === CLAIMED) return null;
+    return {
+      owner: row.owner,
+      permit: row.permit,
+      ownerMark: row.owner_mark,
+      anchor: row.anchor,
+      latest: row.latest,
+      versions: JSON.parse(row.versions) as Version[],
+      blocked: row.blocked_at !== null,
+      paused: row.paused_at !== null,
+    };
+  }
+
+  async setPermit(id: string, permit: string | null): Promise<void> {
+    await this.#db.prepare("UPDATE docs SET permit = ?2 WHERE id = ?1").bind(id, permit).run();
+  }
+
   async #lostTheRace(upload: Upload, key: string): Promise<Uploaded> {
     const now = await this.#row(upload.id);
     const versions = now ? (JSON.parse(now.versions) as Version[]) : [];
@@ -202,7 +239,9 @@ export class Cloud implements Store {
 
   #row(id: string): Promise<DocRow | null> {
     return this.#db
-      .prepare("SELECT owner, admin_hash, permit, anchor, latest, versions, blocked_at FROM docs WHERE id = ?")
+      .prepare(
+        "SELECT owner, admin_hash, permit, owner_mark, anchor, latest, versions, blocked_at, paused_at FROM docs WHERE id = ?",
+      )
       .bind(id)
       .first<DocRow>();
   }
@@ -283,7 +322,7 @@ export class Cloud implements Store {
   async shown(id: string, today: number): Promise<Shown | null> {
     const row = await this.#db
       .prepare(
-        `SELECT d.owner, d.latest, d.versions, d.dies_on, d.paused_at, d.blocked_at,
+        `SELECT d.owner, d.latest, json_extract(d.versions, '$[#-1]') AS last_version, d.dies_on, d.paused_at, d.blocked_at,
            CASE WHEN d.paused_at IS NOT NULL AND d.dies_on < ?2 THEN 0
              ELSE EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id) OR CASE WHEN a.id IS NULL THEN d.dies_on >= ?2
                ELSE a.latest <> ${CLAIMED} AND a.blocked_at IS NULL AND a.paused_at IS NULL
@@ -294,17 +333,16 @@ export class Cloud implements Store {
       .first<{
         owner: string;
         latest: number;
-        versions: string;
+        last_version: string | null;
         dies_on: number;
         paused_at: number | null;
         blocked_at: number | null;
         alive: number;
       }>();
     if (!row) return null;
-    const versions = JSON.parse(row.versions) as Version[];
     return {
       owner: row.owner,
-      version: (row.latest > 0 && versions.at(-1)) || null,
+      version: row.latest > 0 && row.last_version ? (JSON.parse(row.last_version) as Version) : null,
       diesOn: row.dies_on,
       alive: row.alive === 1,
       pausedAt: row.paused_at,

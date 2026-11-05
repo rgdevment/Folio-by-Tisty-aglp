@@ -39,9 +39,10 @@ be met with legal threats.
 - **Pictures are cleaned before they leave.** They are written again, or, for a
   photo that needs no change, stripped down to the picture and its colour
   profile: no location, no comments, nothing hidden after them.
-- **Abuse costs.** Reporting asks for a proof of work, and so does a new reader
-  past the day's free ones. Starting a share and reading have a speed limit per
-  network, and uploading has a daily quota per network.
+- **Abuse costs.** Reporting and sharing something new ask for a proof of work,
+  and so does a new reader past the day's free ones. Starting a share and reading
+  have a speed limit per network, and uploading has a quota per network and a
+  wait per person.
 
 ## What it does not protect
 

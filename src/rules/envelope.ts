@@ -68,6 +68,13 @@ const underALaterMinor = (version: string): boolean => {
   return !version.includes("-") && numbers?.major === OURS?.major && (numbers?.minor ?? 0) > (OURS?.minor ?? 0);
 };
 
+export const isBelowVersion = (version: string, floor: string): boolean => {
+  const said = numbersOf(version);
+  const least = numbersOf(floor);
+  if (!said || !least) return true;
+  return said.major < least.major || (said.major === least.major && said.minor < least.minor);
+};
+
 // What this reader would refuse under a later minor may be what that minor added (decision 154).
 export const toldApart = async <T>(version: string, work: () => Promise<T>): Promise<T> => {
   try {

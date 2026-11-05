@@ -23,7 +23,7 @@ Folio sin fines de lucro. Contacto: <rgdevment@tisty.app>.
 
 | Qué | Para qué | Por cuánto tiempo |
 |---|---|---|
-| El documento cifrado, con sus versiones | Servirlo a quien tiene el link | Hasta el plazo sin actividad que elijas, de 15 días como mucho, o hasta que dejes de compartirlo. Con una denuncia seria o una orden, deja de servirse y queda hasta 180 días, o lo que la orden pida |
+| El documento cifrado, con sus 3 últimas versiones y las reemplazadas en los últimos 7 días | Servirlo a quien tiene el link, y que una denuncia alcance lo que alguien reemplazó | Hasta el plazo sin actividad que elijas, de 15 días como mucho, o hasta que dejes de compartirlo. Con una denuncia seria o una orden, deja de servirse y queda hasta 180 días, o lo que la orden pida |
 | El manifiesto en claro: cuántas partes tiene, cuánto pesa cada una, de qué tipo son y su versión | Aplicar los topes sin leer el contenido | Lo mismo que el documento |
 | El link de administrar, guardado como resumen (hash), y la llave pública del token del link de editar, que nunca llega al servidor | Comprobar quién puede cambiar o borrar | Lo mismo que el documento |
 | Si firmas, tu llave pública y su certificado | Que quien lee sepa que es tuyo | Lo mismo que el documento |
