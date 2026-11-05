@@ -83,6 +83,12 @@ export const proofHolds = async (salt: string, nonce: string, bits: number): Pro
   return left <= 0;
 };
 
+export const solveProof = async (salt: string, bits: number): Promise<string> => {
+  for (let nonce = 0; ; nonce += 1) {
+    if (await proofHolds(salt, String(nonce), bits)) return String(nonce);
+  }
+};
+
 // The hour before counts too, as with a start: a proof solved at the end of an hour still holds a minute later.
 export const proofIsFresh = async (
   secret: string,

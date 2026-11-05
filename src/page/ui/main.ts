@@ -1,9 +1,11 @@
 import "virtual:tisty-tokens.css";
 import "./frame.css";
 import { askFor } from "./ask";
+import { drawClosed } from "./closed";
 
 const ID_PATH = /^\/[A-Za-z0-9]{8}$/;
 const NOT_FOUND = "https://www.tisty.app/404";
+const COULD_NOT_OPEN = "No se pudo abrir el documento. Recarga la página para volver a intentarlo.";
 
 const showSample = async (): Promise<void> => {
   const [{ SAMPLE, SAMPLE_SEAL }, { drawFrame }, { domPurifyCleaner }] = await Promise.all([
@@ -25,7 +27,11 @@ const showAsked = async (id: string): Promise<void> => {
 if (import.meta.env.MODE !== "production") {
   await showSample();
 } else if (ID_PATH.test(location.pathname)) {
-  await showAsked(location.pathname.slice(1));
+  // Here and not further in: the code that failed may be the code that would have said so.
+  await showAsked(location.pathname.slice(1)).catch((error: unknown) => {
+    console.error(error);
+    drawClosed(COULD_NOT_OPEN);
+  });
 } else {
   location.replace(NOT_FOUND);
 }

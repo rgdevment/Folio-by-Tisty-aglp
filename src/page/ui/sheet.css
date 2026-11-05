@@ -50,13 +50,14 @@
   border-radius: 6px;
 }
 
-/* The frame's bar stays on top, so the index does not leave a heading under it. */
+/* The frame's bar stays on top, so neither the index nor an anchor leaves what it reached under it. */
 h1,
 h2,
 h3,
 h4,
 h5,
-h6 {
+h6,
+[id] {
   scroll-margin-top: 72px;
 }
 

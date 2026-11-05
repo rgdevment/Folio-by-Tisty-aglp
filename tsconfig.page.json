@@ -11,5 +11,13 @@
     "resolveJsonModule": true,
     "types": ["vite/client", "node"]
   },
-  "include": ["src/page/ui", "src/page/ui.d.ts", "test/clean.test.ts", "test/ask.test.ts", "test/jsdom.d.ts"]
+  "include": [
+    "src/page/ui",
+    "src/page/ui.d.ts",
+    "test/clean.test.ts",
+    "test/ask.test.ts",
+    "test/frame.test.ts",
+    "test/show.test.ts",
+    "test/jsdom.d.ts"
+  ]
 }

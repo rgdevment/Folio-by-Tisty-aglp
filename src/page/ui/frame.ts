@@ -1,5 +1,5 @@
 import type { Document, Orientation, Page, Paper, Verdict } from "@tisty/contracts";
-import { bareUrl } from "./finish";
+import { bareUrl } from "./clean";
 import sheetStyles from "./sheet.css?url";
 
 const element = <T extends HTMLElement>(id: string): T => {
@@ -111,7 +111,12 @@ const drawIndex = (root: ShadowRoot, held: Document | Page): void => {
     item.append(button);
     list.append(item);
   }
-  element("panel-index").hidden = list.childElementCount === 0 && element("pages").childElementCount === 0;
+  const empty = list.childElementCount === 0 && element("pages").childElementCount === 0;
+  element("panel-index").hidden = empty;
+  // On a phone its button would open a dimmed screen with nothing on it.
+  for (const button of element("dock").querySelectorAll<HTMLElement>('[data-panel="panel-index"]')) {
+    button.hidden = empty;
+  }
 };
 
 const fact = (list: HTMLElement, name: string, value: string): void => {
@@ -208,7 +213,7 @@ const tagsOf = (tags: string[]): HTMLElement => {
   return list;
 };
 
-const REFERENCE = /^tisty:(page|file|cited)\/(\d+)$/i;
+const REFERENCE = /^tisty:(page|cited)\/(\d+)$/i;
 
 // Nothing here changes the address by itself: the part after its # holds the link key (contract, «links»).
 const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page: Page) => void): void => {
@@ -287,9 +292,4 @@ export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFra
   element("loading").hidden = true;
   element("desk").hidden = false;
   document.body.dataset.state = "open";
-};
-
-export const drawClosed = (said: string): void => {
-  element("loading-text").textContent = said;
-  document.body.dataset.state = "closed";
 };

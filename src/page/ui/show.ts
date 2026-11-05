@@ -1,10 +1,12 @@
 import { type EnvelopeRefusal, EnvelopeRefused } from "../../rules/envelope";
 import type { Arrived } from "../read";
 import { openLink } from "../read";
-import type { NotArrived } from "./ask";
+import { askFor, type NotArrived } from "./ask";
 import { domPurifyCleaner } from "./clean";
+import { drawClosed } from "./closed";
 import { finished, pictureAddresses } from "./finish";
-import { drawClosed, drawFrame } from "./frame";
+import { drawFrame } from "./frame";
+import { solved } from "./solve";
 
 const DAY_MILLISECONDS = 86_400_000;
 
@@ -13,9 +15,9 @@ const NOT_ARRIVED: Record<string, string> = {
   blocked: "Este documento fue bloqueado.",
   slow: "Hay demasiadas visitas desde tu red. Vuelve a intentarlo en un momento.",
   quota: "Hay demasiadas visitas desde tu red. Vuelve a intentarlo más tarde.",
-  proof: "Este documento tuvo muchas visitas hoy. Vuelve a intentarlo mañana.",
+  proof: "Este documento tuvo muchas visitas hoy. Vuelve a intentarlo más tarde.",
 };
-const COULD_NOT_ARRIVE = "No se pudo traer el documento. Revisa tu conexión y vuelve a intentarlo.";
+const COULD_NOT_ARRIVE = "No se pudo traer el documento. Vuelve a intentarlo en un momento.";
 
 const REFUSED: Record<EnvelopeRefusal, string> = {
   newer: "Este documento se escribió con una versión más nueva. Recarga la página para abrirlo.",
@@ -45,7 +47,12 @@ export const showLink = async (
   asked: Promise<Arrived | NotArrived>,
   notFound: string,
 ): Promise<void> => {
-  const answer = await asked;
+  const first = await asked;
+  // Past a document's free readers of the day, the server asks for a little work and not for a wait.
+  const answer =
+    "refused" in first && first.salt !== undefined && first.bits !== undefined
+      ? await askFor(id, await solved(first.salt, first.bits))
+      : first;
   if ("refused" in answer) {
     if (answer.refused === "missing") location.replace(notFound);
     else drawClosed(NOT_ARRIVED[answer.refused] ?? COULD_NOT_ARRIVE);

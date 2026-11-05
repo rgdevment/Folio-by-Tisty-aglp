@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { constants, brotliCompressSync } from "node:zlib";
 
@@ -32,6 +32,10 @@ if (scripts.some(({ data }) => data.includes(ONLY_IN_THE_SAMPLE))) {
 }
 if (scripts.some(({ data }) => data.includes(ONLY_IN_THE_WHOLE_CONTRACT))) {
   console.error("x  the whole contract was built into the page, and not its check entry");
+  process.exit(1);
+}
+if (!existsSync("dist/page/licenses.txt")) {
+  console.error("x  DOMPurify's licenses do not go with the page");
   process.exit(1);
 }
 if (total > SCRIPTS_AT_MOST) {

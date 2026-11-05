@@ -88,6 +88,17 @@ describe("the cleaner, where a browser reads HTML otherwise", () => {
     expectHarmless(cleaner.clean(html));
   });
 
+  it("takes out a reference that is not one, as the contract reads it", () => {
+    const words = cleaner.clean(
+      '<a href="tisty:page/x">a</a><a href="tisty:other/1">b</a><a href="TISTY:page/1">c</a>',
+    );
+    expect([...words.querySelectorAll("a")].map((one) => one.getAttribute("href"))).toEqual([
+      null,
+      null,
+      "TISTY:page/1",
+    ]);
+  });
+
   it("does not leave a class the contract does not know", () => {
     const words = cleaner.clean('<div class="table sheet bar">a</div>');
     expect(words.querySelector("div")?.getAttribute("class")).toBe("table");
@@ -115,7 +126,16 @@ describe("what the contract says of styles", () => {
     (cleaner.clean(`<table><colgroup>${html}</colgroup></table>`).querySelector(tag) as HTMLElement).style;
 
   it("is set by hand, so the page's CSP never meets a style attribute", () => {
-    expect(styleOf('<col style="width: 120px">', "col").getPropertyValue("width")).toBe("120px");
+    const adopt = window.document.adoptNode.bind(window.document);
+    const asAdopted: (string | null)[] = [];
+    window.document.adoptNode = (node: DocumentFragment) => {
+      asAdopted.push(node.querySelector("col")?.getAttribute("style") ?? null);
+      return adopt(node);
+    };
+    const style = styleOf('<col style="width: 120px">', "col");
+    window.document.adoptNode = adopt;
+    expect(asAdopted).toEqual([null]);
+    expect(style.getPropertyValue("width")).toBe("120px");
   });
 
   it("is all that gets through", () => {
@@ -144,6 +164,12 @@ describe("the finishing touches", () => {
   it("never draw a picture from anywhere else (decision 7)", () => {
     const words = finished(cleaner.clean('<img src="https://a.example/x.png" alt="a">'), []);
     expect(words.querySelector("img")?.hasAttribute("src")).toBe(false);
+  });
+
+  it("leave a file's link as its words, since nothing can ask for it yet", () => {
+    const link = finished(cleaner.clean('<a href="tisty:file/0">Cartilla</a>'), []).querySelector("a");
+    expect(link?.hasAttribute("href")).toBe(false);
+    expect(link?.textContent).toBe("Cartilla");
   });
 
   it("send what leaves to another tab, telling it nothing", () => {

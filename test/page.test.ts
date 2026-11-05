@@ -32,6 +32,7 @@ describe("the page's headers", () => {
     expect(csp).toContain("script-src 'self'");
     expect(csp).toContain("style-src 'self'");
     expect(csp).toContain("img-src 'self' blob:");
+    expect(csp).toContain("worker-src 'self'");
     expect(csp).toContain("base-uri 'none'");
     expect(csp).toContain("form-action 'none'");
     expect(csp).not.toMatch(/https?:|unsafe|\*/);
@@ -60,9 +61,9 @@ describe("opening a link", () => {
     expect(main.indexOf("askFor(id)")).toBeLessThan(main.indexOf('import("./show")'));
   });
 
-  it("never moves the address by itself, since what follows its # is the key", () => {
-    expect(FRAME).not.toMatch(/location\.hash\s*=/);
-    expect(FRAME).toContain("event.preventDefault()");
+  it("says something even when the code that reads it could not load", () => {
+    expect(main).toContain('from "./closed"');
+    expect(main).toMatch(/showAsked\([^)]*\)[^;]*\.catch/);
   });
 });
 

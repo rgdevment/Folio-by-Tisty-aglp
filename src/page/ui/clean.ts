@@ -30,7 +30,10 @@ const CONFIG: Config & { RETURN_DOM_FRAGMENT: true } = {
   RETURN_DOM_FRAGMENT: true,
 };
 
-const bare = (said: string): string => [...said].filter((one) => one > " ").join("");
+// As a browser reads an address: spaces and control characters do not hide a scheme from it.
+export const bareUrl = (said: string): string => [...said].filter((one) => one > " ").join("");
+
+const REFERENCE = new RegExp(`^(?:${URLS.references.join("|")})/(?:0|[1-9][0-9]{0,14})$`);
 
 const attributeHolds = (tag: string, name: string): boolean =>
   own(ALLOWED, tag)?.attributes.includes(name) ||
@@ -52,10 +55,12 @@ const classesKept = (tag: string, said: string): string => {
 };
 
 const urlHolds = (said: string): boolean => {
-  const url = bare(said);
+  const url = bareUrl(said);
   if (url.startsWith("#")) return true;
   const colon = url.indexOf(":");
-  return colon > 0 && URLS.schemes.includes(url.slice(0, colon).toLowerCase());
+  const scheme = url.slice(0, Math.max(colon, 0)).toLowerCase();
+  if (scheme === "tisty") return REFERENCE.test(url.slice(colon + 1));
+  return URLS.schemes.includes(scheme);
 };
 
 const paintHolds = (said: string): boolean => {
