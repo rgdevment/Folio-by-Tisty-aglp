@@ -25,8 +25,7 @@ The Tisty app has [terms of its own](https://github.com/rgdevment/Tisty/blob/mai
 
 ## How it works
 
-- **You share only from Tisty**, and what you share is unlisted (whoever has
-  the link reads it) or protected by a password (which it also asks for).
+- **You share only from Tisty**, and whoever has the link reads it.
 - **Each document has three links:** one to read, one to edit and one to
   manage. Whoever holds a link holds that power; keep them like a key.
 - **What you share is end-to-end encrypted.** The key travels in the link,
@@ -58,7 +57,8 @@ responsibility. You may not use Folio for:
 ## Reports and removal
 
 - **Anyone can report** a link from the page where it is read: with a
-  category, the reason and, if they choose, the full link.
+  category, the reason and, if they choose, the link to read it, never the part
+  that lets someone edit.
 - **With three reports** from different places, the document is blocked: it
   is no longer served, but it is not deleted. Whoever shared it sees the block
   in their management link and can appeal there.

@@ -18,8 +18,6 @@ as a non-profit. Contact: <rgdevment@tisty.app>.
   encrypted in your Tisty before they leave. The key travels in the link, after
   the `#`, and browsers do not send it to the server.
 - **Who you are.** There are no accounts, no email addresses and no names.
-- **Your password**, if you set one. The server keeps only a slow digest of it
-  (a hash), which checks it and cannot bring it back.
 
 ## What it does keep, and for how long
 
@@ -32,9 +30,8 @@ as a non-profit. Contact: <rgdevment@tisty.app>.
 | How many times it was read, counted once a day per visitor | To show you the reads in Tisty | As long as the document |
 | A line for each read served: the link's id (without its key, so it opens nothing), the country and the Cloudflare data center, never your IP | To know how much each document is read and where from, and size the service | 3 days, in Cloudflare's Workers Logs |
 | A digest of your IP (an HMAC with a key that changes) | Per-IP limits and blocks against abuse | As long as the quota or the block lasts |
-| For a document with a password: a digest of your network and of the IPv6 blocks it sits in, the wrong passwords counted against them, and that it gave the right one today | So wrong passwords make only the network that says them wait, and a reader who already got in is not slowed | Until the 15-minute stretch or the day ends |
 | Keys you took back, as your root signed them: the key's public part and your root's | So readers learn that a stolen or retired key no longer speaks for you | For good, since a reader must always be able to tell |
-| Reports: category, detail, the link if given, and a digest of the reporter's network (an HMAC with a key that changes every 90 days), so each network reports only once | To moderate and pass them where they belong | 90 days, or 180 if the prosecutor orders it |
+| Reports: category, detail, the link if given, and a digest of the reporter's network (an HMAC with a key that changes every 180 days), so each network reports only once | To moderate and pass them where they belong | 180 days, or longer if an order asks for it |
 
 **About signing:** if you sign what you share, your public key lets anyone tell
 that two signed documents come from the same person, though not who you are.

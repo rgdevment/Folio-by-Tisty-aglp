@@ -26,8 +26,7 @@ La app Tisty tiene sus propios [términos](https://github.com/rgdevment/Tisty/bl
 
 ## Cómo funciona
 
-- **Se comparte solo desde Tisty**, y lo compartido es no listado (lo lee quien
-  tiene el link) o con clave (además pide una clave).
+- **Se comparte solo desde Tisty**, y lo lee quien tiene el link.
 - **Cada documento tiene tres links:** uno para leer, otro para editar y otro
   para administrar. Quien tiene un link tiene ese poder; cuídalos como una
   llave.
@@ -58,7 +57,8 @@ responsabilidad. No se permite usar Folio para:
 ## Denuncias y retiro
 
 - **Cualquiera puede denunciar** un link desde la página donde se lee: con una
-  categoría, el porqué y, si quiere, el link completo.
+  categoría, el porqué y, si quiere, el link para leerlo, nunca la parte que
+  permite editar.
 - **Con tres denuncias** desde lugares distintos, el documento se bloquea: deja
   de servirse, pero no se borra. Quien lo compartió ve el bloqueo en su link de
   administración y puede reclamar ahí.

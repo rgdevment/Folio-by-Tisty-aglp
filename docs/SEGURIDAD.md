@@ -41,9 +41,7 @@ amenazas legales.
   necesita cambios, se dejan solo la imagen y su perfil de color: sin
   ubicación, sin comentarios, sin nada escondido detrás.
 - **Abusar cuesta.** Reservar, subir y denunciar piden cada uno una prueba de
-  trabajo. Las claves se guardan como un resumen lento; las equivocadas se le
-  cuentan a la red que las dice, que es la única que espera, y pasadas 50 en
-  el día cada intento pide también una prueba de trabajo.
+  trabajo.
 
 ## Qué no protege
 

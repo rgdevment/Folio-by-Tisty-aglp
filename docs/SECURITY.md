@@ -40,9 +40,7 @@ be met with legal threats.
   photo that needs no change, stripped down to the picture and its colour
   profile: no location, no comments, nothing hidden after them.
 - **Abuse costs.** Reserving, uploading and reporting each ask for a proof of
-  work. Passwords are kept as a slow digest; wrong ones are counted against the
-  network that says them, which alone is made to wait, and past 50 in a day
-  every guess asks for a proof of work too.
+  work.
 
 ## What it does not protect
 

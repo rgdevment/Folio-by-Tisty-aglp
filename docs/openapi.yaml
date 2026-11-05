@@ -309,7 +309,7 @@ components:
         sealedLink:
           type: string
           maxLength: 1024
-          description: The whole link, sealed with the operator's public key. The server cannot open it.
+          description: The link to read it, id#key and never the edit token, sealed with the operator's public key. The server cannot open it.
     Status:
       type: object
       required: [status]
