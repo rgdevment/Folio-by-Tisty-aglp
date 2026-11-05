@@ -5,7 +5,7 @@ import type { ReportTools } from "./report";
 import { hourOf, sameText, tokenHash } from "./start";
 import type { DocStatus, Store } from "./store";
 
-export type AdminAction = "status" | "pause" | "resume" | "stop" | "appeal";
+export type AdminAction = "status" | "pause" | "resume" | "stop" | "appeal" | "permit";
 
 export interface Administering {
   id: string;
@@ -13,6 +13,7 @@ export interface Administering {
   now: number;
   token: string;
   action: AdminAction;
+  permit?: string | null;
 }
 
 export type AdminTools = Pick<ReportTools, "store" | "limiter" | "dayKey">;
@@ -38,7 +39,7 @@ const appeal = async (
 };
 
 export const administer = async (
-  { id, ip, now, token, action }: Administering,
+  { id, ip, now, token, action, permit = null }: Administering,
   tools: AdminTools,
 ): Promise<AdminAnswer> => {
   const { store, limiter, dayKey } = tools;
@@ -51,6 +52,7 @@ export const administer = async (
   if (action === "status") return { status: owned.status };
   if (action === "appeal") return appeal(id, owned.status, today, now, tools);
   if (owned.status.blockedAt !== null) return { refused: "blocked" };
-  await CHANGES[action](store, id, today);
+  if (action === "permit") await store.setPermit(id, permit);
+  else await CHANGES[action](store, id, today);
   return { done: true };
 };

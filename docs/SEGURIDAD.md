@@ -40,9 +40,10 @@ amenazas legales.
 - **Las imágenes salen limpias.** Se vuelven a escribir o, en una foto que no
   necesita cambios, se dejan solo la imagen y su perfil de color: sin
   ubicación, sin comentarios, sin nada escondido detrás.
-- **Abusar cuesta.** Denunciar pide una prueba de trabajo, y también un lector
-  nuevo pasado el cupo gratis del día. Iniciar un compartido y leer tienen un
-  freno de velocidad por red, y subir tiene un cupo diario por red.
+- **Abusar cuesta.** Denunciar y compartir algo nuevo piden una prueba de
+  trabajo, y también un lector nuevo pasado el cupo gratis del día. Iniciar un
+  compartido y leer tienen un freno de velocidad por red, y subir tiene un cupo
+  por red y una espera por persona.
 
 ## Qué no protege
 

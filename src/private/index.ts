@@ -10,6 +10,7 @@ import { answer } from "./api";
 interface Env extends Bindings, SpendBindings, MailBindings {
   FOLIO_SECRET: string;
   READS: RateLimit;
+  SYNCS: RateLimit;
   BILLING_DAY: string;
   HEARTBEAT_URL?: string;
   SPEND_HEARTBEAT_URL?: string;
@@ -48,6 +49,7 @@ export default {
         limits: LEVEL_ONE,
         secret: env.FOLIO_SECRET,
         limiter: { allows: async (key) => (await env.READS.limit({ key })).success },
+        syncLimiter: { allows: async (key) => (await env.SYNCS.limit({ key })).success },
         dayKey: (today) => dayKeys.of(today, (day) => store.dayKey(day)),
         evidenceKey: (today) => evidenceKeys.of(today, (day) => store.evidenceKey(day)),
       },

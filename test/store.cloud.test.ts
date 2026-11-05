@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
 import { DAY_MS, GRAVE_REPORTS, LEVEL_ONE, type Limits } from "../src/core/limits";
 import type { NewDoc, Reading } from "../src/core/store";
+import { SIGNED_BY_THE_OWNER } from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -34,6 +35,8 @@ const newDoc = (id: string, over: Partial<NewDoc> = {}): NewDoc => ({
   ...over,
 });
 
+const WEEK_AND_A_DAY = 8 * 86_400_000;
+
 const upload = (id: string, n: number, hash = `h${n}`, net = "n1") => ({
   id,
   n,
@@ -41,6 +44,7 @@ const upload = (id: string, n: number, hash = `h${n}`, net = "n1") => ({
   body: "x".repeat(10),
   net,
   at: 1_000 + n,
+  ...SIGNED_BY_THE_OWNER,
 });
 const reading = (reader: string, doc = "d1", over = {}) => ({
   owner: "o1",
@@ -348,10 +352,10 @@ describe("expiring", () => {
     expect(await row("d1")).toBeNull();
   });
 
-  it("does not let an upload stretch a paused document", async () => {
+  it("does not let an upload reach a paused document, or stretch it", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
     await store.pause("d1", DAY);
-    expect(await store.upload(upload("d1", 1), DAY + 29)).toBe("stored");
+    expect(await store.upload(upload("d1", 1), DAY + 29)).toBe("paused");
     expect((await row("d1"))?.dies_on).toBe(DAY + LEVEL_ONE.pausedDays);
   });
 
@@ -779,11 +783,11 @@ describe("uploading", () => {
   it("keeps the versions it says, and their objects", async () => {
     await store.create(newDoc("d1"), DAY);
     for (let n = 1; n <= LEVEL_ONE.versionsKept + 2; n += 1) {
-      expect(await store.upload(upload("d1", n), DAY)).toBe("stored");
+      expect(await store.upload({ ...upload("d1", n), at: n * WEEK_AND_A_DAY }, DAY)).toBe("stored");
     }
     const after = await row("d1");
     const versions = JSON.parse(after?.versions ?? "[]") as { n: number }[];
-    expect(versions.map((one) => one.n)).toEqual([3, 4, 5, 6, 7]);
+    expect(versions.map((one) => one.n)).toEqual([3, 4, 5]);
     expect(after?.bytes).toBe(10 * LEVEL_ONE.versionsKept);
     expect((await objects("d1")).length).toBe(LEVEL_ONE.versionsKept);
   });
@@ -1109,11 +1113,13 @@ describe("what was reported", () => {
     expect((await row("d1"))?.latest).toBe(0);
   });
 
-  it("does not lose a version to five clean uploads", async () => {
+  it("does not lose a version to clean uploads, however long after", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
     await store.upload(upload("d1", 1), DAY);
     await report();
-    for (let n = 2; n <= LEVEL_ONE.versionsKept + 3; n += 1) await store.upload(upload("d1", n), DAY);
+    for (let n = 2; n <= LEVEL_ONE.versionsKept + 3; n += 1) {
+      await store.upload({ ...upload("d1", n), at: n * WEEK_AND_A_DAY }, DAY);
+    }
     expect(await objects("d1")).toContain("d1/1.h1");
     expect((await objects("d1")).length).toBe(LEVEL_ONE.versionsKept + 3);
     const versions = JSON.parse((await row("d1"))?.versions ?? "[]") as { n: number }[];

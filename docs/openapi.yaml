@@ -30,6 +30,7 @@ servers:
   - url: https://tisty.cl/api/v1
 tags:
   - name: Reading
+  - name: Uploading
   - name: Reporting
   - name: Administering
 security: []
@@ -89,6 +90,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PausedOrBlocked" }
         "404": { $ref: "#/components/responses/Missing" }
+        "426":
+          description: Written under a contract older than the oldest the server serves. Tisty sends it again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Outdated" }
         "429":
           description: Going too fast, or a proof of work is asked for.
           headers:
@@ -100,6 +106,95 @@ paths:
                   - $ref: "#/components/schemas/Slow"
                   - $ref: "#/components/schemas/Proof"
         "500": { $ref: "#/components/responses/Failed" }
+    put:
+      tags: [Uploading]
+      operationId: upload
+      summary: Takes a sealed envelope as this document's next version.
+      description: |
+        The server checks its signatures and its owner with nothing open, and never opens it. The first
+        version also brings what `POST /start` gave, its proof of work, the admin token and its days.
+        After that, its owner may upload, or whoever signs with the token of the permit it holds. An
+        upload never changes who owns a document or who may edit it. Sent twice, it stores it once.
+      parameters:
+        - $ref: "#/components/parameters/Proof"
+        - name: Folio-Start
+          in: header
+          description: The first version only. The `mac` that `POST /start` gave.
+          schema: { type: string }
+        - name: Folio-Admin
+          in: header
+          description: The first version only. The token of the admin link, of which only a hash is kept.
+          schema: { type: string }
+        - name: Folio-Ttl-Days
+          in: header
+          description: The first version only. How many days without activity it lives.
+          schema: { type: integer, enum: [1, 3, 7, 15] }
+        - name: Folio-Anchor
+          in: header
+          description: The first version only. The document whose language this is, when it is its owner's.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: It is the document's latest version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stored" }
+        "400":
+          description: The first version came without what it needs, or another document took that place.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BadUpload" }
+        "403":
+          description: It is paused or blocked, or this signer may not send a version of it.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/PausedOrBlocked"
+                  - $ref: "#/components/schemas/NotYours"
+        "404": { $ref: "#/components/responses/Missing" }
+        "409":
+          description: Another version arrived first, or this person keeps as many documents as they may.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Behind" }
+        "413":
+          description: Past what a document may weigh.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TooBig" }
+        "422":
+          description: The envelope does not hold, and `why` says how.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BadEnvelope" }
+        "426":
+          description: Written under a contract older than the oldest the server takes. Tisty sends it again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Outdated" }
+        "429":
+          description: Going too fast, or past a quota, or a proof of work is asked for.
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Slow"
+                  - $ref: "#/components/schemas/Quota"
+                  - $ref: "#/components/schemas/Proof"
+        "500": { $ref: "#/components/responses/Failed" }
+        "503":
+          description: Uploads are off for now, by the spending cut. Reading goes on.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadsOff" }
     delete:
       tags: [Administering]
       operationId: stopSharing
@@ -111,6 +206,65 @@ paths:
         - $ref: "#/components/parameters/Admin"
       responses:
         "200": { $ref: "#/components/responses/Done" }
+        "403": { $ref: "#/components/responses/Blocked" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
+  /docs/{id}/latest:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Reading]
+      operationId: latest
+      summary: Says which version there is, for the button that syncs.
+      description: It counts as no reader and no activity, and it writes nothing.
+      responses:
+        "200":
+          description: Its latest version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Latest" }
+        "403":
+          description: Paused by its owner, or blocked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PausedOrBlocked" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "426":
+          description: Written under a contract older than the oldest the server serves. Tisty sends it again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Outdated" }
+        "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
+  /docs/{id}/permit:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    put:
+      tags: [Administering]
+      operationId: setPermit
+      summary: Changes who may edit, at once, and with no version.
+      description: |
+        Sent before a version that carries the owner's block with this permit. From here on, what the
+        old token signs is refused. A null permit leaves only the owner.
+      parameters:
+        - $ref: "#/components/parameters/Admin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permit]
+              properties:
+                permit: { type: [string, "null"], pattern: "^[A-Za-z0-9_-]{43}$" }
+      responses:
+        "200": { $ref: "#/components/responses/Done" }
+        "400":
+          description: It is not a permit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BadUpload" }
         "403": { $ref: "#/components/responses/Blocked" }
         "404": { $ref: "#/components/responses/Missing" }
         "429": { $ref: "#/components/responses/Slow" }
@@ -288,6 +442,49 @@ components:
         id: { type: string, pattern: "^[A-Za-z0-9]{8}$" }
         mac: { type: string, description: What shows this id was given here, this hour or the one before. }
         salt: { type: string }
+    Stored:
+      type: object
+      required: [stored, version]
+      properties:
+        stored: { const: true }
+        version: { type: integer }
+    Latest:
+      type: object
+      required: [version, hash]
+      properties:
+        version: { type: integer }
+        hash: { type: string }
+    BadUpload:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: bad_upload }
+    NotYours:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: not_yours }
+    Behind:
+      type: object
+      required: [refused]
+      properties:
+        refused: { enum: [behind, shares_full] }
+    BadEnvelope:
+      type: object
+      required: [refused, why]
+      properties:
+        refused: { const: envelope }
+        why: { enum: [newer, older, damaged, unsigned, key] }
+    Outdated:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: outdated }
+    UploadsOff:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: uploads_off }
     Received:
       type: object
       required: [received]

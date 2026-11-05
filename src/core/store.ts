@@ -3,6 +3,8 @@ export interface Version {
   hash: string;
   bytes: number;
   at: number;
+  signer: string;
+  contract: string;
 }
 
 export interface NewDoc {
@@ -10,6 +12,7 @@ export interface NewDoc {
   owner: string;
   anchor?: string;
   permit?: string;
+  ownerMark?: string;
   adminHash: string;
   ttlDays: number;
   net: string;
@@ -22,6 +25,19 @@ export interface Upload {
   body: ArrayBuffer | Uint8Array | string;
   net: string;
   at: number;
+  signer: string;
+  contract: string;
+  byOwner: boolean;
+  permit: string | null;
+  ownerMark: string;
+}
+
+export interface Held {
+  owner: string;
+  permit: string | null;
+  ownerMark: string;
+  latest: number;
+  versions: Version[];
 }
 
 export interface Reading {
@@ -78,7 +94,7 @@ export interface Owned {
 }
 
 export type Created = "created" | "same" | "taken" | "shares_full" | "no_anchor" | "quota" | "bad_ttl";
-export type Uploaded = "stored" | "same" | "behind" | "missing" | "blocked" | "quota";
+export type Uploaded = "stored" | "same" | "behind" | "missing" | "blocked" | "paused" | "quota" | "list_full";
 export type Admitted = "here" | "new" | "over" | "full";
 export type Stage = "open" | "warned" | "no_uploads" | "blocked";
 
@@ -92,6 +108,8 @@ export interface Swept {
 export interface Store {
   create(doc: NewDoc, today: number): Promise<Created>;
   upload(upload: Upload, today: number): Promise<Uploaded>;
+  held(id: string): Promise<Held | null>;
+  setPermit(id: string, permit: string | null): Promise<void>;
   admit(reading: Reading, today: number): Promise<Admitted>;
   note(reading: Reading, today: number): Promise<void>;
   shown(id: string, today: number): Promise<Shown | null>;

@@ -1,14 +1,16 @@
 import { type AdminAction, administer } from "../core/admin";
 import { dayOf } from "../core/limits";
 import { netDigest } from "../core/net";
-import { type Asked, readDoc } from "../core/read";
+import { type Asked, latestVersion, readDoc, type SyncTools } from "../core/read";
 import { type Refused, tooFast } from "../core/refused";
 import { type ReportTools, reportDoc, saidOf } from "../core/report";
 import { startNow } from "../core/start";
+import { type FirstUpload, setPermitHolds, uploadDoc } from "../core/upload";
 
 const PREFIX = "/api/v1/";
-const DOC_PATH = /^docs\/([A-Za-z0-9]{8})(?:\/(report|admin|pause|resume|appeal))?$/;
+const DOC_PATH = /^docs\/([A-Za-z0-9]{8})(?:\/(report|admin|pause|resume|appeal|latest|permit))?$/;
 const REPORT_BYTES_AT_MOST = 16 * 1024;
+const PERMIT_BYTES_AT_MOST = 256;
 
 export const STATUS: Record<Refused["refused"], number> = {
   missing: 404,
@@ -22,6 +24,13 @@ export const STATUS: Record<Refused["refused"], number> = {
   not_blocked: 409,
   appealed: 409,
   failed: 500,
+  behind: 409,
+  not_yours: 403,
+  shares_full: 409,
+  bad_upload: 400,
+  uploads_off: 503,
+  outdated: 426,
+  envelope: 422,
 };
 
 const ADMIN_ROUTES: Record<string, AdminAction> = {
@@ -57,7 +66,7 @@ const ipOf = (request: Request): string => request.headers.get("CF-Connecting-IP
 const cfOf = (request: Request) => (request as { cf?: { country?: string; colo?: string; asn?: number } }).cf;
 
 export interface Api {
-  tools: ReportTools;
+  tools: ReportTools & SyncTools;
   waitUntil: (work: Promise<unknown>) => void;
   now: number;
 }
@@ -94,14 +103,14 @@ const jsonOf = (text: string): unknown => {
 };
 
 // Read in pieces, since a body sent in parts says no length and could be any size.
-const textUpTo = async (request: Request, atMost: number): Promise<string | null> => {
-  if (!request.body) return "";
+const blobUpTo = async (request: Request, atMost: number): Promise<Blob | null> => {
+  if (!request.body) return new Blob();
   const reader = request.body.getReader();
   const pieces: Uint8Array[] = [];
   let bytes = 0;
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) return new Blob(pieces).text();
+    if (done) return new Blob(pieces);
     bytes += value.byteLength;
     if (bytes > atMost) {
       await reader.cancel();
@@ -109,6 +118,48 @@ const textUpTo = async (request: Request, atMost: number): Promise<string | null
     }
     pieces.push(value);
   }
+};
+
+const textUpTo = async (request: Request, atMost: number): Promise<string | null> =>
+  (await blobUpTo(request, atMost))?.text() ?? null;
+
+const firstUploadOf = ({ headers }: Request): FirstUpload | undefined => {
+  const start = headers.get("Folio-Start");
+  if (start === null) return undefined;
+  const anchor = headers.get("Folio-Anchor");
+  return {
+    start,
+    proof: headers.get("Folio-Proof") ?? "",
+    adminToken: headers.get("Folio-Admin") ?? "",
+    ttlDays: Number(headers.get("Folio-Ttl-Days")),
+    ...(anchor === null ? {} : { anchor }),
+  };
+};
+
+const answerUpload = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
+  const blob = await blobUpTo(request, tools.limits.envelopeBytesAtMost);
+  if (!blob) return refusal({ refused: "too_big" }, now);
+  const first = firstUploadOf(request);
+  const answer = await uploadDoc(
+    { id, now, ip: ipOf(request), bytes: new Uint8Array(await blob.arrayBuffer()), ...(first ? { first } : {}) },
+    tools,
+  );
+  return "refused" in answer ? refusal(answer, now) : json(200, answer);
+};
+
+const answerLatest = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
+  const answer = await latestVersion({ id, now, ip: ipOf(request) }, tools);
+  return "refused" in answer ? refusal(answer, now) : json(200, answer);
+};
+
+const answerPermit = async (request: Request, id: string, api: Api): Promise<Response> => {
+  const { tools, now } = api;
+  const text = await textUpTo(request, PERMIT_BYTES_AT_MOST);
+  const said = text === null ? null : jsonOf(text);
+  if (!setPermitHolds(said)) return refusal({ refused: "bad_upload" }, now);
+  const token = request.headers.get("Folio-Admin") ?? "";
+  const answer = await administer({ id, now, action: "permit", token, ip: ipOf(request), permit: said.permit }, tools);
+  return "refused" in answer ? refusal(answer, now) : json(200, answer);
 };
 
 const answerReport = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
@@ -154,6 +205,9 @@ const route = async (request: Request, api: Api): Promise<Response> => {
 
   const route = `${request.method} ${part}`;
   if (route === "GET ") return answerRead(request, id, api);
+  if (route === "PUT ") return answerUpload(request, id, api);
+  if (route === "GET latest") return answerLatest(request, id, api);
+  if (route === "PUT permit") return answerPermit(request, id, api);
   if (route === "POST report") return answerReport(request, id, api);
   const action = ADMIN_ROUTES[route];
   return action ? answerAdmin(request, id, action, api) : json(404, { refused: "missing" });

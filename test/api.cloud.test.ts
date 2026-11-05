@@ -4,10 +4,12 @@ import { load } from "js-yaml";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import written from "../docs/openapi.yaml?raw";
 import { Cloud } from "../src/cloudflare/store";
+import type { Bytes } from "../src/core/bytes";
 import { dayOf, GRAVE_REPORTS, LEVEL_ONE } from "../src/core/limits";
-import { proofHolds, tokenHash } from "../src/core/start";
+import { hourOf, macOf, proofHolds, tokenHash } from "../src/core/start";
 import { STATUS } from "../src/private/api";
 import worker from "../src/private/index";
+import { newPerson, type Person, rootOf, SIGNED_BY_THE_OWNER, sealedEnvelope } from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -65,11 +67,22 @@ interface Scenario {
   ready?: () => Promise<unknown>;
   solves?: boolean;
   times?: number;
+  upload?: () => Promise<Bytes>;
+  first?: boolean;
+  said?: object;
 }
 
-const send = async ({ method, path, admin, body, braked, broken }: Scenario, proof?: string, ip?: string) => {
+const send = async (
+  { method, path, admin, body, braked, broken, upload, first }: Scenario,
+  proof?: string,
+  ip?: string,
+) => {
   const context = createExecutionContext();
   const headers = new Headers({ "CF-Connecting-IP": ip ?? "198.51.100.77" });
+  if (first) {
+    headers.set("Folio-Start", await macOf("09".repeat(32), `start|${ID}|${hourOf(Date.now())}`));
+    headers.set("Folio-Ttl-Days", "3");
+  }
   if (admin) headers.set("Folio-Admin", admin);
   if (proof) headers.set("Folio-Proof", proof);
   const limit = async () => {
@@ -78,11 +91,12 @@ const send = async ({ method, path, admin, body, braked, broken }: Scenario, pro
   };
   const url = `https://tisty.cl/api/v1${path.replace("{id}", ID)}`;
   const response = await worker.fetch(
-    new Request(url, { method, headers, ...(body === undefined ? {} : { body }) }) as Request<
-      unknown,
-      IncomingRequestCfProperties
-    >,
-    { ...testEnv, FOLIO_SECRET: "09".repeat(32), READS: { limit } } as never,
+    new Request(url, {
+      method,
+      headers,
+      ...(upload ? { body: await upload() } : body === undefined ? {} : { body }),
+    }) as Request<unknown, IncomingRequestCfProperties>,
+    { ...testEnv, FOLIO_SECRET: "09".repeat(32), READS: { limit }, SYNCS: { limit } } as never,
     context,
   );
   await waitOnExecutionContext(context);
@@ -91,7 +105,7 @@ const send = async ({ method, path, admin, body, braked, broken }: Scenario, pro
 
 const share = async () => {
   await store.create({ id: ID, owner: "o1", adminHash: await tokenHash(TOKEN), ttlDays: 3, net: "n" }, TODAY);
-  await store.upload({ id: ID, n: 1, hash: "h1", body: "sealed", net: "n", at: 1234 }, TODAY);
+  await store.upload({ ...SIGNED_BY_THE_OWNER, id: ID, n: 1, hash: "h1", body: "sealed", net: "n", at: 1234 }, TODAY);
 };
 
 const block = async () => {
@@ -117,6 +131,56 @@ const pastTheFreeReaders = async () => {
     .run();
 };
 
+let owner: Person;
+let stranger: Person;
+
+const envelope =
+  (version: number, who = (): Person => owner) =>
+  () =>
+    sealedEnvelope({ id: ID, version, owner: who() });
+const shareSigned = async () => {
+  const bytes = await sealedEnvelope({ id: ID, version: 1, owner });
+  const asOwner = {
+    ...SIGNED_BY_THE_OWNER,
+    id: ID,
+    n: 1,
+    hash: "h1",
+    body: bytes,
+    net: "n",
+    at: Date.now() - 86_400_000,
+    signer: rootOf(owner),
+  };
+  await store.create({ id: ID, owner: rootOf(owner), adminHash: await tokenHash(TOKEN), ttlDays: 3, net: "n" }, TODAY);
+  await store.upload(asOwner, TODAY);
+};
+const LISTED_FULL = LEVEL_ONE.versionsListedAtMost;
+const listFull = async () => {
+  await shareSigned();
+  const listed = Array.from({ length: LISTED_FULL }, (_, at) => ({
+    n: at + 1,
+    hash: `h${at + 1}`,
+    bytes: 1,
+    at: Date.now() - 86_400_000,
+    signer: "someone else",
+    contract: "1.2.0",
+  }));
+  await testEnv.DB.prepare(`UPDATE docs SET latest = ?, versions = ? WHERE id = '${ID}'`)
+    .bind(LISTED_FULL, JSON.stringify(listed))
+    .run();
+};
+const keepsAsManyAsTheyMay = async () => {
+  for (const id of ["AAAAAAAA", "BBBBBBBB"]) {
+    await store.create({ id, owner: rootOf(owner), adminHash: "a", ttlDays: 3, net: "n" }, TODAY);
+  }
+};
+const noUploads = async () => {
+  await store.setStage("no_uploads");
+};
+const PERMIT = JSON.stringify({ permit: "A".repeat(43) });
+const UPLOAD_PATH = "/docs/{id}";
+const LATEST_PATH = "/docs/{id}/latest";
+const PERMIT_PATH = "/docs/{id}/permit";
+
 const REPORT = JSON.stringify({ category: "phishing" });
 const REPORT_PATH = "/docs/{id}/report";
 const APPEAL_PATH = "/docs/{id}/appeal";
@@ -129,7 +193,119 @@ const adminRoute = (method: string, path: string, blockable = true): Scenario[] 
   { method, path, status: 500, refused: "failed", admin: TOKEN, broken: true },
 ];
 
+const UPLOADING: Scenario[] = [
+  { method: "PUT", path: UPLOAD_PATH, status: 200, upload: envelope(2), ready: shareSigned },
+  { method: "PUT", path: UPLOAD_PATH, status: 400, refused: "bad_upload", upload: envelope(1), first: true, admin: "" },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 403,
+    refused: "not_yours",
+    upload: envelope(2, () => stranger),
+    ready: shareSigned,
+  },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 403,
+    refused: "blocked",
+    upload: envelope(2),
+    ready: async () => {
+      await shareSigned();
+      await testEnv.DB.prepare(`UPDATE docs SET blocked_at = ? WHERE id = '${ID}'`).bind(TODAY).run();
+    },
+  },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 403,
+    refused: "paused",
+    upload: envelope(2),
+    ready: async () => {
+      await shareSigned();
+      await store.pause(ID, TODAY);
+    },
+  },
+  { method: "PUT", path: UPLOAD_PATH, status: 404, refused: "missing", upload: envelope(1) },
+  { method: "PUT", path: UPLOAD_PATH, status: 409, refused: "behind", upload: envelope(5), ready: shareSigned },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 413,
+    refused: "too_big",
+    upload: async () => new Uint8Array(LEVEL_ONE.envelopeBytesAtMost + 1),
+  },
+  { method: "PUT", path: UPLOAD_PATH, status: 422, refused: "envelope", upload: async () => new Uint8Array(8) },
+  { method: "PUT", path: UPLOAD_PATH, status: 429, refused: "slow", upload: envelope(1), braked: true },
+  { method: "PUT", path: UPLOAD_PATH, status: 429, refused: "proof", upload: envelope(1), first: true, admin: TOKEN },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 429,
+    refused: "quota",
+    upload: envelope(LISTED_FULL + 1),
+    ready: listFull,
+  },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 409,
+    refused: "shares_full",
+    upload: envelope(1),
+    first: true,
+    admin: TOKEN,
+    solves: true,
+    ready: keepsAsManyAsTheyMay,
+  },
+  {
+    method: "PUT",
+    path: UPLOAD_PATH,
+    status: 426,
+    refused: "outdated",
+    upload: envelope(2),
+    ready: async () => {
+      await shareSigned();
+      LEVEL_ONE.oldestContractTaken = "9.0.0";
+    },
+  },
+  {
+    method: "GET",
+    path: "/docs/{id}",
+    status: 426,
+    refused: "outdated",
+    ready: async () => {
+      await share();
+      LEVEL_ONE.oldestContractServed = "9.0.0";
+    },
+  },
+  {
+    method: "GET",
+    path: LATEST_PATH,
+    status: 426,
+    refused: "outdated",
+    ready: async () => {
+      await share();
+      LEVEL_ONE.oldestContractServed = "9.0.0";
+    },
+  },
+  { method: "PUT", path: UPLOAD_PATH, status: 500, refused: "failed", upload: envelope(1), broken: true },
+  { method: "PUT", path: UPLOAD_PATH, status: 503, refused: "uploads_off", upload: envelope(1), ready: noUploads },
+  { method: "GET", path: LATEST_PATH, status: 200, ready: share },
+  { method: "GET", path: LATEST_PATH, status: 403, refused: "paused", ready: pause },
+  { method: "GET", path: LATEST_PATH, status: 403, refused: "blocked", ready: block },
+  { method: "GET", path: LATEST_PATH, status: 404, refused: "missing" },
+  { method: "GET", path: LATEST_PATH, status: 429, refused: "slow", braked: true },
+  { method: "GET", path: LATEST_PATH, status: 500, refused: "failed", broken: true },
+  { method: "PUT", path: PERMIT_PATH, status: 200, admin: TOKEN, body: PERMIT, ready: share },
+  { method: "PUT", path: PERMIT_PATH, status: 400, refused: "bad_upload", admin: TOKEN, body: "{}", ready: share },
+  { method: "PUT", path: PERMIT_PATH, status: 403, refused: "blocked", admin: TOKEN, body: PERMIT, ready: block },
+  { method: "PUT", path: PERMIT_PATH, status: 404, refused: "missing", admin: "wrong", body: PERMIT, ready: share },
+  { method: "PUT", path: PERMIT_PATH, status: 429, refused: "slow", admin: TOKEN, body: PERMIT, braked: true },
+  { method: "PUT", path: PERMIT_PATH, status: 500, refused: "failed", admin: TOKEN, body: PERMIT, broken: true },
+];
+
 const SCENARIOS: Scenario[] = [
+  ...UPLOADING,
   { method: "POST", path: "/start", status: 200 },
   { method: "POST", path: "/start", status: 429, refused: "slow", braked: true },
   { method: "POST", path: "/start", status: 500, refused: "failed", broken: true },
@@ -223,7 +399,9 @@ afterEach(() => {
 });
 
 beforeEach(async () => {
-  for (const table of ["docs", "net_day", "net_hour", "reports", "holds"]) {
+  LEVEL_ONE.oldestContractTaken = null;
+  LEVEL_ONE.oldestContractServed = null;
+  for (const table of ["docs", "net_day", "net_hour", "reports", "holds", "service_stage"]) {
     await testEnv.DB.prepare(`DELETE FROM ${table}`).run();
   }
   const tables = await testEnv.DB.prepare("SELECT name FROM sqlite_master WHERE name GLOB 'seen_[0-9]*'").all<{
@@ -235,6 +413,11 @@ beforeEach(async () => {
 });
 
 describe("the written API", () => {
+  beforeAll(async () => {
+    owner = await newPerson();
+    stranger = await newPerson();
+  });
+
   it("has a scenario here for every answer it promises, and the other way around", () => {
     const tried = SCENARIOS.map(({ method, path, status }) => `${method} ${path} ${status}`);
     expect(new Set(tried)).toEqual(new Set(writtenAnswers()));
