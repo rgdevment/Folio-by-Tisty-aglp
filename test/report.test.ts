@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { LEVEL_ONE, levelOfReport } from "../src/core/limits";
 import { saidOf } from "../src/core/report";
 import { isSealedLink } from "../src/core/sealed-link";
+import { OPERATOR_KEY } from "../src/page/operator-key";
 import { sealLink } from "../src/page/ui/seal";
 
 const ID = "k7Qm2xPa";
@@ -30,6 +31,11 @@ describe("a link sealed for the operator", () => {
     const other = join(folder, "other.key");
     keyScript("new", other);
     expect(() => keyScript("open", other, ID, sealed)).toThrow();
+  });
+
+  it("is sealed by the page under a key that holds, and the private part is never here", async () => {
+    expect(Buffer.from(OPERATOR_KEY, "base64url")).toHaveLength(32);
+    expect(isSealedLink(await sealLink(ID, LINK_KEY, OPERATOR_KEY))).toBe(true);
   });
 
   it("does not overwrite a key already there", () => {
