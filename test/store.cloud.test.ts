@@ -375,7 +375,7 @@ describe("expiring", () => {
   it("keeps a blocked document as evidence for its days, even if read late", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
     for (const net of ["a", "b", "c"])
-      await store.report({ doc: "d1", net, category: "phishing", asn: asnOf(net) }, DAY);
+      await store.report({ doc: "d1", net, category: "phishing", asn: asnOf(net) }, DAY, DAY * 24);
     const lastDay = DAY + LEVEL_ONE.evidenceDays;
     await noted(store, reading("r1"), lastDay - 5);
     await store.sweep(lastDay);
@@ -389,7 +389,7 @@ describe("expiring", () => {
   it("does not let a pause or a resume touch a blocked document", async () => {
     await store.create(newDoc("d1"), DAY);
     for (const net of ["a", "b", "c"])
-      await store.report({ doc: "d1", net, category: "phishing", asn: asnOf(net) }, DAY);
+      await store.report({ doc: "d1", net, category: "phishing", asn: asnOf(net) }, DAY, DAY * 24);
     await store.pause("d1", DAY + 1);
     await store.resume("d1", DAY + 1);
     const after = await row("d1");
@@ -425,7 +425,7 @@ describe("expiring", () => {
     await store.create(newDoc("anchor"), DAY);
     await store.create(newDoc("en", { anchor: "anchor" }), DAY);
     for (const net of ["a", "b", "c"])
-      await store.report({ doc: "en", net, category: "phishing", asn: asnOf(net) }, DAY);
+      await store.report({ doc: "en", net, category: "phishing", asn: asnOf(net) }, DAY, DAY * 24);
     await store.sweep(DAY + 3);
     expect(await row("anchor")).not.toBeNull();
     expect(await row("en")).not.toBeNull();
@@ -694,7 +694,7 @@ describe("creating", () => {
   it("does not count as a share what only evidence keeps", async () => {
     await store.create(newDoc("d1"), DAY);
     await store.create(newDoc("d2", { ttlDays: 15 }), DAY);
-    await store.report({ doc: "d1", net: "n", category: "phishing", asn: 1 }, DAY);
+    await store.report({ doc: "d1", net: "n", category: "phishing", asn: 1 }, DAY, DAY * 24);
     expect(await store.create(newDoc("d3"), DAY + 5)).toBe("created");
   });
 
@@ -827,7 +827,7 @@ describe("uploading", () => {
     expect((await row("d1"))?.dies_on).toBe(DAY + 2);
     expect(await store.upload(upload("nobody", 1), DAY)).toBe("missing");
     for (const net of ["a", "b", "c"])
-      await store.report({ doc: "d1", net, category: "malware", asn: asnOf(net) }, DAY);
+      await store.report({ doc: "d1", net, category: "malware", asn: asnOf(net) }, DAY, DAY * 24);
     expect(await store.upload(upload("d1", 2), DAY)).toBe("blocked");
   });
 
@@ -870,7 +870,7 @@ describe("uploading", () => {
 
 describe("reports", () => {
   const report = (net: string, doc = "d1", day = DAY) =>
-    store.report({ doc, net, category: "phishing", asn: asnOf(net) }, day);
+    store.report({ doc, net, category: "phishing", asn: asnOf(net) }, day, day * 24);
 
   it("blocks at three networks, once", async () => {
     await store.create(newDoc("d1"), DAY);
@@ -900,7 +900,8 @@ describe("reports", () => {
 
   it("does not block with three networks of one operator, and does with a second", async () => {
     await store.create(newDoc("d1"), DAY);
-    const from = (net: string, asn: number) => store.report({ doc: "d1", net, category: "phishing", asn }, DAY);
+    const from = (net: string, asn: number) =>
+      store.report({ doc: "d1", net, category: "phishing", asn }, DAY, DAY * 24);
     expect((await from("a", 7)).blocked).toBe(false);
     expect((await from("b", 7)).blocked).toBe(false);
     expect((await from("c", 7)).blocked).toBe(false);
@@ -961,7 +962,7 @@ describe("reports", () => {
     await store.appealAccepted("d1", DAY);
 
     await store.create(newDoc("d2"), DAY);
-    await store.report({ doc: "d2", net: "a", category: "phishing", asn: 1 }, DAY + 100);
+    await store.report({ doc: "d2", net: "a", category: "phishing", asn: 1 }, DAY + 100, (DAY + 100) * 24);
     await testEnv.DB.prepare("UPDATE docs SET blocked_at = ? WHERE id = 'd2'")
       .bind(DAY + 100)
       .run();
@@ -1006,7 +1007,7 @@ describe("reports", () => {
 
 describe("what was reported", () => {
   const report = (doc = "d1", category = "phishing", net = "a", day = DAY) =>
-    store.report({ doc, net, category, asn: asnOf(net) }, day);
+    store.report({ doc, net, category, asn: asnOf(net) }, day, day * 24);
   const sealedRows = () => testEnv.DB.prepare("SELECT COUNT(*) AS n FROM reports").first<{ n: number }>();
 
   it("outlives its days until the evidence runs out, and then goes", async () => {
@@ -1129,7 +1130,7 @@ describe("an order", () => {
 
   it("keeps the document and its reports for as long as it says, and not a day more", async () => {
     await store.create(newDoc("d1"), DAY);
-    await store.report({ doc: "d1", net: "a", category: "csam", asn: 1 }, DAY);
+    await store.report({ doc: "d1", net: "a", category: "csam", asn: 1 }, DAY, DAY * 24);
     const until = DAY + LEVEL_ONE.evidenceDays + 50;
     await order(until);
     await store.sweep(DAY + LEVEL_ONE.evidenceDays + 10);
@@ -1171,9 +1172,9 @@ describe("what each event writes, from start to end", () => {
   it("a report and a rejected report write one row and none", async () => {
     await store.create(newDoc("d1"), DAY);
     const { spent, cloud } = counting();
-    await cloud.report({ doc: "d1", net: "a", category: "phishing", asn: 1 }, DAY);
+    await cloud.report({ doc: "d1", net: "a", category: "phishing", asn: 1 }, DAY, DAY * 24);
     expect(spent.written).toBe(1);
-    await cloud.report({ doc: "d1", net: "a", category: "phishing", asn: 1 }, DAY);
+    await cloud.report({ doc: "d1", net: "a", category: "phishing", asn: 1 }, DAY, DAY * 24);
     expect(spent.written).toBe(1);
   });
 

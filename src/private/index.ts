@@ -14,12 +14,13 @@ interface Env extends Bindings, SpendBindings, MailBindings {
   HEARTBEAT_URL?: string;
   SPEND_HEARTBEAT_URL?: string;
   DIGEST_HEARTBEAT_URL?: string;
+  ADMIN_URL?: string;
   FOLIO_TAG?: string;
 }
 
 const WEEKLY = "0 4 * * 0";
 const SPEND = "*/15 * * * *";
-const DAILY = "0 12 * * *";
+const DIGEST = "0 0,12 * * *";
 const dayKeys = new DayKeys();
 const evidenceKeys = new DayKeys();
 
@@ -62,10 +63,11 @@ export default {
       return;
     }
     const store = new Cloud(env);
-    if (controller.cron === DAILY) {
+    if (controller.cron === DIGEST) {
       const sent = await sendDigest(controller.scheduledTime, {
         store,
         send: (subject, text) => sendMail(env, subject, text),
+        panel: env.ADMIN_URL,
       });
       console.log(JSON.stringify({ sent }));
       // It stops arriving when the mail fails, and that is the alert.

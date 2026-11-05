@@ -5,6 +5,7 @@ import { sendMail } from "../src/cloudflare/mail";
 import { Cloud } from "../src/cloudflare/store";
 import { sendDigest } from "../src/core/digest";
 import { dayOf } from "../src/core/limits";
+import { hourOf } from "../src/core/start";
 import worker from "../src/private/index";
 
 const testEnv = env as unknown as {
@@ -14,17 +15,19 @@ const testEnv = env as unknown as {
 };
 const store = new Cloud(testEnv);
 const NOW = Date.UTC(2026, 10, 20, 12);
+const LATER = NOW + 12 * 3_600_000;
 const TODAY = dayOf(NOW);
+const HOUR = hourOf(NOW);
 const ID = "k7Qm2xPa";
 const OTHER = "wordsOnl";
 
 const share = (id: string) =>
   store.create({ id, owner: "o1", editHash: "e", adminHash: "a", ttlDays: 3, net: "n" }, TODAY - 5);
-const report = (doc: string, net: string, category: string, day = TODAY - 1) =>
-  store.report({ doc, net, asn: 1, category }, day);
+const report = (doc: string, net: string, category: string, hour = HOUR - 1) =>
+  store.report({ doc, net, asn: 1, category }, TODAY, hour);
 
-const digest = (send = vi.fn(async (_subject: string, _text: string) => {})) =>
-  sendDigest(NOW, { store, send }).then((sent) => ({ sent, send }));
+const mailbox = () => vi.fn(async (_subject: string, _text: string) => {});
+const digest = (now = NOW, send = mailbox()) => sendDigest(now, { store, send }).then((sent) => ({ sent, send }));
 
 beforeAll(async () => {
   await applyD1Migrations(testEnv.DB, testEnv.TEST_MIGRATIONS);
@@ -38,12 +41,12 @@ beforeEach(async () => {
   await share(OTHER);
 });
 
-describe("the daily mail", () => {
+describe("the mail", () => {
   it("does not go when there is nothing to tell, and writes nothing", async () => {
     const { sent, send } = await digest();
     expect(sent).toBe(false);
     expect(send).not.toHaveBeenCalled();
-    expect((await store.digested()).day).toBe(0);
+    expect((await store.digested()).hour).toBe(0);
   });
 
   it("tells of each document and how many networks reported it", async () => {
@@ -67,29 +70,25 @@ describe("the daily mail", () => {
     expect(text.indexOf("csam")).toBeLessThan(text.indexOf("phishing"));
   });
 
-  it("goes once for the same news, and tells of today's the next day", async () => {
+  it("tells once, and the next mail only of what came after", async () => {
     await report(ID, "n1", "csam");
-    await report(OTHER, "n2", "csam", TODAY);
     expect((await digest()).sent).toBe(true);
     expect((await digest()).sent).toBe(false);
 
-    const send = vi.fn(async (_subject: string, _text: string) => {});
-    await sendDigest(NOW + 86_400_000, { store, send });
-    expect(send).toHaveBeenCalledOnce();
+    await report(OTHER, "n2", "csam", HOUR + 3);
+    const { send } = await digest(LATER);
     const text = send.mock.calls[0]?.[1] as string;
     expect(text).toContain(OTHER);
     expect(text).not.toContain(ID);
   });
 
-  it("tells it all the next day when the mail fails", async () => {
+  it("tells it all the next time when the mail fails", async () => {
     await report(ID, "n1", "csam");
     const failing = vi.fn(async () => {
       throw new Error("no mail");
     });
     await expect(sendDigest(NOW, { store, send: failing })).rejects.toThrow("no mail");
-
-    const send = vi.fn(async (_subject: string, _text: string) => {});
-    await sendDigest(NOW + 86_400_000, { store, send });
+    const { send } = await digest(LATER);
     expect(send.mock.calls[0]?.[1]).toContain(ID);
   });
 
@@ -99,10 +98,11 @@ describe("the daily mail", () => {
     expect((await digest()).sent).toBe(false);
   });
 
-  it("tells of a block and an appeal", async () => {
-    await testEnv.DB.prepare(`UPDATE docs SET blocked_at = ?, appealed_at = ? WHERE id = '${ID}'`)
-      .bind(TODAY - 1, TODAY - 1)
-      .run();
+  it("tells of a block when three networks made it, and of an appeal", async () => {
+    await store.report({ doc: ID, net: "n1", asn: 1, category: "phishing" }, TODAY, HOUR - 1);
+    await store.report({ doc: ID, net: "n2", asn: 2, category: "phishing" }, TODAY, HOUR - 1);
+    await store.report({ doc: ID, net: "n3", asn: 3, category: "phishing" }, TODAY, HOUR - 1);
+    await store.appeal(ID, TODAY, HOUR - 1);
     const { send } = await digest();
     const text = send.mock.calls[0]?.[1] as string;
     expect(text).toContain(`Bloqueados:\n${ID}`);
@@ -117,10 +117,18 @@ describe("the daily mail", () => {
     expect(await store.stage()).toBe("blocked");
   });
 
+  it("ends with the link to the panel when there is one", async () => {
+    await report(ID, "n1", "csam");
+    const send = mailbox();
+    await sendDigest(NOW, { store, send, panel: "https://panel.example" });
+    expect((send.mock.calls[0]?.[1] as string).endsWith("Panel: https://panel.example")).toBe(true);
+  });
+
   it("never holds the words of a document or who reported it", async () => {
     await store.report(
       { doc: ID, net: "a-network", asn: 1, category: "csam", detail: "palabras", sealedLink: "llave" },
-      TODAY - 1,
+      TODAY,
+      HOUR - 1,
     );
     const { send } = await digest();
     const text = send.mock.calls[0]?.[1] as string;
@@ -128,11 +136,8 @@ describe("the daily mail", () => {
   });
 
   it("says when it could not fit them all", async () => {
-    const reports = Array.from({ length: 60 }, (_, at) => `('${ID}', 'net${at}', ${TODAY - 1}, 'phishing', 1)`);
-    const others = Array.from({ length: 60 }, (_, at) => `('doc${at}', 'net', ${TODAY - 1}, 'phishing', 1)`);
-    await testEnv.DB.prepare(
-      `INSERT INTO reports (doc, net, at, category, asn) VALUES ${[...reports, ...others].join()}`,
-    ).run();
+    const rows = Array.from({ length: 60 }, (_, at) => `('doc${at}', 'net', ${TODAY}, ${HOUR - 1}, 'phishing', 1)`);
+    await testEnv.DB.prepare(`INSERT INTO reports (doc, net, at, at_hour, category, asn) VALUES ${rows.join()}`).run();
     const { send } = await digest();
     expect(send.mock.calls[0]?.[1]).toContain("(hay más)");
   });
@@ -159,24 +164,27 @@ describe("sending it", () => {
   });
 });
 
-describe("the daily round", () => {
-  const scheduled = async (more: object) => {
-    await worker.scheduled(
-      { cron: "0 12 * * *", scheduledTime: NOW, noRetry: () => {} } as never,
-      { ...testEnv, ALERT_FROM: "avisos@tisty.cl", ...more } as never,
+describe("the round", () => {
+  const scheduled = (more: object) =>
+    worker.scheduled(
+      { cron: "0 0,12 * * *", scheduledTime: NOW, noRetry: () => {} } as never,
+      { ...testEnv, ALERT_FROM: "avisos@tisty.cl", ALERT_TO: "persona@example.com", ...more } as never,
     );
-  };
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("sends the mail, and the heartbeat says it went", async () => {
+  it("sends the mail with the panel's link, and the heartbeat says it went", async () => {
     await report(ID, "n1", "csam");
     const beat = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
-    const EMAIL = { send: vi.fn(async () => ({ messageId: "m" })) };
-    await scheduled({ EMAIL, ALERT_TO: "persona@example.com", DIGEST_HEARTBEAT_URL: "https://beat.example/d" });
-    expect(EMAIL.send).toHaveBeenCalledOnce();
+    const send = vi.fn(async (_mail: { text: string }) => ({ messageId: "m" }));
+    await scheduled({
+      EMAIL: { send },
+      ADMIN_URL: "https://panel.example",
+      DIGEST_HEARTBEAT_URL: "https://beat.example/d",
+    });
+    expect(send.mock.calls[0]?.[0]?.text).toContain("Panel: https://panel.example");
     expect(beat).toHaveBeenCalledExactlyOnceWith("https://beat.example/d");
   });
 
@@ -184,9 +192,7 @@ describe("the daily round", () => {
     await report(ID, "n1", "csam");
     const beat = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
     const EMAIL = { send: vi.fn(async () => Promise.reject(new Error("no mail"))) };
-    await expect(
-      scheduled({ EMAIL, ALERT_TO: "persona@example.com", DIGEST_HEARTBEAT_URL: "https://beat.example/d" }),
-    ).rejects.toThrow("no mail");
+    await expect(scheduled({ EMAIL, DIGEST_HEARTBEAT_URL: "https://beat.example/d" })).rejects.toThrow("no mail");
     expect(beat).not.toHaveBeenCalled();
   });
 });

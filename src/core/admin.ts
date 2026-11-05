@@ -2,7 +2,7 @@ import { dayOf } from "./limits";
 import { netDigest } from "./net";
 import { type Refused, tooFast } from "./refused";
 import type { ReportTools } from "./report";
-import { sameText, tokenHash } from "./start";
+import { hourOf, sameText, tokenHash } from "./start";
 import type { DocStatus, Store } from "./store";
 
 export type AdminAction = "status" | "pause" | "resume" | "stop" | "appeal";
@@ -28,11 +28,12 @@ const appeal = async (
   id: string,
   { blockedAt, appealedAt }: DocStatus,
   today: number,
+  now: number,
   { store }: AdminTools,
 ): Promise<AdminAnswer> => {
   if (blockedAt === null) return { refused: "not_blocked" };
   if (appealedAt !== null) return { refused: "appealed" };
-  await store.appeal(id, today);
+  await store.appeal(id, today, hourOf(now));
   return { done: true };
 };
 
@@ -48,7 +49,7 @@ export const administer = async (
   if (!owned || !sameText(await tokenHash(token), owned.adminHash)) return { refused: "missing" };
 
   if (action === "status") return { status: owned.status };
-  if (action === "appeal") return appeal(id, owned.status, today, tools);
+  if (action === "appeal") return appeal(id, owned.status, today, now, tools);
   if (owned.status.blockedAt !== null) return { refused: "blocked" };
   await CHANGES[action](store, id, today);
   return { done: true };

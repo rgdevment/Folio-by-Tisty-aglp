@@ -99,9 +99,9 @@ export interface Store {
   dayKey(today: number): Promise<string>;
   evidenceKey(today: number): Promise<string>;
   takeHourly(net: string, action: string, hour: number, atMost: number): Promise<boolean>;
-  report(report: Report, today: number): Promise<Reported>;
+  report(report: Report, today: number, hour: number): Promise<Reported>;
   owned(id: string, today: number): Promise<Owned | null>;
-  appeal(id: string, today: number): Promise<void>;
+  appeal(id: string, today: number, hour: number): Promise<void>;
   appealAccepted(id: string, today: number): Promise<void>;
   pause(id: string, today: number): Promise<void>;
   resume(id: string, today: number): Promise<void>;
@@ -109,9 +109,9 @@ export interface Store {
   sweep(today: number): Promise<Swept>;
   forgetOrphans(now: number): Promise<number>;
   stage(): Promise<Stage>;
-  digested(): Promise<{ day: number; alerted: Stage }>;
+  digested(): Promise<{ hour: number; alerted: Stage }>;
   news(after: number, before: number, atMost: number): Promise<News>;
-  setDigested(day: number, stage: Stage): Promise<void>;
+  setDigested(hour: number, stage: Stage): Promise<void>;
   setStage(stage: Stage): Promise<void>;
   liftCut(today: number): Promise<void>;
 }

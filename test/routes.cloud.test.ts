@@ -278,7 +278,7 @@ describe("the admin link", () => {
 
   it("stops what evidence keeps the same way to its owner, and keeps it unread", async () => {
     await share();
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     expect((await admin("", "DELETE")).status).toBe(200);
     expect((await read()).status).toBe(404);
     expect((await admin("/admin", "GET")).status).toBe(404);
@@ -290,7 +290,7 @@ describe("the admin link", () => {
   it("keeps what was reported after it was stopped and before the sweep", async () => {
     await share();
     await admin("", "DELETE");
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     expect((await store.sweep(TODAY)).forgotten).toBe(0);
     expect((await testEnv.ENVELOPES.list()).objects).toHaveLength(1);
     expect((await read()).status).toBe(404);
@@ -310,7 +310,7 @@ describe("the admin link", () => {
   it("gives a retained language away no more than a document", async () => {
     await share("AAAAAAAA");
     await share(ID, "AAAAAAAA");
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     expect((await admin("", "DELETE")).status).toBe(200);
     expect((await admin("/admin", "GET")).status).toBe(404);
     expect((await admin("/resume", "POST")).status).toBe(404);
@@ -329,7 +329,7 @@ describe("the admin link", () => {
 
   it("does not bring back what was stopped when its reads of the day are added up", async () => {
     await share();
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     await store.note({ owner: "o1", reader: "r1", doc: ID, hour: 9, proved: false }, TODAY);
     await admin("", "DELETE");
     await store.sweep(TODAY + 1);
@@ -339,7 +339,7 @@ describe("the admin link", () => {
   it("keeps an anchor while a language of it has to stay", async () => {
     await share("AAAAAAAA");
     await share(ID, "AAAAAAAA");
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     const stopAnchor = await send("https://tisty.cl/api/v1/docs/AAAAAAAA", {
       method: "DELETE",
       headers: { "Folio-Admin": TOKEN },

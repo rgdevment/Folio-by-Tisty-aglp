@@ -53,6 +53,6 @@ export const reportDoc = async (
   }
 
   const reporter = await netDigest(await evidenceKey(today), ip);
-  await store.report({ doc: id, net: reporter, asn, ...said }, today);
+  await store.report({ doc: id, net: reporter, asn, ...said }, today, hourOf(now));
   return { received: true };
 };

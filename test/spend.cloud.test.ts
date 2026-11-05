@@ -94,7 +94,7 @@ describe("a block", () => {
 
   it("does not give days to what only evidence keeps, which must stay unread", async () => {
     await dying("reported", DAY - 1);
-    await store.report({ doc: "reported", net: "n", category: "phishing", asn: 1 }, DAY - 1);
+    await store.report({ doc: "reported", net: "n", category: "phishing", asn: 1 }, DAY - 1, (DAY - 1) * 24);
     await dying("ordered", DAY - 1, `, legal_until = ${DAY + 90}`);
     await store.liftCut(DAY);
     expect(await diesOn("reported")).toBe(DAY - 1);

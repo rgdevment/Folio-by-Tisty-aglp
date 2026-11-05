@@ -355,15 +355,15 @@ export class Cloud implements Store {
     ) WITHOUT ROWID`;
   }
 
-  async report(report: Report, today: number): Promise<Reported> {
+  async report(report: Report, today: number, hour: number): Promise<Reported> {
     if (!GRAVE_REPORTS.includes(report.category)) return { blocked: false };
     const [, blocked] = await this.#db.batch([
       this.#db
         .prepare(
-          `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn)
-           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1)
+          `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn, at_hour)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1)
            ON CONFLICT (doc, net) DO UPDATE
-             SET at = excluded.at, category = excluded.category, detail = excluded.detail,
+             SET at = excluded.at, at_hour = excluded.at_hour, category = excluded.category, detail = excluded.detail,
                  sealed_link = excluded.sealed_link, asn = excluded.asn, cleared = 0
              WHERE cleared = 1`,
         )
@@ -375,10 +375,11 @@ export class Cloud implements Store {
           report.detail ?? null,
           report.sealedLink ?? null,
           report.asn,
+          hour,
         ),
       this.#db
         .prepare(
-          `UPDATE docs SET blocked_at = ?1, dies_on = ?1 + ?2
+          `UPDATE docs SET blocked_at = ?1, blocked_hour = ?6, dies_on = ?1 + ?2
            WHERE id = ?3 AND blocked_at IS NULL
              AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND ${COUNTED_REPORT}) >= ?4
              AND (SELECT COUNT(DISTINCT r.asn) FROM reports r WHERE r.doc = ?3 AND ${COUNTED_REPORT}) >= ?5`,
@@ -389,6 +390,7 @@ export class Cloud implements Store {
           report.doc,
           this.#limits.reportsToBlock,
           this.#limits.reportOperatorsToBlock,
+          hour,
         ),
     ]);
     return { blocked: (blocked?.meta.changes ?? 0) > 0 };
@@ -429,13 +431,13 @@ export class Cloud implements Store {
     };
   }
 
-  async appeal(id: string, today: number): Promise<void> {
+  async appeal(id: string, today: number, hour: number): Promise<void> {
     await this.#db
       .prepare(
-        `UPDATE docs SET appealed_at = ?2
+        `UPDATE docs SET appealed_at = ?2, appealed_hour = ?3
          WHERE id = ?1 AND blocked_at IS NOT NULL AND appealed_at IS NULL`,
       )
-      .bind(id, today)
+      .bind(id, today, hour)
       .run();
   }
 
@@ -457,7 +459,7 @@ export class Cloud implements Store {
         .bind(id),
       this.#db
         .prepare(
-          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL,
+          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL, blocked_hour = NULL, appealed_hour = NULL,
              dies_on = CASE WHEN paused_at IS NULL THEN ?1 + ttl_days ELSE paused_at + ?2 END
            WHERE id = ?3 AND blocked_at IS NOT NULL`,
         )
@@ -672,11 +674,11 @@ export class Cloud implements Store {
     return row?.stage ?? "open";
   }
 
-  async digested(): Promise<{ day: number; alerted: Stage }> {
+  async digested(): Promise<{ hour: number; alerted: Stage }> {
     const row = await this.#db
-      .prepare("SELECT digested_day, alerted FROM service_stage WHERE id = 1")
-      .first<{ digested_day: number; alerted: Stage }>();
-    return { day: row?.digested_day ?? 0, alerted: row?.alerted ?? "open" };
+      .prepare("SELECT digested_hour, alerted FROM service_stage WHERE id = 1")
+      .first<{ digested_hour: number; alerted: Stage }>();
+    return { hour: row?.digested_hour ?? 0, alerted: row?.alerted ?? "open" };
   }
 
   async news(after: number, before: number, atMost: number): Promise<News> {
@@ -684,15 +686,15 @@ export class Cloud implements Store {
       this.#db
         .prepare(
           `SELECT doc, category, COUNT(*) AS nets FROM reports
-           WHERE at > ?1 AND at < ?2 AND cleared = 0
+           WHERE at_hour > ?1 AND at_hour < ?2 AND cleared = 0
            GROUP BY doc, category ORDER BY category = 'csam' DESC, nets DESC, doc LIMIT ?3`,
         )
         .bind(after, before, atMost),
       this.#db
-        .prepare("SELECT id FROM docs WHERE blocked_at > ?1 AND blocked_at < ?2 ORDER BY id LIMIT ?3")
+        .prepare("SELECT id FROM docs WHERE blocked_hour > ?1 AND blocked_hour < ?2 ORDER BY id LIMIT ?3")
         .bind(after, before, atMost),
       this.#db
-        .prepare("SELECT id FROM docs WHERE appealed_at > ?1 AND appealed_at < ?2 ORDER BY id LIMIT ?3")
+        .prepare("SELECT id FROM docs WHERE appealed_hour > ?1 AND appealed_hour < ?2 ORDER BY id LIMIT ?3")
         .bind(after, before, atMost),
     ]);
     const ids = (rows: typeof blocked): string[] => ((rows?.results ?? []) as { id: string }[]).map(({ id }) => id);
@@ -703,13 +705,13 @@ export class Cloud implements Store {
     };
   }
 
-  async setDigested(day: number, stage: Stage): Promise<void> {
+  async setDigested(hour: number, stage: Stage): Promise<void> {
     await this.#db
       .prepare(
-        `INSERT INTO service_stage (id, stage, alerted, digested_day) VALUES (1, ?1, ?1, ?2)
-         ON CONFLICT (id) DO UPDATE SET alerted = excluded.alerted, digested_day = excluded.digested_day`,
+        `INSERT INTO service_stage (id, stage, alerted, digested_hour) VALUES (1, ?1, ?1, ?2)
+         ON CONFLICT (id) DO UPDATE SET alerted = excluded.alerted, digested_hour = excluded.digested_hour`,
       )
-      .bind(stage, day)
+      .bind(stage, hour)
       .run();
   }
 
