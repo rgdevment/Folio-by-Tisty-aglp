@@ -2,7 +2,7 @@ import { dayOf } from "./limits";
 import { netDigest } from "./net";
 import { type Refused, tooFast } from "./refused";
 import type { ReportTools } from "./report";
-import { sameText, tokenHash } from "./start";
+import { hourOf, sameText, tokenHash } from "./start";
 import type { DocStatus, Store } from "./store";
 
 export type AdminAction = "status" | "pause" | "resume" | "stop" | "appeal";
@@ -15,7 +15,7 @@ export interface Administering {
   action: AdminAction;
 }
 
-export type AdminTools = Pick<ReportTools, "store" | "limiter" | "dayKey" | "alert">;
+export type AdminTools = Pick<ReportTools, "store" | "limiter" | "dayKey">;
 export type AdminAnswer = { done: true } | { status: DocStatus } | Refused;
 
 const CHANGES: Record<"pause" | "resume" | "stop", (store: Store, id: string, today: number) => Promise<void>> = {
@@ -24,17 +24,16 @@ const CHANGES: Record<"pause" | "resume" | "stop", (store: Store, id: string, to
   stop: (store, id, today) => store.stop(id, today),
 };
 
-// The alert goes first, so one that fails leaves the appeal free to be sent again (decision 36).
 const appeal = async (
   id: string,
   { blockedAt, appealedAt }: DocStatus,
   today: number,
-  { store, alert }: AdminTools,
+  now: number,
+  { store }: AdminTools,
 ): Promise<AdminAnswer> => {
   if (blockedAt === null) return { refused: "not_blocked" };
   if (appealedAt !== null) return { refused: "appealed" };
-  await alert({ doc: id, reason: "appeal" });
-  await store.appeal(id, today);
+  await store.appeal(id, today, hourOf(now));
   return { done: true };
 };
 
@@ -50,7 +49,7 @@ export const administer = async (
   if (!owned || !sameText(await tokenHash(token), owned.adminHash)) return { refused: "missing" };
 
   if (action === "status") return { status: owned.status };
-  if (action === "appeal") return appeal(id, owned.status, today, tools);
+  if (action === "appeal") return appeal(id, owned.status, today, now, tools);
   if (owned.status.blockedAt !== null) return { refused: "blocked" };
   await CHANGES[action](store, id, today);
   return { done: true };

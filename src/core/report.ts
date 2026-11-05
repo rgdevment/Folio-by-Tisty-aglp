@@ -4,14 +4,8 @@ import type { ReadTools } from "./read";
 import { askForProof, type Refused } from "./refused";
 import { hourEnds, hourOf, proofIsFresh } from "./start";
 
-export interface Alert {
-  doc: string;
-  reason: "csam" | "blocked" | "appeal";
-}
-
 export interface ReportTools extends ReadTools {
   evidenceKey: (today: number) => Promise<string>;
-  alert: (said: Alert) => Promise<void>;
 }
 
 export interface Said {
@@ -47,7 +41,7 @@ export const saidOf = (body: unknown, limits: Limits): Said | null => {
 // Nothing is written before the proof, so a flood of reports costs no rows (decision 41).
 export const reportDoc = async (
   { id, ip, asn, now, said, proof }: Reporting,
-  { store, limits, secret, dayKey, evidenceKey, alert }: ReportTools,
+  { store, limits, secret, dayKey, evidenceKey }: ReportTools,
 ): Promise<{ received: true } | Refused> => {
   const today = dayOf(now);
   const net = await netDigest(await dayKey(today), ip);
@@ -59,11 +53,6 @@ export const reportDoc = async (
   }
 
   const reporter = await netDigest(await evidenceKey(today), ip);
-  const { pending } = await store.report({ doc: id, net: reporter, asn, ...said }, today);
-  // Marked once it went, so a failed alert fails the report, and sending it again alerts again (decision 36).
-  for (const reason of pending) {
-    await alert({ doc: id, reason });
-    await store.told(id, reason);
-  }
+  await store.report({ doc: id, net: reporter, asn, ...said }, today, hourOf(now));
   return { received: true };
 };

@@ -1,11 +1,11 @@
 import { applyD1Migrations, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
 import { type AdminAction, administer } from "../src/core/admin";
 import { dayOf, LEVEL_ONE } from "../src/core/limits";
 import { netDigest } from "../src/core/net";
-import { type Alert, type ReportTools, reportDoc } from "../src/core/report";
+import { type ReportTools, reportDoc } from "../src/core/report";
 import { proofHolds, tokenHash } from "../src/core/start";
 import worker from "../src/private/index";
 
@@ -138,7 +138,6 @@ describe("reporting over HTTP", () => {
 
 describe("a report", () => {
   const tools = (over: Partial<ReportTools> = {}) => {
-    const alert = vi.fn(async (_said: Alert) => {});
     const set: ReportTools = {
       store,
       limiter: { allows: async () => true },
@@ -146,10 +145,9 @@ describe("a report", () => {
       secret: testEnv.FOLIO_SECRET,
       dayKey: async () => "a key for the day",
       evidenceKey: async () => "a key for the period",
-      alert,
       ...over,
     };
-    return { set, alert };
+    return { set };
   };
 
   const proved = async (id: string, ip: string, set: ReportTools, category: string, asn: number, now = NOW) => {
@@ -168,104 +166,17 @@ describe("a report", () => {
     expect(row?.asn).toBe(1);
   });
 
-  it("alerts the operator of CSAM at once, without blocking", async () => {
+  it("does not block on one report of CSAM", async () => {
     await share();
-    const { set, alert } = tools();
+    const { set } = tools();
     await proved(ID, "203.0.113.7", set, "csam", 1);
-    expect(alert).toHaveBeenCalledWith({ doc: ID, reason: "csam" });
     expect((await store.shown(ID, TODAY))?.blockedAt).toBeNull();
   });
 
-  it("alerts when it blocks, and not before", async () => {
-    await share();
-    const { set, alert } = tools();
-    await proved(ID, "203.0.113.1", set, "phishing", 1);
-    await proved(ID, "203.0.113.2", set, "phishing", 2);
-    expect(alert).not.toHaveBeenCalled();
-    await proved(ID, "203.0.113.3", set, "phishing", 3);
-    expect(alert).toHaveBeenCalledExactlyOnceWith({ doc: ID, reason: "blocked" });
-  });
-
-  it("says it is CSAM even when that same report blocks", async () => {
-    await share();
-    const { set, alert } = tools();
-    await proved(ID, "203.0.113.1", set, "phishing", 1);
-    await proved(ID, "203.0.113.2", set, "phishing", 2);
-    await proved(ID, "203.0.113.3", set, "csam", 3);
-    expect(alert.mock.calls.map(([said]) => said.reason)).toEqual(["csam", "blocked"]);
-  });
-
-  it("says it is CSAM of what was blocked earlier too", async () => {
-    await share();
-    await testEnv.DB.prepare(`UPDATE docs SET blocked_at = ?, told_blocked = 1 WHERE id = '${ID}'`)
-      .bind(TODAY - 1)
-      .run();
-    const { set, alert } = tools();
-    await proved(ID, "203.0.113.7", set, "csam", 1);
-    expect(alert).toHaveBeenCalledExactlyOnceWith({ doc: ID, reason: "csam" });
-  });
-
-  it("wakes nobody twice for the same document, however many report it", async () => {
-    await share();
-    const { set, alert } = tools();
-    await proved(ID, "203.0.113.1", set, "csam", 1);
-    await proved(ID, "203.0.113.1", set, "csam", 1);
-    await proved(ID, "203.0.113.2", set, "csam", 2);
-    expect(alert).toHaveBeenCalledOnce();
-
-    await proved(ID, "203.0.113.3", set, "phishing", 3);
-    await proved(ID, "203.0.113.4", set, "phishing", 4);
-    expect(alert).toHaveBeenLastCalledWith({ doc: ID, reason: "blocked" });
-    expect(alert).toHaveBeenCalledTimes(2);
-  });
-
-  it("tells of a new block after an accepted appeal", async () => {
-    await share();
-    const { set, alert } = tools();
-    for (const n of [1, 2, 3]) await proved(ID, `203.0.113.${n}`, set, "phishing", n);
-    await store.appealAccepted(ID, TODAY);
-    for (const n of [4, 5, 6]) await proved(ID, `203.0.113.${n}`, set, "phishing", n);
-    expect(alert).toHaveBeenCalledTimes(2);
-  });
-
-  it("alerts the block again when the report that made it is sent again", async () => {
-    await share();
-    await proved(ID, "203.0.113.1", tools().set, "phishing", 1);
-    await proved(ID, "203.0.113.2", tools().set, "phishing", 2);
-    const failing = tools({ alert: () => Promise.reject(new Error("no alert")) });
-    await expect(proved(ID, "203.0.113.3", failing.set, "phishing", 3)).rejects.toThrow("no alert");
-
-    const again = tools();
-    await proved(ID, "203.0.113.3", again.set, "phishing", 3);
-    expect(again.alert).toHaveBeenCalledExactlyOnceWith({ doc: ID, reason: "blocked" });
-  });
-
-  it("tells of a block it could not tell of, even on another day", async () => {
-    await share();
-    await testEnv.DB.prepare(`UPDATE docs SET blocked_at = ? WHERE id = '${ID}'`)
-      .bind(TODAY - 1)
-      .run();
-    const { set, alert } = tools();
-    await proved(ID, "203.0.113.7", set, "phishing", 1);
-    expect(alert).toHaveBeenCalledExactlyOnceWith({ doc: ID, reason: "blocked" });
-  });
-
-  it("wakes nobody for a document that does not exist", async () => {
-    const { set, alert } = tools();
+  it("keeps nothing of a document that does not exist", async () => {
+    const { set } = tools();
     expect(await proved(ID, "203.0.113.7", set, "csam", 1)).toEqual({ received: true });
-    expect(alert).not.toHaveBeenCalled();
-  });
-
-  it("keeps the report when the alert fails, and alerts again when it is sent again", async () => {
-    await share();
-    const { set } = tools({ alert: () => Promise.reject(new Error("no alert")) });
-    await expect(proved(ID, "203.0.113.7", set, "csam", 1)).rejects.toThrow("no alert");
-    expect(await reports()).toHaveLength(1);
-
-    const again = tools();
-    await proved(ID, "203.0.113.7", again.set, "csam", 1);
-    expect(again.alert).toHaveBeenCalledOnce();
-    expect(await reports()).toHaveLength(1);
+    expect(await reports()).toHaveLength(0);
   });
 
   it("stops at the network's reports of the hour, and goes on in the next", async () => {
@@ -296,50 +207,6 @@ describe("the key of the evidence period", () => {
     expect(await store.forgetOrphans(Date.now() + 10 * 86_400_000)).toBe(0);
     const left = await testEnv.ENVELOPES.list();
     expect(left.objects).toHaveLength(2);
-  });
-});
-
-describe("the alert", () => {
-  const ALERT_URL = "https://alerts.example/folio";
-
-  const reported = async (more: object) => {
-    await share();
-    const url = `${API}/report`;
-    const body = JSON.stringify({ category: "csam" });
-    const asked = await send(url, { method: "POST", body });
-    const { salt, bits } = (await asked.json()) as { salt: string; bits: number };
-    const headers = { "Folio-Proof": await solve(salt, bits) };
-    return send(url, { method: "POST", body, headers }, undefined, more);
-  };
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("goes to where it is set, with the document and the reason and nothing else", async () => {
-    const sent = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
-    expect((await reported({ ALERT_URL })).status).toBe(202);
-    expect(sent).toHaveBeenCalledExactlyOnceWith(ALERT_URL, {
-      method: "POST",
-      body: JSON.stringify({ doc: ID, reason: "csam" }),
-    });
-  });
-
-  const failed = async (response: Response) => {
-    expect(response.status).toBe(500);
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual({ refused: "failed" });
-  };
-
-  it("fails the report when it is refused, and keeps the report", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
-    await failed(await reported({ ALERT_URL }));
-    expect(await reports()).toHaveLength(1);
-  });
-
-  it("fails the report when there is nowhere to send it, rather than telling nobody", async () => {
-    await failed(await reported({}));
-    expect(await reports()).toHaveLength(1);
   });
 });
 
@@ -411,7 +278,7 @@ describe("the admin link", () => {
 
   it("stops what evidence keeps the same way to its owner, and keeps it unread", async () => {
     await share();
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     expect((await admin("", "DELETE")).status).toBe(200);
     expect((await read()).status).toBe(404);
     expect((await admin("/admin", "GET")).status).toBe(404);
@@ -423,7 +290,7 @@ describe("the admin link", () => {
   it("keeps what was reported after it was stopped and before the sweep", async () => {
     await share();
     await admin("", "DELETE");
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     expect((await store.sweep(TODAY)).forgotten).toBe(0);
     expect((await testEnv.ENVELOPES.list()).objects).toHaveLength(1);
     expect((await read()).status).toBe(404);
@@ -443,7 +310,7 @@ describe("the admin link", () => {
   it("gives a retained language away no more than a document", async () => {
     await share("AAAAAAAA");
     await share(ID, "AAAAAAAA");
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     expect((await admin("", "DELETE")).status).toBe(200);
     expect((await admin("/admin", "GET")).status).toBe(404);
     expect((await admin("/resume", "POST")).status).toBe(404);
@@ -462,7 +329,7 @@ describe("the admin link", () => {
 
   it("does not bring back what was stopped when its reads of the day are added up", async () => {
     await share();
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     await store.note({ owner: "o1", reader: "r1", doc: ID, hour: 9, proved: false }, TODAY);
     await admin("", "DELETE");
     await store.sweep(TODAY + 1);
@@ -472,7 +339,7 @@ describe("the admin link", () => {
   it("keeps an anchor while a language of it has to stay", async () => {
     await share("AAAAAAAA");
     await share(ID, "AAAAAAAA");
-    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY);
+    await store.report({ doc: ID, net: "r", category: "phishing", asn: 1 }, TODAY, TODAY * 24);
     const stopAnchor = await send("https://tisty.cl/api/v1/docs/AAAAAAAA", {
       method: "DELETE",
       headers: { "Folio-Admin": TOKEN },
@@ -512,7 +379,6 @@ describe("the admin link", () => {
           store,
           limiter: { allows: async () => false },
           dayKey: async () => "a key for the day",
-          alert: async () => {},
         },
       );
     expect(await asked("status")).toMatchObject({ refused: "slow" });
@@ -520,10 +386,10 @@ describe("the admin link", () => {
 });
 
 describe("appealing", () => {
-  const appeal = (alert: (said: Alert) => Promise<void> = async () => {}, token = TOKEN) =>
+  const appeal = (token = TOKEN) =>
     administer(
       { id: ID, ip: "203.0.113.7", now: NOW, token, action: "appeal" },
-      { store, limiter: { allows: async () => true }, dayKey: async () => "a key for the day", alert },
+      { store, limiter: { allows: async () => true }, dayKey: async () => "a key for the day" },
     );
   const block = (day = TODAY) =>
     testEnv.DB.prepare(`UPDATE docs SET blocked_at = ? WHERE id = '${ID}'`).bind(day).run();
@@ -533,21 +399,11 @@ describe("appealing", () => {
     expect(await appeal()).toEqual({ refused: "not_blocked" });
   });
 
-  it("tells the operator, once per block", async () => {
+  it("is taken once per block", async () => {
     await share();
     await block();
-    const alert = vi.fn(async (_said: Alert) => {});
-    expect(await appeal(alert)).toEqual({ done: true });
-    expect(alert).toHaveBeenCalledExactlyOnceWith({ doc: ID, reason: "appeal" });
-    expect(await appeal(alert)).toEqual({ refused: "appealed" });
-    expect(alert).toHaveBeenCalledOnce();
-  });
-
-  it("can be sent again when the alert failed", async () => {
-    await share();
-    await block();
-    await expect(appeal(() => Promise.reject(new Error("no alert")))).rejects.toThrow("no alert");
     expect(await appeal()).toEqual({ done: true });
+    expect(await appeal()).toEqual({ refused: "appealed" });
   });
 
   it("can appeal a new block on the same day an appeal was accepted", async () => {
@@ -564,7 +420,7 @@ describe("appealing", () => {
   it("does not let a wrong token appeal", async () => {
     await share();
     await block();
-    expect(await appeal(async () => {}, "wrong")).toEqual({ refused: "missing" });
+    expect(await appeal("wrong")).toEqual({ refused: "missing" });
   });
 
   it("does not lift the block by itself", async () => {

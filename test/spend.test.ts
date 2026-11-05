@@ -96,19 +96,16 @@ describe("checking", () => {
   const NOW = at(2026, 11, 20);
   const RENEWAL = 15;
 
-  const tools = (usage: Usage, was: Stage, told: Stage = was) => {
+  const tools = (usage: Usage, was: Stage) => {
     const steps: string[] = [];
     const set: SpendTools = {
       store: {
         stage: async () => was,
         setStage: async (stage) => void steps.push(`stage:${stage}`),
         liftCut: async () => void steps.push("lift"),
-        alerted: async () => told,
-        setAlerted: async (stage) => void steps.push(`alerted:${stage}`),
       },
       usageSince: async () => usage,
       setBlocked: async (blocked) => void steps.push(`rule:${blocked}`),
-      notify: vi.fn(async () => void steps.push("notify")),
     };
     return { set, steps };
   };
@@ -119,36 +116,22 @@ describe("checking", () => {
     expect(steps).toEqual([]);
   });
 
-  it("switches the rule before it says so, and only then tells", async () => {
+  it("switches the rule before it writes the stage", async () => {
     const { set, steps } = tools(costing(11), "no_uploads");
     expect(await checkSpend(NOW, RENEWAL, set)).toBe("blocked");
-    expect(steps).toEqual(["rule:true", "stage:blocked", "notify", "alerted:blocked"]);
+    expect(steps).toEqual(["rule:true", "stage:blocked"]);
   });
 
   it("gives back the days and lifts the rule when the line rises", async () => {
     const { set, steps } = tools(costing(8), "blocked");
     expect(await checkSpend(NOW, RENEWAL, set)).toBe("no_uploads");
-    expect(steps).toEqual(["rule:false", "lift", "stage:no_uploads", "notify", "alerted:no_uploads"]);
+    expect(steps).toEqual(["rule:false", "lift", "stage:no_uploads"]);
   });
 
   it("does not touch the rule between stages that are not blocked", async () => {
     const { set, steps } = tools(costing(8), "open");
     await checkSpend(NOW, RENEWAL, set);
-    expect(steps).toEqual(["stage:no_uploads", "notify", "alerted:no_uploads"]);
-  });
-
-  it("writes the stage even when the alert fails, so the sweep knows of a block", async () => {
-    const { set, steps } = tools(costing(11), "open");
-    set.notify = () => Promise.reject(new Error("no alert"));
-    await expect(checkSpend(NOW, RENEWAL, set)).rejects.toThrow("no alert");
-    expect(steps).toEqual(["rule:true", "stage:blocked"]);
-  });
-
-  it("tells on the next round what it could not tell, and touches nothing else", async () => {
-    const { set, steps } = tools(costing(11), "blocked", "open");
-    expect(await checkSpend(NOW, RENEWAL, set)).toBe("blocked");
-    expect(steps).toEqual(["notify", "alerted:blocked"]);
-    expect(set.notify).toHaveBeenCalledWith(expect.objectContaining({ stage: "blocked", was: "open" }));
+    expect(steps).toEqual(["stage:no_uploads"]);
   });
 
   it("keeps the stage when the rule fails, so the next round tries again", async () => {
@@ -171,11 +154,5 @@ describe("checking", () => {
     set.usageSince = usageSince;
     await checkSpend(NOW, RENEWAL, set);
     expect(usageSince).toHaveBeenCalledWith(Date.UTC(2026, 10, 15), NOW);
-  });
-
-  it("says the numbers, and nothing else", async () => {
-    const { set } = tools(costing(11), "open");
-    await checkSpend(NOW, RENEWAL, set);
-    expect(set.notify).toHaveBeenCalledWith({ stage: "blocked", was: "open", bill: 11, line: lineOf(cycle30(6)) });
   });
 });

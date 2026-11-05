@@ -67,15 +67,13 @@ export const stageOf = (usage: Usage, cycle: Cycle): Stage => {
 };
 
 export interface SpendTools {
-  store: Pick<Store, "stage" | "setStage" | "liftCut" | "alerted" | "setAlerted">;
+  store: Pick<Store, "stage" | "setStage" | "liftCut">;
   usageSince: (start: number, now: number) => Promise<Usage>;
   setBlocked: (blocked: boolean) => Promise<void>;
-  notify: (said: { stage: Stage; was: Stage; bill: number; line: number }) => Promise<void>;
 }
 
-// The alert has its own mark, so one that fails goes again and never holds back the stage the sweep reads.
 export const checkSpend = async (now: number, renewalDay: number, tools: SpendTools): Promise<Stage> => {
-  const { store, usageSince, setBlocked, notify } = tools;
+  const { store, usageSince, setBlocked } = tools;
   const cycle = cycleOf(now, renewalDay);
   const usage = await usageSince(cycle.start, now);
   const stage = stageOf(usage, cycle);
@@ -84,11 +82,6 @@ export const checkSpend = async (now: number, renewalDay: number, tools: SpendTo
     if ((stage === "blocked") !== (was === "blocked")) await setBlocked(stage === "blocked");
     if (was === "blocked") await store.liftCut(dayOf(now));
     await store.setStage(stage);
-  }
-  const alerted = await store.alerted();
-  if (stage !== alerted) {
-    await notify({ stage, was: alerted, bill: billOf(usage), line: lineOf(cycle) });
-    await store.setAlerted(stage);
   }
   return stage;
 };
