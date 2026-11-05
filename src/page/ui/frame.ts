@@ -1,4 +1,5 @@
 import type { Document, Orientation, Page, Paper, Verdict } from "@tisty/contracts";
+import { keyOfFragment } from "../link";
 import { cardsFor, referenceOf } from "./cards";
 import { bareUrl } from "./clean";
 import sheetStyles from "./sheet.css?url";
@@ -34,6 +35,7 @@ const VERDICTS: Record<Verdict, { text: string; tone: string }> = {
 export interface Seal {
   verdict: Verdict;
   fingerprint: string;
+  ownerFingerprint: string | null;
   diesOn: string;
 }
 
@@ -213,7 +215,15 @@ const drawDetails = (root: ShadowRoot, held: Document): void => {
   list.hidden = list.childElementCount === 0;
 };
 
-const drawSeal = (held: Document, { verdict, fingerprint, diesOn }: Seal): void => {
+const drawOwner = (held: Document, ownerFingerprint: string | null): void => {
+  element("owner-facts").hidden = ownerFingerprint === null;
+  element("owner").textContent = held.owner_name ?? "Sin nombre";
+  element("owner-fingerprint").textContent = ownerFingerprint ?? "";
+};
+
+const readingLink = (): string => `${location.origin}${location.pathname}#${keyOfFragment(location.hash.slice(1))}`;
+
+const drawSeal = (held: Document, { verdict, fingerprint, ownerFingerprint, diesOn }: Seal): void => {
   const { text, tone } = VERDICTS[verdict];
   const seal = element("seal");
   seal.hidden = false;
@@ -221,6 +231,7 @@ const drawSeal = (held: Document, { verdict, fingerprint, diesOn }: Seal): void 
   element("seal-text").textContent = text;
   element("signer").textContent = held.signed_as ?? "Sin nombre";
   element("fingerprint").textContent = fingerprint;
+  drawOwner(held, ownerFingerprint);
   element("dies-on").textContent = diesOn;
 };
 
@@ -253,7 +264,7 @@ const drawActions = (): void => {
   const label = element("copy-link-text");
   const said = label.textContent;
   element("copy-link").addEventListener("click", async () => {
-    await navigator.clipboard.writeText(location.href);
+    await navigator.clipboard.writeText(readingLink());
     label.textContent = "Copiado";
     setTimeout(() => {
       label.textContent = said;

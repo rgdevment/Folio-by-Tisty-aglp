@@ -1,7 +1,7 @@
 import type { Document, Picture } from "@tisty/contracts";
 import { check, checkHtml, picturesIn, referencesIn } from "@tisty/contracts/check";
-import { type Bytes, fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
-import { type Asked, asRefusal, jsonIn, type ReadEnvelope, readEnvelope, refuse } from "../rules/envelope";
+import { type Bytes, bigEndian, fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
+import { type Asked, asRefusal, jsonIn, type ReadEnvelope, readEnvelope, refuse, toldApart } from "../rules/envelope";
 
 export interface OpenEnvelope extends ReadEnvelope {
   opened: Bytes[];
@@ -32,15 +32,14 @@ const inflated = async (bytes: Bytes, size: number): Promise<Bytes> => {
   return joined(...pieces);
 };
 
+const macHolds = async (linkKey: Bytes, mac: string, ...said: Bytes[]): Promise<boolean> => {
+  const held = await crypto.subtle.importKey("raw", linkKey, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  return crypto.subtle.verify("HMAC", held, fromBase64Url(mac), joined(...said));
+};
+
 const envelopeKey = async ({ head, commitment }: ReadEnvelope["manifest"], linkKey: Bytes): Promise<CryptoKey> => {
   const salt = fromBase64Url(head as string);
-  const signing = await crypto.subtle.importKey("raw", linkKey, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
-  const committed = await crypto.subtle.verify(
-    "HMAC",
-    signing,
-    fromBase64Url(commitment as string),
-    joined(words("tisty-envelope-commit"), salt),
-  );
+  const committed = await macHolds(linkKey, commitment as string, words("tisty-envelope-commit"), salt);
   if (!committed) refuse("key", "this link does not open it");
   const base = await crypto.subtle.importKey("raw", linkKey, "HKDF", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
@@ -58,8 +57,21 @@ const nonceOf = (number: number): Bytes => {
   return nonce;
 };
 
-const opening = async (bytes: Bytes, asked: Asked, linkKey?: Bytes): Promise<OpenEnvelope> => {
-  const read = await readEnvelope(bytes, asked);
+const ownerNameHolds = async ({ id, owner }: ReadEnvelope["manifest"], first: Bytes, linkKey: Bytes): Promise<void> => {
+  const idBytes = words(id);
+  const { owner_name: name = "" } = jsonIn<{ owner_name?: string }>(first);
+  const answers = await macHolds(
+    linkKey,
+    owner?.name_tag as string,
+    words("tisty-owner-name\0"),
+    bigEndian(idBytes.length),
+    idBytes,
+    words(name),
+  );
+  if (!answers) refuse("damaged", "its owner's name is not the one its owner signed");
+};
+
+const openingRead = async (read: ReadEnvelope, asked: Asked, linkKey?: Bytes): Promise<OpenEnvelope> => {
   const { manifest, manifestBytes, parts } = read;
   if (linkKey && !manifest.sealed) refuse("damaged", "a key answers only for what is sealed");
   if (manifest.sealed && !linkKey) refuse("key", "it is sealed, and this link brings no key");
@@ -80,7 +92,15 @@ const opening = async (bytes: Bytes, asked: Asked, linkKey?: Bytes): Promise<Ope
     if (!part.compressed && held.length !== part.open_size) refuse("damaged", "a part is not the size it says");
     opened.push(part.compressed ? await inflated(held, part.open_size) : held);
   }
+  if (manifest.sealed && asked.kind === "main") {
+    await ownerNameHolds(manifest, opened[0] as Bytes, linkKey as Bytes);
+  }
   return { ...read, opened };
+};
+
+const opening = async (bytes: Bytes, asked: Asked, linkKey?: Bytes): Promise<OpenEnvelope> => {
+  const read = await readEnvelope(bytes, asked);
+  return toldApart(read.manifest.contract, () => openingRead(read, asked, linkKey));
 };
 
 export const openEnvelope = (bytes: Bytes, asked: Asked, linkKey?: Bytes): Promise<OpenEnvelope> =>
@@ -112,13 +132,17 @@ const documentFrom = ({ manifest, opened }: OpenEnvelope): Document => {
   const first = jsonIn<Record<string, unknown>>(opened[0] as Bytes);
   const rest = jsonIn<Record<string, unknown>>(opened[1] as Bytes);
   if ("body" in first || "pages" in first) refuse("damaged", "the first part holds more than it should");
-  if (Object.keys(rest).some((one) => one !== "body" && one !== "pages")) {
-    refuse("damaged", "the rest holds more than it should");
-  }
-  const held = { ...first, ...rest } as unknown as Document;
+  if (Object.keys(rest).some((one) => Object.hasOwn(first, one))) refuse("damaged", "the rest repeats the first part");
+  const { body, pages: restPages } = rest;
+  const held = {
+    ...first,
+    ...(body === undefined ? {} : { body }),
+    ...(restPages === undefined ? {} : { pages: restPages }),
+  } as unknown as Document;
   const amiss = check("document", held);
   if (amiss.length > 0) refuse("damaged", `its document: ${amiss[0]}`);
   if (held.id !== manifest.id) refuse("damaged", "the document inside is another");
+  if (!manifest.sealed && held.owner_name !== undefined) refuse("damaged", "nothing answers for this owner's name");
 
   const pictures = held.pictures ?? [];
   if (pictures.length !== opened.length - 2) refuse("damaged", "it holds another number of pictures");
@@ -139,23 +163,26 @@ const documentFrom = ({ manifest, opened }: OpenEnvelope): Document => {
 };
 
 // Everything only a reader can check: a writer's word counts for nothing, so its words are not shown if this fails.
-export const documentIn = (open: OpenEnvelope): Promise<Document> => asRefusal(async () => documentFrom(open));
+export const documentIn = (open: OpenEnvelope): Promise<Document> =>
+  asRefusal(() => toldApart(open.manifest.contract, async () => documentFrom(open)));
 
 export const openFiles = (held: Document, bytes: Bytes, asked: Asked, linkKey?: Bytes): Promise<OpenEnvelope> =>
   asRefusal(async () => {
     const files = await opening(bytes, asked, linkKey);
-    const hash = await sha256(files.manifestBytes, files.index);
-    if (!held.files_hash || !sameBytes(hash, fromBase64Url(held.files_hash))) {
-      refuse("damaged", "it is not the envelope its document answers for");
-    }
-    const said = held.files ?? [];
-    if (said.length !== files.opened.length) refuse("damaged", "it holds another number of files");
-    said.forEach((one, at) => {
-      if (one.at !== at || (one.size !== undefined && one.size !== files.opened[at]?.length)) {
-        refuse("damaged", "a file is not what it says");
+    return toldApart(files.manifest.contract, async () => {
+      const hash = await sha256(files.manifestBytes, files.index);
+      if (!held.files_hash || !sameBytes(hash, fromBase64Url(held.files_hash))) {
+        refuse("damaged", "it is not the envelope its document answers for");
       }
+      const said = held.files ?? [];
+      if (said.length !== files.opened.length) refuse("damaged", "it holds another number of files");
+      said.forEach((one, at) => {
+        if (one.at !== at || (one.size !== undefined && one.size !== files.opened[at]?.length)) {
+          refuse("damaged", "a file is not what it says");
+        }
+      });
+      return files;
     });
-    return files;
   });
 
 const PNG_MARK = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

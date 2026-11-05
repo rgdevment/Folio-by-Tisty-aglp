@@ -6,7 +6,7 @@ import { domPurifyCleaner } from "../src/page/ui/clean";
 import { finished } from "../src/page/ui/finish";
 import { drawFrame } from "../src/page/ui/frame";
 
-const SEAL = { verdict: "holds", fingerprint: "1", diesOn: "mañana" } as const;
+const SEAL = { verdict: "holds", fingerprint: "1", ownerFingerprint: null, diesOn: "mañana" } as const;
 const ADDRESS = "https://tisty.cl/k7Qm2xPa#THEKEY";
 
 const ENERO: Page = {
@@ -221,6 +221,59 @@ describe("a card in the words", () => {
     draw({ ...hostile, pages: [{ ...ENERO, title: "<img src=x onerror=alert(1)>" }] });
     expect(root.querySelector(".card-name")?.textContent).toBe("<img src=x onerror=alert(1)>");
     expect(root.querySelector(".card-name img")).toBeNull();
+  });
+});
+
+describe("a link that lets someone edit", () => {
+  const EDIT_ADDRESS = "https://tisty.cl/k7Qm2xPa#THEKEY.THETOKEN";
+  const copied = vi.fn(async (_said: string) => {});
+
+  beforeEach(() => {
+    const dom = new JSDOM(readFileSync("src/page/index.html", "utf8"), { url: EDIT_ADDRESS });
+    place = dom.window;
+    const attach = place.Element.prototype.attachShadow;
+    place.Element.prototype.attachShadow = function (this: Element, init: ShadowRootInit) {
+      root = attach.call(this, init);
+      return root;
+    };
+    vi.stubGlobal("window", place);
+    vi.stubGlobal("document", place.document);
+    vi.stubGlobal("location", place.location);
+    vi.stubGlobal("navigator", { clipboard: { writeText: copied } });
+    copied.mockClear();
+    draw(HELD);
+  });
+
+  it("copies the link to read it, and never its token", async () => {
+    place.document.getElementById("copy-link")?.click();
+    await vi.waitFor(() => expect(copied).toHaveBeenCalled());
+    expect(copied).toHaveBeenCalledExactlyOnceWith("https://tisty.cl/k7Qm2xPa#THEKEY");
+  });
+
+  it("hands Tisty the token, which is the one place it goes", () => {
+    const edit = place.document.getElementById("edit-in-tisty") as HTMLAnchorElement;
+    expect(edit.getAttribute("href")).toBe(`tisty://edit?link=${encodeURIComponent(EDIT_ADDRESS)}`);
+  });
+});
+
+describe("who signed it", () => {
+  const facts = () => place.document.getElementById("owner-facts") as HTMLElement;
+
+  it("says nothing of an owner when the owner signed this version", () => {
+    draw(HELD);
+    expect(facts().hidden).toBe(true);
+  });
+
+  it("names the owner apart when another root signed this version", () => {
+    const cleaner = domPurifyCleaner(place);
+    drawFrame({ ...HELD, signed_as: "Ana", owner_name: "Mario" }, (html) => finished(cleaner.clean(html), []), {
+      ...SEAL,
+      ownerFingerprint: "2",
+    });
+    expect(facts().hidden).toBe(false);
+    expect(place.document.getElementById("signer")?.textContent).toBe("Ana");
+    expect(place.document.getElementById("owner")?.textContent).toBe("Mario");
+    expect(place.document.getElementById("owner-fingerprint")?.textContent).toBe("2");
   });
 });
 
