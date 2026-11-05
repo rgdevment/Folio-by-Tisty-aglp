@@ -1,7 +1,9 @@
 import VECTORS from "@tisty/contracts/vectors.json";
 import { describe, expect, it } from "vitest";
 import type { Bytes } from "../src/core/bytes";
+import { keyOfFragment } from "../src/page/link";
 import { openLink } from "../src/page/read";
+import { worseOf } from "../src/page/verdict";
 import { EnvelopeRefused } from "../src/rules/envelope";
 
 // biome-ignore lint/suspicious/noExplicitAny: these are the contract's own samples, in the shape it writes them.
@@ -28,6 +30,33 @@ describe("opening a link", () => {
     expect(verdict).toBe("holds");
     expect(fingerprint).toBe(SAMPLES.identity.fingerprint);
     expect(diesOn).toBe(21_000);
+  });
+
+  it("names the owner apart when an editor signed this version", async () => {
+    const { editing } = SAMPLES;
+    const editorSigned = editing.opens.find((one: { signer: string }) => one.signer !== editing.owner);
+    const opened = await openLink(editing.id, SAMPLES.link_key, arrivedWith(editorSigned.envelope));
+    expect(opened.ownerFingerprint).not.toBeNull();
+    expect(opened.ownerFingerprint).not.toBe(opened.fingerprint);
+  });
+
+  it("names no owner apart when the owner signed this version", async () => {
+    const { ownerFingerprint } = await openLink(ID, SAMPLES.link_key, MAIN);
+    expect(ownerFingerprint).toBeNull();
+  });
+
+  it("shows the worse of the signer's verdict and the owner's", async () => {
+    expect(worseOf("holds", "doubtful")).toBe("doubtful");
+    expect(worseOf("retired", "holds")).toBe("retired");
+    expect(worseOf("retired", "doubtful")).toBe("doubtful");
+    expect(worseOf("holds", "holds")).toBe("holds");
+  });
+
+  it("takes the key from an edit link, and the token opens nothing", () => {
+    const [, fragment] = SAMPLES.editing.link.split("#");
+    expect(keyOfFragment(fragment)).toBe(SAMPLES.link_key);
+    expect(keyOfFragment(SAMPLES.link_key)).toBe(SAMPLES.link_key);
+    expect(keyOfFragment("")).toBe("");
   });
 
   it("opens what is public with nothing after the #", async () => {

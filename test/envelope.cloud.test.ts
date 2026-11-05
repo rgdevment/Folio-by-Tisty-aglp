@@ -1,4 +1,4 @@
-import { CONTRACTS, check, type EnvelopePart, referencesIn, VERSION } from "@tisty/contracts";
+import { CONTRACTS, check, type EnvelopePart, type Owner, referencesIn, VERSION } from "@tisty/contracts";
 import VECTORS from "@tisty/contracts/vectors.json";
 import WRITTEN from "@tisty/contracts/written-by-tisty.json";
 import { describe, expect, it } from "vitest";
@@ -6,7 +6,7 @@ import { type Bytes, bigEndian, fromBase64Url, joined, sha256, words } from "../
 import { toBase64Url } from "../src/core/start";
 import { documentIn, openEnvelope, openFiles, pictureHolds } from "../src/page/open";
 import { fingerprintOf, verdictOf } from "../src/page/verdict";
-import { EnvelopeRefused, readEnvelope, revocationHolds } from "../src/rules/envelope";
+import { type Asked, EnvelopeRefused, readEnvelope, revocationHolds } from "../src/rules/envelope";
 
 // biome-ignore lint/suspicious/noExplicitAny: these are the contract's own samples, in the shape it writes them.
 const SAMPLES = VECTORS as any;
@@ -20,7 +20,7 @@ const FILES = { id: "k7Qm2xPa", kind: "files" } as const;
 const PUBLIC = { id: "wordsOnly", kind: "main" } as const;
 const HOSTILE = { id: "hostile", kind: "main" } as const;
 
-const reading = async (bytes: Bytes, asked: typeof MAIN | typeof PUBLIC | typeof HOSTILE, key?: Bytes) => {
+const reading = async (bytes: Bytes, asked: Asked, key?: Bytes) => {
   const main = await openEnvelope(bytes, asked, key);
   return { main, held: await documentIn(main) };
 };
@@ -194,7 +194,7 @@ describe("what only one rule refuses, on an envelope whose signature holds", () 
 
 describe("the contract in use", () => {
   it("is the version Folio fixed, and these samples are written under it", async () => {
-    expect(VERSION).toBe("1.1.0");
+    expect(VERSION).toBe("1.2.0");
     const { manifest } = await readEnvelope(hex(SAMPLES.main.envelope), MAIN);
     expect(manifest.contract).toBe(VERSION);
   });
@@ -292,6 +292,81 @@ describe("the samples a reader refuses", () => {
   it("tells a newer major version from a damaged one, whatever it holds", async () => {
     expect(await refusal(reading(hex(SAMPLES.a_newer_major), HOSTILE))).toBe("newer");
   });
+});
+
+describe("a document someone else may edit", () => {
+  const EDITING: Asked = { id: SAMPLES.editing.id, kind: "main" };
+  type Sample = { says: string; envelope: string; signer: string; without_the_key?: boolean };
+
+  it.each(SAMPLES.editing.opens as Sample[])("opens $says", async ({ envelope, signer }) => {
+    const { main } = await reading(hex(envelope), EDITING, LINK_KEY);
+    expect(main.signature.root).toBe(signer);
+    expect(main.manifest.owner?.root).toBe(SAMPLES.editing.owner);
+  });
+
+  it.each(SAMPLES.editing.refused as Sample[])("refuses $says", async ({ envelope }) => {
+    await refusal(reading(hex(envelope), EDITING, LINK_KEY));
+  });
+
+  it.each((SAMPLES.editing.refused as Sample[]).filter((one) => one.without_the_key))(
+    "refuses with nothing open: $says",
+    async ({ envelope }) => {
+      await refusal(readEnvelope(hex(envelope), EDITING));
+    },
+  );
+
+  it("leaves aside what a rest says beyond its body and pages", async () => {
+    const { held } = await reading(hex(SAMPLES.editing.rest_left_aside), EDITING, LINK_KEY);
+    expect(held.owner_name).toBeUndefined();
+    expect(held.title).toBeUndefined();
+    expect(held.body).toBe("a");
+  });
+
+  it("weighs a revocation of its owner's machine apart from its signer's", async () => {
+    const { envelope, served, verdict } = SAMPLES.editing.owner_revoked;
+    const { manifest, signature } = await readEnvelope(hex(envelope), EDITING);
+    expect(await verdictOf(signature, served)).toBe("holds");
+    expect(await verdictOf(manifest.owner as Owner, served)).toBe(verdict);
+  });
+});
+
+describe("what another version wrote", () => {
+  it.each(SAMPLES.newer_than_this as { says: string; envelope: string }[])(
+    "reads as newer under a later minor: $says",
+    async ({ envelope }) => {
+      expect(await refusal(reading(hex(envelope), HOSTILE))).toBe("newer");
+    },
+  );
+
+  it("reads files that do not fit as newer under a later minor", async () => {
+    const { document, files } = SAMPLES.newer_files;
+    expect(await refusal(openFiles(document, hex(files), { id: "hostile", kind: "files" }))).toBe("newer");
+  });
+
+  it("reads what came before the first version shared as too old, never damaged", async () => {
+    const { id, envelope } = SAMPLES.before_the_first_shared;
+    expect(await refusal(reading(hex(envelope), { id, kind: "main" }, LINK_KEY))).toBe("older");
+  });
+
+  it("refuses every key of small order", () => {
+    for (const root of SAMPLES.small_order as string[]) {
+      const { machine } = SAMPLES.signed_by;
+      const said = { root, machine, at: "2026-11-03T12:00:00Z", signed: SAMPLES.revocation.signed };
+      expect(check("revocation", said), root).not.toEqual([]);
+    }
+  });
+
+  it.each(Object.entries(SAMPLES.frozen) as [string, { link_key: string; main: never; files: never; public: never }][])(
+    "still opens what %s wrote",
+    async (_version, { link_key: key, main, files, public: open }) => {
+      const { envelope: mainEnvelope, document: mainDocument } = main as { envelope: string; document: object };
+      const { held } = await reading(hex(mainEnvelope), MAIN, fromBase64Url(key));
+      expect(held).toEqual(mainDocument);
+      await openFiles(held, hex((files as { envelope: string }).envelope), FILES, fromBase64Url(key));
+      const { envelope: openEnvelopeHex, document: openDocument } = open as { envelope: string; document: object };
+      expect((await reading(hex(openEnvelopeHex), PUBLIC)).held).toEqual(openDocument);
+    },
+  );
 });
 
 describe("the samples a reader opens", () => {

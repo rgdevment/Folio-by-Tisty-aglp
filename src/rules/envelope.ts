@@ -1,4 +1,4 @@
-import type { Envelope, EnvelopeKind, Opening, Signature } from "@tisty/contracts";
+import type { Envelope, EnvelopeKind, Opening, Owner, Signature } from "@tisty/contracts";
 import { check, VERSION } from "@tisty/contracts/check";
 import { type Bytes, bigEndian, fromBase64Url, joined, sameBytes, sha256, words } from "../core/bytes";
 
@@ -36,9 +36,17 @@ const LENGTH_BYTES = 4;
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 export const jsonIn = <T>(bytes: Bytes): T => JSON.parse(decoder.decode(bytes)) as T;
 
-const majorOf = (version: string): number => Number(version.split(".")[0]);
+const FIRST_SHARED = { major: 1, minor: 2 };
+const ONE_SPELLING = /^(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.|$)/;
 
-// Read first of all: a newer version may say what this one would call damaged (decision 95).
+const numbersOf = (version: string): { major: number; minor: number } | null => {
+  const [, major, minor] = ONE_SPELLING.exec(version) ?? [];
+  return major === undefined || minor === undefined ? null : { major: Number(major), minor: Number(minor) };
+};
+
+const OURS = numbersOf(VERSION);
+
+// Read first of all: a newer version may say what this one would call damaged (decision 154).
 const weighVersion = (said: unknown): void => {
   if (typeof said !== "string") refuse("damaged", "it says no version");
   const version = said as string;
@@ -46,9 +54,28 @@ const weighVersion = (said: unknown): void => {
     if (version !== VERSION) refuse("older", `a draft opens only under itself: ${version}`);
     return;
   }
-  if (!Number.isInteger(majorOf(version))) refuse("damaged", `not a version: ${version}`);
-  if (majorOf(version) > majorOf(VERSION)) refuse("newer", `written under a newer version: ${version}`);
-  if (majorOf(version) < majorOf(VERSION)) refuse("older", `written under an older version: ${version}`);
+  const numbers = numbersOf(version);
+  if (!numbers || !OURS) throw new EnvelopeRefused("damaged", `not a version: ${version}`);
+  if (numbers.major > OURS.major) refuse("newer", `written under a newer version: ${version}`);
+  if (numbers.major < OURS.major) refuse("older", `written under an older version: ${version}`);
+  if (numbers.major === FIRST_SHARED.major && numbers.minor < FIRST_SHARED.minor) {
+    refuse("older", `written before the first version shared: ${version}`);
+  }
+};
+
+const underALaterMinor = (version: string): boolean => {
+  const numbers = numbersOf(version);
+  return !version.includes("-") && numbers?.major === OURS?.major && (numbers?.minor ?? 0) > (OURS?.minor ?? 0);
+};
+
+// What this reader would refuse under a later minor may be what that minor added (decision 154).
+export const toldApart = async <T>(version: string, work: () => Promise<T>): Promise<T> => {
+  try {
+    return await work();
+  } catch (error) {
+    if (underALaterMinor(version)) return refuse("newer", `written under a later minor: ${version}`);
+    throw error;
+  }
 };
 
 const partsInOrder = ({ kind, parts }: Envelope): boolean => {
@@ -76,20 +103,24 @@ const verified = async (key: Bytes, signature: Bytes, ...signed: Bytes[]): Promi
 
 const secondsOf = (moment: string): Bytes => bigEndian(Date.parse(moment) / 1000);
 
+const certified = ({ root, machine, certificate, since }: Signature | Owner): Promise<boolean> => {
+  const rootKey = fromBase64Url(root);
+  return verified(
+    rootKey,
+    fromBase64Url(certificate),
+    words("tisty-share.certificate.v1\0"),
+    rootKey,
+    fromBase64Url(machine),
+    secondsOf(since),
+  );
+};
+
 const holdsSignature = async (signature: Signature, manifestBytes: Bytes, index: Bytes): Promise<void> => {
   const amiss = check("signature", signature);
   if (amiss.length > 0) refuse("unsigned", `its signature: ${amiss[0]}`);
   const root = fromBase64Url(signature.root);
   const machine = fromBase64Url(signature.machine);
-  const certified = await verified(
-    root,
-    fromBase64Url(signature.certificate),
-    words("tisty-share.certificate.v1\0"),
-    root,
-    machine,
-    secondsOf(signature.since),
-  );
-  if (!certified) refuse("unsigned", "its root does not answer for its machine");
+  if (!(await certified(signature))) refuse("unsigned", "its root does not answer for its machine");
   const about = words("envelope");
   const signed = await verified(
     machine,
@@ -103,6 +134,48 @@ const holdsSignature = async (signature: Signature, manifestBytes: Bytes, index:
     index,
   );
   if (!signed) refuse("unsigned", "its machine did not sign it");
+};
+
+const NO_PERMIT = new Uint8Array(32);
+
+// The one rule of who may sign a version: its owner, or whoever holds the token its owner allowed (decision 145).
+const holdsOwner = async (
+  { id, owner }: Envelope,
+  signature: Signature,
+  manifestBytes: Bytes,
+  index: Bytes,
+): Promise<void> => {
+  const { root, machine, permit, name_tag: nameTag, signed } = owner as Owner;
+  if (!(await certified(owner as Owner))) refuse("unsigned", "its owner's root does not answer for its machine");
+  const about = words("owner");
+  const idBytes = words(id);
+  const permitKey = permit ? fromBase64Url(permit) : NO_PERMIT;
+  const owned = await verified(
+    fromBase64Url(machine),
+    fromBase64Url(signed),
+    words("tisty-share.signed.v1\0"),
+    fromBase64Url(root),
+    fromBase64Url(machine),
+    bigEndian(about.length),
+    about,
+    bigEndian(idBytes.length),
+    idBytes,
+    permitKey,
+    fromBase64Url(nameTag),
+  );
+  if (!owned) refuse("unsigned", "its owner did not sign who owns it");
+  if (root === signature.root) return;
+  if (!permit || !signature.permit_signed) return refuse("unsigned", "another root needs its owner's permit");
+  const allowed = await verified(
+    permitKey,
+    fromBase64Url(signature.permit_signed),
+    words("tisty-share.permit.v1\0"),
+    fromBase64Url(signature.root),
+    fromBase64Url(signature.machine),
+    await sha256(manifestBytes),
+    index,
+  );
+  if (!allowed) refuse("unsigned", "its token did not sign it");
 };
 
 const readBytes = async (bytes: Bytes, asked: Asked): Promise<ReadEnvelope> => {
@@ -124,20 +197,23 @@ const readBytes = async (bytes: Bytes, asked: Asked): Promise<ReadEnvelope> => {
   const manifestBytes = sized(MANIFEST_BYTES_AT_MOST, "manifest");
   const manifest = jsonIn<Envelope>(manifestBytes);
   weighVersion(manifest?.contract);
-  holdsManifest(manifest, asked);
-  const signature = jsonIn<Signature>(sized(SIGNATURE_BYTES_AT_MOST, "signature"));
-  const index = piece(HASH_BYTES * manifest.parts.length);
-  await holdsSignature(signature, manifestBytes, index);
+  return toldApart(manifest.contract, async () => {
+    holdsManifest(manifest, asked);
+    const signature = jsonIn<Signature>(sized(SIGNATURE_BYTES_AT_MOST, "signature"));
+    const index = piece(HASH_BYTES * manifest.parts.length);
+    await holdsSignature(signature, manifestBytes, index);
+    if (manifest.sealed) await holdsOwner(manifest, signature, manifestBytes, index);
 
-  const parts: Bytes[] = [];
-  for (const [number, part] of manifest.parts.entries()) {
-    const travelled = piece(part.sealed_size);
-    const said = index.subarray(HASH_BYTES * number, HASH_BYTES * (number + 1));
-    if (!sameBytes(await sha256(travelled), said)) refuse("damaged", "a part is not what it signed");
-    parts.push(travelled);
-  }
-  if (at !== bytes.length) refuse("damaged", "something follows its parts");
-  return { manifest, manifestBytes, signature, index, parts };
+    const parts: Bytes[] = [];
+    for (const [number, part] of manifest.parts.entries()) {
+      const travelled = piece(part.sealed_size);
+      const said = index.subarray(HASH_BYTES * number, HASH_BYTES * (number + 1));
+      if (!sameBytes(await sha256(travelled), said)) refuse("damaged", "a part is not what it signed");
+      parts.push(travelled);
+    }
+    if (at !== bytes.length) refuse("damaged", "something follows its parts");
+    return { manifest, manifestBytes, signature, index, parts };
+  });
 };
 
 // Anything else that breaks here comes from what arrived, so it is the envelope that is damaged.

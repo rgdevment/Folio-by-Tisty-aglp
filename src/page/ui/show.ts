@@ -31,12 +31,13 @@ const lastDay = (diesOn: number): string =>
   new Date(diesOn * DAY_MILLISECONDS).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: "UTC" });
 
 const shown = async (id: string, linkKey: string, arrived: Arrived): Promise<void> => {
-  const { held, pictures, verdict, fingerprint, diesOn } = await openLink(id, linkKey, arrived);
+  const { held, pictures, verdict, fingerprint, ownerFingerprint, diesOn } = await openLink(id, linkKey, arrived);
   const cleaner = domPurifyCleaner(window);
   const addresses = pictureAddresses(held.pictures ?? [], pictures);
   drawFrame(held, (html) => finished(cleaner.clean(html), addresses), {
     verdict,
     fingerprint,
+    ownerFingerprint,
     diesOn: lastDay(diesOn),
   });
 };

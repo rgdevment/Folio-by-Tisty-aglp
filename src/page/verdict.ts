@@ -21,6 +21,11 @@ export const verdictOf = async (
   return received !== undefined && received < earliest ? "retired" : "doubtful";
 };
 
+const FROM_BEST_TO_WORST: Verdict[] = ["holds", "retired", "doubtful"];
+
+export const worseOf = (one: Verdict, other: Verdict): Verdict =>
+  FROM_BEST_TO_WORST.indexOf(one) >= FROM_BEST_TO_WORST.indexOf(other) ? one : other;
+
 export const fingerprintOf = async (root: string): Promise<string> => {
   const digest = await sha256(words("tisty-share.person.v1\0"), fromBase64Url(root));
   const hex = [...digest.subarray(0, FINGERPRINT_BYTES)].map((one) => one.toString(16).padStart(2, "0")).join("");

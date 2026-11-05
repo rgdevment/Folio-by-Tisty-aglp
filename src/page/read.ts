@@ -2,7 +2,7 @@ import type { Document, Verdict } from "@tisty/contracts";
 import { type Bytes, fromBase64Url } from "../core/bytes";
 import { refuse } from "../rules/envelope";
 import { documentIn, openEnvelope } from "./open";
-import { fingerprintOf, verdictOf } from "./verdict";
+import { fingerprintOf, verdictOf, worseOf } from "./verdict";
 
 export interface Arrived {
   bytes: Bytes;
@@ -15,6 +15,7 @@ export interface Opened {
   pictures: Bytes[];
   verdict: Verdict;
   fingerprint: string;
+  ownerFingerprint: string | null;
   diesOn: number;
 }
 
@@ -35,11 +36,16 @@ const momentOf = (milliseconds: number): string => new Date(milliseconds).toISOS
 export const openLink = async (id: string, linkKey: string, arrived: Arrived): Promise<Opened> => {
   const open = await openEnvelope(arrived.bytes, { id, kind: "main" }, keyIn(linkKey));
   const held = await documentIn(open);
+  const served = { received: momentOf(arrived.arrivedAt) };
+  const { signature, manifest } = open;
+  const signer = await verdictOf(signature, served);
+  const owner = manifest.owner;
   return {
     held,
     pictures: open.opened.slice(FIRST_PICTURE_PART),
-    verdict: await verdictOf(open.signature, { received: momentOf(arrived.arrivedAt) }),
-    fingerprint: await fingerprintOf(open.signature.root),
+    verdict: owner ? worseOf(signer, await verdictOf(owner, served)) : signer,
+    fingerprint: await fingerprintOf(signature.root),
+    ownerFingerprint: owner && owner.root !== signature.root ? await fingerprintOf(owner.root) : null,
     diesOn: arrived.diesOn,
   };
 };

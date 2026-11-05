@@ -33,5 +33,6 @@ export const SAMPLE: Document = {
 export const SAMPLE_SEAL = {
   verdict: "holds",
   fingerprint: "48213 90175 22640 31987",
+  ownerFingerprint: null,
   diesOn: "en 7 días",
 } as const;

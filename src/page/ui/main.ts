@@ -1,5 +1,6 @@
 import "virtual:tisty-tokens.css";
 import "./frame.css";
+import { keyOfFragment } from "../link";
 import { askFor } from "./ask";
 import { drawClosed } from "./closed";
 import { offerThemes } from "./theme";
@@ -22,7 +23,7 @@ const showAsked = async (id: string): Promise<void> => {
   // Asked first, and the rest of the code after, so neither waits for the other.
   const asked = askFor(id);
   const { showLink } = await import("./show");
-  await showLink(id, location.hash.slice(1), asked, NOT_FOUND);
+  await showLink(id, keyOfFragment(location.hash.slice(1)), asked, NOT_FOUND);
 };
 
 offerThemes();
