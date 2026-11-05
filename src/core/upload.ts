@@ -1,13 +1,13 @@
 import type { Envelope, Owner } from "@tisty/contracts";
 import { EnvelopeRefused, isBelowVersion, type ReadEnvelope, readEnvelope } from "../rules/envelope";
 import { type Bytes, sha256 } from "./bytes";
-import { dayOf, type Limits } from "./limits";
+import { DAY_MS, dayOf, type Limits } from "./limits";
 import { netDigest } from "./net";
 import type { ReadTools } from "./read";
 import { askForProof, type Refused, tooFast } from "./refused";
 import { hourEnds, hourOf, proofIsFresh, startHolds, toBase64Url, tokenHash } from "./start";
 import type { Created, Held, Uploaded } from "./store";
-import { uploadAllowedAt } from "./versions";
+import { listFreesAt, uploadAllowedAt } from "./versions";
 
 export interface FirstUpload {
   start: string;
@@ -21,7 +21,7 @@ export interface Uploading {
   id: string;
   ip: string;
   now: number;
-  bytes: Bytes;
+  bytes: () => Promise<Bytes | null>;
   first?: FirstUpload;
 }
 
@@ -93,6 +93,12 @@ const mayUpload = ({ manifest, signature }: ReadEnvelope, held: Held): boolean =
   return signature.root === held.owner || ownerMarkOf(owner) === held.ownerMark;
 };
 
+const notNext = (held: Held, version: number): Refused | null => {
+  if (held.blocked) return { refused: "blocked" };
+  if (held.paused) return { refused: "paused" };
+  return version === held.latest + 1 ? null : { refused: "behind" };
+};
+
 const answerOf = (uploaded: Uploaded, version: number, now: number): UploadAnswer => {
   switch (uploaded) {
     case "stored":
@@ -105,20 +111,22 @@ const answerOf = (uploaded: Uploaded, version: number, now: number): UploadAnswe
     case "paused":
       return { refused: uploaded };
     case "quota":
-    case "list_full":
       return { refused: "quota", until: hourEnds(now) };
+    case "list_full":
+      return { refused: "quota", until: now + DAY_MS };
   }
 };
 
 export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise<UploadAnswer> => {
-  const { id, ip, now, bytes, first } = uploading;
+  const { id, ip, now, first } = uploading;
   const { store, limiter, limits, dayKey } = tools;
   const today = dayOf(now);
   const net = await netDigest(await dayKey(today), ip);
   if (!(await limiter.allows(net))) return tooFast(now);
   const stage = await store.stage();
   if (stage === "no_uploads" || stage === "blocked") return { refused: "uploads_off" };
-  if (bytes.length > limits.envelopeBytesAtMost) return { refused: "too_big" };
+  const bytes = await uploading.bytes();
+  if (!bytes || bytes.length > limits.envelopeBytesAtMost) return { refused: "too_big" };
 
   const read = await readOrRefuse(id, bytes);
   if ("refused" in read) return read;
@@ -134,12 +142,17 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
   }
   if (!held) {
     if (!first) return { refused: "missing" };
+    if (manifest.version !== 1) return { refused: "behind" };
     const refused = await share(uploading, read, net, tools);
     if (refused) return refused;
     held = await store.held(id);
     if (!held) return { refused: "missing" };
   }
   if (!mayUpload(read, held)) return { refused: "not_yours" };
+  const stopped = notNext(held, manifest.version);
+  if (stopped) return stopped;
+  const listFreed = listFreesAt(held.versions, now, limits);
+  if (listFreed !== null) return { refused: "quota", until: listFreed };
 
   const allowedAt = uploadAllowedAt(held.versions, signature.root, now, limits);
   if (allowedAt > now) return { refused: "slow", until: allowedAt };
@@ -165,10 +178,4 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
     today,
   );
   return answerOf(uploaded, manifest.version, now);
-};
-
-export const setPermitHolds = (said: unknown): said is { permit: string | null } => {
-  if (typeof said !== "object" || said === null || !("permit" in said)) return false;
-  const { permit } = said as { permit: unknown };
-  return permit === null || (typeof permit === "string" && /^[A-Za-z0-9_-]{43}$/.test(permit));
 };

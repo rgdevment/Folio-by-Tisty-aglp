@@ -23,14 +23,24 @@ const streakOf = (own: Version[], limits: Limits): number => {
   return streak;
 };
 
+// Past its size nothing leaves until the oldest one that could leave has been replaced long enough.
+export const listFreesAt = (versions: Version[], now: number, limits: Limits): number | null => {
+  const next: Version = { n: 0, hash: "", bytes: 0, at: now, signer: "", contract: "" };
+  const kept = keptVersions([...versions, next], now, limits);
+  if (kept.length <= limits.versionsListedAtMost) return null;
+  const oldest = versions.indexOf(kept[0] as Version);
+  return (versions[oldest + 1] as Version).at + limits.replacedKeptDays * DAY_MS;
+};
+
 export const uploadAllowedAt = (versions: Version[], signer: string, now: number, limits: Limits): number => {
   const own = versions.filter((one) => one.signer === signer);
   const last = own.at(-1);
-  if (!last || now - last.at >= limits.uploadStreakResetMinutes * MINUTE_MS) return now;
+  if (!last) return now;
 
   const waits = limits.uploadWaitsMinutes;
   const wait = waits[Math.min(streakOf(own, limits) - 1, waits.length - 1)] ?? 0;
-  const afterTheWait = last.at + wait * MINUTE_MS;
+  const startsOver = now - last.at >= limits.uploadStreakResetMinutes * MINUTE_MS;
+  const afterTheWait = startsOver ? now : last.at + wait * MINUTE_MS;
   const inTheHour = own.filter((one) => now - one.at < HOUR_MS);
   const oldest = inTheHour[0];
   const afterTheHour = oldest && inTheHour.length >= limits.uploadsOfARootAnHour ? oldest.at + HOUR_MS : now;

@@ -38,6 +38,12 @@ const appeal = async (
   return { done: true };
 };
 
+export const setPermitHolds = (said: unknown): said is { permit: string | null } => {
+  if (typeof said !== "object" || said === null || !("permit" in said)) return false;
+  const { permit } = said as { permit: unknown };
+  return permit === null || (typeof permit === "string" && /^[A-Za-z0-9_-]{43}$/.test(permit));
+};
+
 export const administer = async (
   { id, ip, now, token, action, permit = null }: Administering,
   tools: AdminTools,

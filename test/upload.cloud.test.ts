@@ -1,6 +1,6 @@
 import { applyD1Migrations } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
 import type { Bytes } from "../src/core/bytes";
 import { DAY_MS, dayOf, LEVEL_ONE, type Limits } from "../src/core/limits";
@@ -8,7 +8,7 @@ import { latestVersion } from "../src/core/read";
 import { saltFor, solveProof, startNow, toBase64Url } from "../src/core/start";
 import type { Stage, Version } from "../src/core/store";
 import { type FirstUpload, uploadDoc } from "../src/core/upload";
-import { keptVersions, uploadAllowedAt } from "../src/core/versions";
+import { keptVersions, listFreesAt, uploadAllowedAt } from "../src/core/versions";
 import { newPerson, newToken, type Person, rootOf, sealedEnvelope } from "./sealed";
 
 const testEnv = env as unknown as {
@@ -41,7 +41,7 @@ const started = async (now = NOW): Promise<FirstUpload & { id: string }> => {
 };
 
 const send = (id: string, bytes: Bytes, now = NOW, first?: FirstUpload) =>
-  uploadDoc({ id, now, ip: "203.0.113.9", bytes, ...(first ? { first } : {}) }, tools);
+  uploadDoc({ id, now, ip: "203.0.113.9", bytes: async () => bytes, ...(first ? { first } : {}) }, tools);
 
 const shared = async (over: { permit?: string } = {}) => {
   const first = await started();
@@ -108,7 +108,10 @@ describe("sharing something new", () => {
     const hard = { ...tools, limits: { ...LIMITS, proofBits: 24 } };
     const first = await started();
     const bytes = await sealedEnvelope({ id: first.id, version: 1, owner: mario });
-    const answer = await uploadDoc({ id: first.id, now: NOW, ip: "203.0.113.9", bytes, first }, hard);
+    const answer = await uploadDoc(
+      { id: first.id, now: NOW, ip: "203.0.113.9", bytes: async () => bytes, first },
+      hard,
+    );
     expect(answer).toMatchObject({ refused: "proof", bits: 24 });
     expect(await row(first.id)).toBeNull();
   });
@@ -194,6 +197,43 @@ describe("who may send a new version", () => {
   });
 });
 
+describe("what is refused writes nothing", () => {
+  const counted = () => testEnv.DB.prepare("SELECT COUNT(*) AS n FROM net_hour").first<{ n: number }>();
+
+  it("a first version that is not the first, which takes no place among their shares", async () => {
+    const first = await started();
+    const bytes = await sealedEnvelope({ id: first.id, version: 3, owner: mario });
+    expect(await send(first.id, bytes, NOW, first)).toEqual({ refused: "behind" });
+    expect(await row(first.id)).toBeNull();
+  });
+
+  it("one that is behind, paused or blocked, or spends the network's uploads", async () => {
+    const id = await shared();
+    await testEnv.DB.prepare("DELETE FROM net_hour").run();
+    expect(await send(id, await sealedEnvelope({ id, version: 3, owner: mario }), LATER)).toEqual({
+      refused: "behind",
+    });
+    await store.pause(id, dayOf(NOW));
+    const next = await sealedEnvelope({ id, version: 2, owner: mario });
+    expect(await send(id, next, LATER)).toEqual({ refused: "paused" });
+    expect((await counted())?.n).toBe(0);
+  });
+
+  it("reads no body for what the brake or the stage stop", async () => {
+    const bytes = vi.fn(async () => new Uint8Array(1));
+    const braked = { ...tools, limiter: { allows: async () => false } };
+    await uploadDoc({ id: "AbCdEfGh", now: NOW, ip: "203.0.113.9", bytes }, braked);
+    await store.setStage("no_uploads");
+    await uploadDoc({ id: "AbCdEfGh", now: NOW, ip: "203.0.113.9", bytes }, tools);
+    expect(bytes).not.toHaveBeenCalled();
+  });
+
+  it("refuses what says it is past the size, or does not fit", async () => {
+    const answer = await uploadDoc({ id: "AbCdEfGh", now: NOW, ip: "203.0.113.9", bytes: async () => null }, tools);
+    expect(answer).toEqual({ refused: "too_big" });
+  });
+});
+
 describe("what stops a version", () => {
   it("one that is not the next says it is behind, and nothing else", async () => {
     const id = await shared();
@@ -237,20 +277,24 @@ describe("what stops a version", () => {
     }
     const small = { ...tools, limits: { ...LIMITS, envelopeBytesAtMost: 10 } };
     const bytes = await sealedEnvelope({ id, version, owner: mario });
-    expect(await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes }, small)).toEqual({ refused: "too_big" });
+    expect(await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes: async () => bytes }, small)).toEqual({
+      refused: "too_big",
+    });
   });
 
   it("a contract under the floor, once there is one", async () => {
     const id = await shared();
     const floored = { ...tools, limits: { ...LIMITS, oldestContractTaken: "1.3.0" } };
     const bytes = await sealedEnvelope({ id, version: 2, owner: mario });
-    expect(await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes }, floored)).toEqual({ refused: "outdated" });
+    expect(await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes: async () => bytes }, floored)).toEqual({
+      refused: "outdated",
+    });
   });
 
   it("a brake that says no", async () => {
     const braked = { ...tools, limiter: { allows: async () => false } };
     const bytes = await sealedEnvelope({ id: "AbCdEfGh", version: 1, owner: mario });
-    const answer = await uploadDoc({ id: "AbCdEfGh", now: NOW, ip: "203.0.113.9", bytes }, braked);
+    const answer = await uploadDoc({ id: "AbCdEfGh", now: NOW, ip: "203.0.113.9", bytes: async () => bytes }, braked);
     expect(answer).toMatchObject({ refused: "slow" });
   });
 
@@ -299,6 +343,11 @@ describe("the waits of the button", () => {
     expect(uploadAllowedAt(made, "b", 2 * MINUTE, LEVEL_ONE)).toBe(2 * MINUTE);
   });
 
+  it("hold ten an hour even after half an hour with no press", () => {
+    const ten = Array.from({ length: 10 }, (_, at) => at * 2 * MINUTE);
+    expect(uploadAllowedAt(versionsAt("a", ...ten), "a", 49 * MINUTE, LEVEL_ONE)).toBe(60 * MINUTE);
+  });
+
   it("hold ten an hour", () => {
     const ten = Array.from({ length: 10 }, (_, at) => at * 2 * MINUTE);
     const made = versionsAt("a", ...ten);
@@ -334,7 +383,14 @@ describe("the versions it keeps", () => {
       .bind(many.length, JSON.stringify(many), id)
       .run();
     const bytes = await sealedEnvelope({ id, version: many.length + 1, owner: mario });
-    expect(await send(id, bytes, LATER)).toMatchObject({ refused: "quota" });
+    expect(await send(id, bytes, LATER)).toEqual({ refused: "quota", until: NOW + 1 + 7 * DAY_MS });
+  });
+
+  it("says when a full list frees, and nothing while it has room", () => {
+    const room = versionsAt("a", 0, 1, 2);
+    expect(listFreesAt(room, 3, LEVEL_ONE)).toBeNull();
+    const full = versionsAt("a", ...Array.from({ length: LEVEL_ONE.versionsListedAtMost }, (_, at) => at * 1000));
+    expect(listFreesAt(full, 300_000, LEVEL_ONE)).toBe(1000 + 7 * DAY);
   });
 });
 

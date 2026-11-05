@@ -1,11 +1,11 @@
-import { type AdminAction, administer } from "../core/admin";
+import { type AdminAction, administer, setPermitHolds } from "../core/admin";
 import { dayOf } from "../core/limits";
 import { netDigest } from "../core/net";
 import { type Asked, latestVersion, readDoc, type SyncTools } from "../core/read";
 import { type Refused, tooFast } from "../core/refused";
 import { type ReportTools, reportDoc, saidOf } from "../core/report";
 import { startNow } from "../core/start";
-import { type FirstUpload, setPermitHolds, uploadDoc } from "../core/upload";
+import { type FirstUpload, uploadDoc } from "../core/upload";
 
 const PREFIX = "/api/v1/";
 const DOC_PATH = /^docs\/([A-Za-z0-9]{8})(?:\/(report|admin|pause|resume|appeal|latest|permit))?$/;
@@ -137,13 +137,14 @@ const firstUploadOf = ({ headers }: Request): FirstUpload | undefined => {
 };
 
 const answerUpload = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
-  const blob = await blobUpTo(request, tools.limits.envelopeBytesAtMost);
-  if (!blob) return refusal({ refused: "too_big" }, now);
+  const atMost = tools.limits.envelopeBytesAtMost;
+  const bytes = async () => {
+    if (Number(request.headers.get("Content-Length") ?? 0) > atMost) return null;
+    const blob = await blobUpTo(request, atMost);
+    return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
+  };
   const first = firstUploadOf(request);
-  const answer = await uploadDoc(
-    { id, now, ip: ipOf(request), bytes: new Uint8Array(await blob.arrayBuffer()), ...(first ? { first } : {}) },
-    tools,
-  );
+  const answer = await uploadDoc({ id, now, ip: ipOf(request), bytes, ...(first ? { first } : {}) }, tools);
   return "refused" in answer ? refusal(answer, now) : json(200, answer);
 };
 

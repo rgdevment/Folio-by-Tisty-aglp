@@ -209,6 +209,8 @@ export class Cloud implements Store {
       ownerMark: row.owner_mark,
       latest: row.latest,
       versions: JSON.parse(row.versions) as Version[],
+      blocked: row.blocked_at !== null,
+      paused: row.paused_at !== null,
     };
   }
 

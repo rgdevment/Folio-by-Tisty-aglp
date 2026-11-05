@@ -38,6 +38,8 @@ export interface Held {
   ownerMark: string;
   latest: number;
   versions: Version[];
+  blocked: boolean;
+  paused: boolean;
 }
 
 export interface Reading {
