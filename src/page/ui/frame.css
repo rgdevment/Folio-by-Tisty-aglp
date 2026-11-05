@@ -894,6 +894,99 @@ body::before {
   cursor: not-allowed;
 }
 
+.report-dialog {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 20px;
+  overflow-y: auto;
+  background: var(--tisty-sheet);
+  border: 1px solid var(--tisty-hair);
+  border-radius: 12px;
+  color: var(--tisty-ink);
+  font-size: 14px;
+  text-align: left;
+}
+
+.report-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.report-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.report-dialog fieldset {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.report-dialog legend {
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--tisty-soft);
+  font-size: 12px;
+}
+
+.report-dialog label {
+  display: block;
+  padding: 3px 0;
+}
+
+.report-dialog textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  background: transparent;
+  border: 1px solid var(--tisty-line);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+.report-detail {
+  margin-bottom: 12px;
+}
+
+#report-consent p,
+.report-note {
+  margin: 4px 0 12px;
+  color: var(--tisty-soft);
+  font-size: 12px;
+}
+
+.report-note a {
+  color: inherit;
+}
+
+.report-said:empty {
+  display: none;
+}
+
+.report-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.report-actions button {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--tisty-line);
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.report-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* The foot of the page: who made this, and what happened to the document on its way here. */
 .page-foot {
   display: grid;

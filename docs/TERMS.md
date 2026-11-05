@@ -63,9 +63,15 @@ responsibility. You may not use Folio for:
   that lets someone edit. A serious report (child abuse, threats or violence,
   concrete incitement, doxxing or intimate images) without that link stays on
   record but blocks nothing, because nobody could review it.
-- **With three reports** from different places, the document is blocked: it
-  is no longer served, but it is not deleted. Whoever shared it sees the block
-  in their management link and can appeal there.
+- **A minor report** (spam, or something annoying or offensive that is no
+  crime) needs nobody to step in. With three from different places, whoever
+  shared it sees a warning in Tisty and in their management link, and has three
+  days to send a new version. If they do not, it is no longer served until one
+  arrives. A new version leaves those reports at zero.
+- **With three reports** of phishing, malware, a scam or something serious, from
+  different places, the document is blocked: it is no longer served, but it is
+  not deleted. Whoever shared it sees the block in their management link and
+  can appeal there.
 - **Reports of crimes go where they belong:** to the PDI (Chile's
   investigations police) or the public prosecutor, and phishing and malware
   also to Google Safe Browsing and Cloudflare. Copyright claims are made by the

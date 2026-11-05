@@ -56,14 +56,18 @@ const refusalOfState = (shown: Shown | null, { oldestContractServed: floor }: Li
 export const latestVersion = async (
   { id, ip, now }: Asking,
   { store, limiter, syncLimiter, limits, dayKey }: SyncTools,
-): Promise<{ version: number; hash: string } | Refused> => {
+): Promise<{ version: number; hash: string; fixBy?: number } | Refused> => {
   const today = dayOf(now);
   const net = await netDigest(await dayKey(today), ip);
   if (!(await limiter.allows(net)) || !(await syncLimiter.allows(`${net}|${id}`))) return tooFast(now);
   const shown = await store.shown(id, today);
   const refused = refusalOfState(shown, limits);
   if (refused || !shown?.version) return refused ?? { refused: "missing" };
-  return { version: shown.version.n, hash: shown.version.hash };
+  return {
+    version: shown.version.n,
+    hash: shown.version.hash,
+    ...(shown.fixBy === null ? {} : { fixBy: shown.fixBy }),
+  };
 };
 
 export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): Promise<Served | Refused> => {
@@ -75,6 +79,8 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
   const shown = await store.shown(id, today);
   const refused = refusalOfState(shown, limits);
   if (refused || !shown?.version) return refused ?? { refused: "missing" };
+  // Only a read stops here: the button still sees its version, and a new one is what lifts it (decision 153).
+  if (shown.fixBy !== null && today > shown.fixBy) return { refused: "blocked" };
 
   const scope = `read|${id}|${net}`;
   const proved = proof !== undefined && (await proofIsFresh(secret, scope, proof, limits.proofBits, now));

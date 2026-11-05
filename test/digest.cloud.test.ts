@@ -93,6 +93,12 @@ describe("the mail", () => {
     expect(send.mock.calls[0]?.[1]).toContain(ID);
   });
 
+  it("does not tell of light reports, which nobody has to look at", async () => {
+    await report(ID, "n1", "spam");
+    await report(ID, "n2", "offensive");
+    expect((await digest()).sent).toBe(false);
+  });
+
   it("does not tell of reports an accepted appeal cleared", async () => {
     await report(ID, "n1", "phishing");
     await testEnv.DB.prepare("UPDATE reports SET cleared = 1").run();

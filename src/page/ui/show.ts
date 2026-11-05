@@ -1,4 +1,5 @@
 import { type EnvelopeRefusal, EnvelopeRefused } from "../../rules/envelope";
+import { OPERATOR_KEY } from "../operator-key";
 import type { Arrived } from "../read";
 import { openLink } from "../read";
 import { askFor, type NotArrived } from "./ask";
@@ -6,6 +7,7 @@ import { domPurifyCleaner } from "./clean";
 import { drawClosed } from "./closed";
 import { finished, pictureAddresses } from "./finish";
 import { drawFrame } from "./frame";
+import { offerReport } from "./report";
 import { solved } from "./solve";
 
 const DAY_MILLISECONDS = 86_400_000;
@@ -41,6 +43,7 @@ const shown = async (id: string, linkKey: string, arrived: Arrived): Promise<voi
     ownerFingerprint,
     diesOn: lastDay(diesOn),
   });
+  offerReport(id, linkKey, OPERATOR_KEY);
 };
 
 export const showLink = async (
