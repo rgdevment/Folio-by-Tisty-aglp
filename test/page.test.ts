@@ -101,6 +101,15 @@ describe("the foot of the page", () => {
   });
 });
 
+describe("the button that hands a link to Tisty", () => {
+  it("writes the address as the contract's own example does, with the # of the key encoded", () => {
+    const { link, address } = (CONTRACTS.link as { values: { edit_example: { link: string; address: string } } }).values
+      .edit_example;
+    expect(`tisty://edit?link=${encodeURIComponent(link)}`).toBe(address);
+    expect(FRAME).toContain("tisty://edit?link=${encodeURIComponent(location.href)}");
+  });
+});
+
 describe("the panels", () => {
   it("say the verdict once, in the bar, outside the document", () => {
     expect(HTML).toContain('id="seal-text"');
