@@ -24,7 +24,9 @@ export interface Bindings {
 }
 
 interface DocRow {
-  edit_hash: string;
+  owner: string;
+  admin_hash: string;
+  permit: string | null;
   anchor: string | null;
   latest: number;
   versions: string;
@@ -82,7 +84,7 @@ export class Cloud implements Store {
     if (!(await this.#takeQuota(doc.net, 1, 0, today))) return "quota";
     const inserted = await this.#db
       .prepare(
-        `INSERT OR IGNORE INTO docs (id, owner, anchor, edit_hash, admin_hash, ttl_days, dies_on, active_day)
+        `INSERT OR IGNORE INTO docs (id, owner, anchor, permit, admin_hash, ttl_days, dies_on, active_day)
          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
          WHERE (?3 IS NOT NULL AND EXISTS (
            SELECT 1 FROM docs a WHERE a.id = ?3 AND a.owner = ?2 AND a.anchor IS NULL AND a.latest >= 0
@@ -97,7 +99,7 @@ export class Cloud implements Store {
         doc.id,
         doc.owner,
         doc.anchor ?? null,
-        doc.editHash,
+        doc.permit ?? null,
         doc.adminHash,
         doc.ttlDays,
         today + doc.ttlDays,
@@ -114,7 +116,9 @@ export class Cloud implements Store {
 
   // A lost answer comes back as the same document, and only that is not somebody else's id.
   #retried(held: DocRow, doc: NewDoc): Created {
-    return held.edit_hash === doc.editHash && held.latest !== CLAIMED ? "same" : "taken";
+    const sameDocument =
+      held.admin_hash === doc.adminHash && held.owner === doc.owner && held.permit === (doc.permit ?? null);
+    return sameDocument && held.latest !== CLAIMED ? "same" : "taken";
   }
 
   async upload(upload: Upload, today: number): Promise<Uploaded> {
@@ -198,7 +202,7 @@ export class Cloud implements Store {
 
   #row(id: string): Promise<DocRow | null> {
     return this.#db
-      .prepare("SELECT edit_hash, anchor, latest, versions, blocked_at FROM docs WHERE id = ?")
+      .prepare("SELECT owner, admin_hash, permit, anchor, latest, versions, blocked_at FROM docs WHERE id = ?")
       .bind(id)
       .first<DocRow>();
   }

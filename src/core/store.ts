@@ -9,7 +9,7 @@ export interface NewDoc {
   id: string;
   owner: string;
   anchor?: string;
-  editHash: string;
+  permit?: string;
   adminHash: string;
   ttlDays: number;
   net: string;

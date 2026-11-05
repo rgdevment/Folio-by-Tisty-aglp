@@ -90,10 +90,7 @@ const send = async ({ method, path, admin, body, braked, broken }: Scenario, pro
 };
 
 const share = async () => {
-  await store.create(
-    { id: ID, owner: "o1", editHash: "e", adminHash: await tokenHash(TOKEN), ttlDays: 3, net: "n" },
-    TODAY,
-  );
+  await store.create({ id: ID, owner: "o1", adminHash: await tokenHash(TOKEN), ttlDays: 3, net: "n" }, TODAY);
   await store.upload({ id: ID, n: 1, hash: "h1", body: "sealed", net: "n", at: 1234 }, TODAY);
 };
 

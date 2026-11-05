@@ -29,7 +29,6 @@ const share = async (id = ID, anchor?: string) => {
     {
       id,
       owner: "o1",
-      editHash: "e",
       adminHash: await tokenHash(TOKEN),
       ttlDays: 3,
       net: "n",

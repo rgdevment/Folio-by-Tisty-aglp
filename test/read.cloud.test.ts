@@ -43,7 +43,7 @@ const tools = (over: Partial<ReadTools> = {}): ReadTools => ({
 });
 
 const share = async (id = ID) => {
-  await store.create({ id, owner: "o1", editHash: "e", adminHash: "a", ttlDays: 3, net: "n" }, TODAY);
+  await store.create({ id, owner: "o1", adminHash: "a", ttlDays: 3, net: "n" }, TODAY);
   await store.upload({ id, n: 1, hash: "h1", body: "sealed", net: "n", at: 1234 }, TODAY);
 };
 
@@ -143,7 +143,7 @@ describe("what a read refuses", () => {
 
   it("a document with no row, no version, or with its object gone", async () => {
     expect(await read()).toEqual({ refused: "missing" });
-    await store.create({ id: ID, owner: "o1", editHash: "e", adminHash: "a", ttlDays: 1, net: "n" }, TODAY);
+    await store.create({ id: ID, owner: "o1", adminHash: "a", ttlDays: 1, net: "n" }, TODAY);
     expect(await read()).toEqual({ refused: "missing" });
     await store.upload({ id: ID, n: 1, hash: "h1", body: "x", net: "n", at: 1 }, TODAY);
     await testEnv.ENVELOPES.delete(`${ID}/1.h1`);

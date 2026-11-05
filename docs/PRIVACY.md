@@ -25,7 +25,7 @@ as a non-profit. Contact: <rgdevment@tisty.app>.
 |---|---|---|
 | The encrypted document, with its versions | To serve it to whoever has the link | Until the time without activity you choose, 15 days at most, or until you stop sharing it. With a serious report or an order, it is no longer served and stays for up to 180 days, or for as long as the order asks |
 | The manifest in the clear: how many parts, what each weighs, their kind and the version | To hold the limits without reading the content | As long as the document |
-| The edit and manage links, kept as a digest (hash) | To check who may change or delete it | As long as the document |
+| The manage link, kept as a digest (hash), and the public key of the edit link's token, which never reaches the server | To check who may change or delete it | As long as the document |
 | If you sign, your public key and its certificate | So readers know it is yours | As long as the document |
 | How many times it was read, counted once a day per visitor | To show you the reads in Tisty | As long as the document |
 | A line for each read served: the link's id (without its key, so it opens nothing), the country and the Cloudflare data center, never your IP | To know how much each document is read and where from, and size the service | 3 days, in Cloudflare's Workers Logs |

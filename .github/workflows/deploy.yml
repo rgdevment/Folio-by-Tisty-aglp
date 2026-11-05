@@ -221,6 +221,10 @@ jobs:
       - name: The tables, before the code that reads them
         run: npx --no-install wrangler d1 migrations apply "$DATABASE" --remote
 
+      # It goes by file name, so it says nothing of a migration changed after it was applied.
+      - name: The tables are what the migrations make
+        run: bash scripts/same-schema.sh "$DATABASE" --remote
+
       - name: Deploy
         id: deploy
         run: npx --no-install wrangler deploy --var "FOLIO_TAG:$TAG" --tag "$TAG" --message "$TAG ${GITHUB_SHA:0:8}"

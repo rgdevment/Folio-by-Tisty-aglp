@@ -20,7 +20,8 @@ const NOT_ARRIVED: Record<string, string> = {
 const COULD_NOT_ARRIVE = "No se pudo traer el documento. Vuelve a intentarlo en un momento.";
 
 const REFUSED: Record<EnvelopeRefusal, string> = {
-  newer: "Este documento se escribió con una versión más nueva. Recarga la página para abrirlo.",
+  newer:
+    "Este documento se escribió con una versión más nueva de la que esta página sabe leer. Vuelve a intentarlo más tarde.",
   older: "Este documento es demasiado antiguo para esta página.",
   damaged: "Este documento llegó dañado, así que no se muestra.",
   unsigned: "La firma de este documento no vale, así que no se muestra.",

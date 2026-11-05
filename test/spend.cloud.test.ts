@@ -34,7 +34,7 @@ const answering = (body: unknown, status = 200) => {
 };
 
 const dying = async (id: string, diesOn: number, more = "") => {
-  await store.create({ id, owner: `o-${id}`, editHash: "e", adminHash: "a", ttlDays: 3, net: "n" }, DAY);
+  await store.create({ id, owner: `o-${id}`, adminHash: "a", ttlDays: 3, net: "n" }, DAY);
   await testEnv.DB.prepare(`UPDATE docs SET dies_on = ?${more} WHERE id = ?`).bind(diesOn, id).run();
 };
 
@@ -68,7 +68,7 @@ describe("the stage", () => {
 describe("a block", () => {
   it("forgets nothing meanwhile, and still adds up the days", async () => {
     await dying("gone", DAY - 1);
-    await store.create({ id: "read", owner: "o", editHash: "e", adminHash: "a", ttlDays: 3, net: "n" }, DAY);
+    await store.create({ id: "read", owner: "o", adminHash: "a", ttlDays: 3, net: "n" }, DAY);
     await store.note({ owner: "o", reader: "r", doc: "read", hour: 9, proved: false }, DAY);
     await store.setStage("blocked");
     const swept = await store.sweep(DAY + 1);
