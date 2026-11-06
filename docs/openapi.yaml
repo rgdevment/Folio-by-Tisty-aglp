@@ -21,6 +21,15 @@ info:
     with it in `Folio-Proof`. A salt lasts until the end of the next hour, and only for that action,
     document and network.
 
+    **The limits** are published at
+    `https://raw.githubusercontent.com/rgdevment/Folio-by-Tisty/main/docs/limits.json`, so reading them spends no
+    request here. Read it at most once an hour, up to 16 KiB and following no redirect. Beside it,
+    `limits.json.minisig` signs it with minisign, under a key kept off CI whose public part is `docs/limits.pub`.
+    Check the signature on the bytes as they came, with `file:limits.json` in its trusted comment, before believing
+    a field. Its `serial` only grows, so an older one must not replace a newer one. `uploads_halted_until`, in
+    seconds, says uploads are paused until then, never more than a week ahead. It may ask for less than the server
+    takes and never for more, and the server holds to its own numbers whoever calls it.
+
     **The admin link:** `Folio-Admin` carries the token whose SHA-256 is the document's `admin_hash`. A
     wrong token answers as a document that does not exist.
   license:

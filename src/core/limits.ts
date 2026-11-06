@@ -39,7 +39,7 @@ export interface Limits {
   proofBits: number;
 }
 
-// Level 1 (decisions 36, 41, 42, 49, 93 bis, 97, 116, 128 and 136). They move to the signed file with the rules (decision 120).
+// Level 1 (decisions 36, 41, 42, 49, 93 bis, 97, 116, 128 and 136). What Tisty reads of them is signed in docs/limits.json (decision 120).
 export const LEVEL_ONE: Limits = {
   ttlChoices: [1, 3, 7, 15],
   sharesAtMost: 2,
@@ -80,6 +80,24 @@ export const LEVEL_ONE: Limits = {
   hoursFromReaders: 5,
   proofBits: 16,
 };
+
+// What Tisty reads to warn before sharing (decision 120). The server holds to the same numbers whoever calls it.
+export const publishedLimits = (limits: Limits) => ({
+  ttl_days: limits.ttlChoices,
+  shares_at_most: limits.sharesAtMost,
+  envelope_bytes_at_most: limits.envelopeBytesAtMost,
+  first_bytes_at_most: limits.firstBytesAtMost,
+  rest_bytes_at_most: limits.restBytesAtMost,
+  pictures_at_most: limits.picturesAtMost,
+  picture_bytes_at_most: limits.pictureBytesAtMost,
+  pictures_bytes_at_most: limits.picturesBytesAtMost,
+  files_at_most: limits.filesAtMost,
+  files_bytes_at_most: limits.filesBytesAtMost,
+  uploads_of_a_root_an_hour: limits.uploadsOfARootAnHour,
+  upload_waits_minutes: limits.uploadWaitsMinutes,
+  oldest_contract_taken: limits.oldestContractTaken,
+  oldest_contract_served: limits.oldestContractServed,
+});
 
 export type ReportLevel = "light" | "medium" | "grave";
 
