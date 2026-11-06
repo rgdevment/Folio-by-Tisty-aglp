@@ -68,6 +68,7 @@ beforeEach(() => {
   vi.stubGlobal("document", place.document);
   vi.stubGlobal("DOMParser", place.DOMParser);
   vi.stubGlobal("MutationObserver", place.MutationObserver);
+  vi.stubGlobal("AbortController", place.AbortController);
   vi.stubGlobal("location", { href: place.location.href, hash: `#${LINK_KEY}` });
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("scrollTo", vi.fn());

@@ -78,6 +78,7 @@ beforeEach(() => {
   vi.stubGlobal("document", place.document);
   vi.stubGlobal("DOMParser", place.DOMParser);
   vi.stubGlobal("MutationObserver", place.MutationObserver);
+  vi.stubGlobal("AbortController", place.AbortController);
   vi.stubGlobal("location", { href: ADDRESS, hash: "#THEKEY", assign });
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("scrollTo", vi.fn());
@@ -303,22 +304,39 @@ describe("widgets and files", () => {
     expect(root.querySelector("figure.widget figcaption")).toBeNull();
   });
 
-  it("gives the frame the contract's page, in the theme of the sheet, and sizes it to what it holds", () => {
-    const told: (() => void)[] = [];
+  const observing = () => {
+    const seen = { told: [] as (() => void)[], stopped: 0 };
     vi.stubGlobal(
       "ResizeObserver",
       class {
         constructor(tell: () => void) {
-          told.push(tell);
+          seen.told.push(tell);
         }
         observe() {}
-        disconnect() {}
+        disconnect() {
+          seen.stopped += 1;
+        }
       },
     );
-    draw(holding(widget("")));
-    (root.host as HTMLElement).dataset.theme = "dark";
+    return seen;
+  };
+
+  const loadedFrame = (): HTMLIFrameElement => {
     const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
     frame.dispatchEvent(new place.Event("load"));
+    return frame;
+  };
+
+  const measuring = (frame: HTMLIFrameElement, heightOf: () => number) => {
+    const box = frame.contentDocument?.querySelector("main.w") as Element;
+    box.getBoundingClientRect = () => ({ height: heightOf() }) as DOMRect;
+  };
+
+  it("gives the frame the contract's page, in the theme of the sheet, and sizes it to what it holds", () => {
+    const { told } = observing();
+    draw(holding(widget("")));
+    (root.host as HTMLElement).dataset.theme = "dark";
+    const frame = loadedFrame();
 
     const inside = frame.contentDocument as globalThis.Document;
     expect(inside.documentElement.classList.contains("dark")).toBe(true);
@@ -329,6 +347,133 @@ describe("widgets and files", () => {
     expect(inside.querySelector("script")).toBeNull();
     told.at(-1)?.();
     expect(frame.style.height).toBe("40px");
+  });
+
+  it("follows a change of theme, and paper is light whatever the screen was", async () => {
+    observing();
+    draw(holding(widget("")));
+    const host = root.host as HTMLElement;
+    host.dataset.theme = "dark";
+    const frame = loadedFrame();
+    const isDark = () => frame.contentDocument?.documentElement.classList.contains("dark");
+    host.dataset.theme = "light";
+    await vi.waitFor(() => expect(isDark()).toBe(false));
+    expect(frame.style.colorScheme).toBe("light");
+    host.dataset.theme = "dark";
+    await vi.waitFor(() => expect(isDark()).toBe(true));
+
+    place.dispatchEvent(new place.Event("beforeprint"));
+    expect(isDark()).toBe(false);
+    place.dispatchEvent(new place.Event("afterprint"));
+    expect(isDark()).toBe(true);
+  });
+
+  it("grows with what arrives in equal steps, however fast", () => {
+    const { told } = observing();
+    draw(holding(widget("")));
+    const frame = loadedFrame();
+    let height = 100;
+    measuring(frame, () => height);
+    for (const step of [100, 200, 300, 400]) {
+      height = step;
+      told.at(-1)?.();
+      expect(frame.style.height).toBe(`${step}px`);
+    }
+  });
+
+  it("stops what grows with its own frame, at the height it first asked for", () => {
+    const { told } = observing();
+    draw(holding(widget("")));
+    const frame = loadedFrame();
+    measuring(frame, () => (Number.parseFloat(frame.style.height) || 0) + 20);
+    told.at(-1)?.();
+    const first = frame.style.height;
+    told.at(-1)?.();
+    told.at(-1)?.();
+    expect(frame.style.height).toBe(first);
+  });
+
+  it("never lets a frame pass the tallest, and calls nothing there a chase", () => {
+    const { told } = observing();
+    draw(holding(widget("")));
+    const frame = loadedFrame();
+    let height = 9000;
+    measuring(frame, () => height);
+    told.at(-1)?.();
+    expect(frame.style.height).toBe("2400px");
+    height = 300;
+    told.at(-1)?.();
+    expect(frame.style.height).toBe("300px");
+  });
+
+  it("lets go of what it watched when the reader turns the page", () => {
+    const seen = observing();
+    draw({ ...holding(widget("")), pages: [ENERO] });
+    loadedFrame();
+    expect(seen.stopped).toBe(0);
+    (place.document.querySelector("#pages button") as HTMLElement).click();
+    expect(seen.stopped).toBe(1);
+    expect(root.querySelector("iframe")).toBeNull();
+  });
+
+  it("goes back to the code and says so when the frame's page cannot hold it", () => {
+    observing();
+    draw(holding(widget("<figcaption>Paseos</figcaption>")));
+    const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
+    Object.defineProperty(frame, "contentDocument", { value: null });
+    frame.dispatchEvent(new place.Event("load"));
+    expect(root.querySelector("figure.widget, iframe")).toBeNull();
+    expect(root.querySelector("code.language-widget")?.textContent).toContain("stat");
+    expect(root.querySelector(".widget-said")?.textContent).toContain("No se pudo dibujar");
+  });
+
+  it("goes back to the code when the policy refused its styles", () => {
+    observing();
+    draw(holding(widget("")));
+    const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
+    const inside = frame.contentDocument as globalThis.Document;
+    const write = inside.write.bind(inside);
+    inside.write = (said: string) => {
+      write(said);
+      for (const style of inside.querySelectorAll("style")) Object.defineProperty(style, "sheet", { value: null });
+    };
+    frame.dispatchEvent(new place.Event("load"));
+    expect(root.querySelector("figure.widget, iframe")).toBeNull();
+    expect(root.querySelector(".widget-said")?.textContent).toContain("No se pudo dibujar");
+  });
+
+  it("says a widget past its size is shown as code", () => {
+    draw(holding(widget("", "a".repeat(512_001))));
+    expect(root.querySelector("iframe")).toBeNull();
+    expect(root.querySelector(".widget-said")?.textContent).toContain("512 KB");
+  });
+
+  it("does not let a name it refuses fill the sheet", () => {
+    draw(holding(widget("", `&lt;${"a".repeat(5000)}&gt;`)));
+    expect(root.querySelector(".widget-said")?.textContent?.length).toBeLessThan(250);
+  });
+
+  it("takes a caption of only spaces for no name", () => {
+    draw(holding(widget("<figcaption>   </figcaption>")));
+    expect((root.querySelector("figure.widget iframe") as HTMLIFrameElement).title).toBe("Widget");
+    expect(root.querySelector("figure.widget figcaption")).toBeNull();
+  });
+
+  it("judges a widget once, however many times the reader comes back to it", () => {
+    const parse = vi.fn();
+    class CountingParser extends place.DOMParser {
+      override parseFromString(...said: Parameters<DOMParser["parseFromString"]>) {
+        parse();
+        return super.parseFromString(...said);
+      }
+    }
+    vi.stubGlobal("DOMParser", CountingParser);
+    draw({ ...holding(widget("")), pages: [ENERO] });
+    const judged = parse.mock.calls.length;
+    (place.document.querySelector("#pages button") as HTMLElement).click();
+    place.document.getElementById("crumb-back")?.click();
+    expect(root.querySelector("figure.widget iframe")).not.toBeNull();
+    expect(parse.mock.calls.length).toBe(judged);
   });
 
   it("leaves what is no widget as its code and says what is wrong, drawing none of it", () => {

@@ -696,7 +696,6 @@ video.file-player {
 }
 
 /* Alone in its paragraph it is drawn whole, as Tisty draws it. */
-.doc-card,
 a.doc-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

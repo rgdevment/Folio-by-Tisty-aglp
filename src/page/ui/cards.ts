@@ -1,6 +1,6 @@
 import type { Document, Page } from "@tisty/contracts";
 import { bareUrl } from "./clean";
-import { drawWidgets } from "./widgets";
+import { widgetDrawer } from "./widgets";
 
 const REFERENCE = /^tisty:(page|cited)\/(\d+)$/i;
 const SVG = "http://www.w3.org/2000/svg";
@@ -95,8 +95,10 @@ export const cardsFor = (held: Document, wordsOf: (html: string) => DocumentFrag
     return known;
   };
 
-  return (words: DocumentFragment): DocumentFragment => {
-    drawWidgets(words);
+  const drawWidgets = widgetDrawer();
+
+  return (words: DocumentFragment, signal: AbortSignal): DocumentFragment => {
+    drawWidgets(words, signal);
     drawFiles(words, held);
     for (const link of words.querySelectorAll("p > a.card")) {
       if (!standsAlone(link, words)) continue;
