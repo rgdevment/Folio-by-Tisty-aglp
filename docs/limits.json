@@ -1,5 +1,5 @@
 {
-  "serial": 1,
+  "serial": 2,
   "ttl_days": [
     1,
     3,
@@ -24,5 +24,7 @@
     4,
     8,
     15
-  ]
+  ],
+  "oldest_contract_taken": null,
+  "oldest_contract_served": null
 }
