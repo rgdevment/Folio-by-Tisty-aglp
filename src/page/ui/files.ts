@@ -5,7 +5,6 @@ import { type EnvelopeRefusal, EnvelopeRefused } from "../../rules/envelope";
 import { openFiles } from "../open";
 import { keyIn } from "../read";
 import { asking, NOT_ARRIVED, type NotArrived } from "./ask";
-import { saysItIsAPage } from "./cards";
 import { answeringProof } from "./solve";
 
 export interface FileAsking {
@@ -29,7 +28,12 @@ const NOT_OPENED: Partial<Record<EnvelopeRefusal, string>> = {
   unsigned: "La firma de este adjunto no vale, así que no se guarda.",
 };
 
+const PAGE_NAME = /\.x?html?[\s.]*$/i;
+const PAGE_KIND = /^\s*(text\/html|application\/xhtml\+xml)\s*(;|$)/i;
+
 class NotBrought extends Error {}
+
+const saysItIsAPage = ({ kind, name }: Attachment): boolean => PAGE_KIND.test(kind ?? "") || PAGE_NAME.test(name);
 
 export const playerFor = (file: Attachment, bytes: Bytes): Plays | null =>
   saysItIsAPage(file) ? null : playableAs(bytes);

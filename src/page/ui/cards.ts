@@ -1,5 +1,6 @@
-import type { Attachment, Document, Page } from "@tisty/contracts";
+import type { Document, Page } from "@tisty/contracts";
 import { bareUrl } from "./clean";
+import { drawWidgets } from "./widgets";
 
 const REFERENCE = /^tisty:(page|cited)\/(\d+)$/i;
 const SVG = "http://www.w3.org/2000/svg";
@@ -15,10 +16,7 @@ const LEAF = [
   "M16 17H8",
 ];
 const GLIMPSE_CHARACTERS = 160;
-const SEEN_IN_TISTY = "Para ver este widget, ábrelo en Tisty.";
 const PRESS_TO_ASK = "Presiona para traerlo.";
-const PAGE_NAME = /\.x?html?[\s.]*$/i;
-const PAGE_KIND = /^\s*(text\/html|application\/xhtml\+xml)\s*(;|$)/i;
 
 const piece = (link: Element, kind: string, said = ""): HTMLElement => {
   const one = link.ownerDocument.createElement("span");
@@ -46,20 +44,6 @@ const fill = (link: Element, name: string, under: string, paths: string[], chip:
   const meta = piece(link, "card-meta");
   meta.append(piece(link, "chip", chip), piece(link, "card-go", "›"));
   link.replaceChildren(tile, piece(link, "card-name", name), piece(link, "card-blurb", under), meta);
-};
-
-export const saysItIsAPage = ({ kind, name }: Attachment): boolean =>
-  PAGE_KIND.test(kind ?? "") || PAGE_NAME.test(name);
-
-// Its code is what would run, so it leaves here unread: the card is written from nothing that came in it.
-const drawWidgets = (words: DocumentFragment): void => {
-  for (const code of words.querySelectorAll("figure.code > pre > code.language-widget")) {
-    const figure = code.closest("figure") as Element;
-    const card = figure.ownerDocument.createElement("div");
-    fill(card, figure.querySelector("figcaption")?.textContent || "Widget", SEEN_IN_TISTY, LEAF, "Widget");
-    card.classList.add("doc-card", "is-still");
-    figure.replaceWith(card);
-  }
 };
 
 export const referenceOf = (href: string): { kind: "page" | "cited"; at: number } | undefined => {
@@ -93,10 +77,9 @@ const standsAlone = (link: Element, words: DocumentFragment): boolean => {
 const drawFiles = (words: DocumentFragment, held: Document): void => {
   for (const link of words.querySelectorAll("a[data-file]")) {
     const file = held.files?.find((one) => one.at === Number(link.getAttribute("data-file")));
-    const page = file !== undefined && saysItIsAPage(file);
-    link.setAttribute("title", page ? SEEN_IN_TISTY : PRESS_TO_ASK);
+    link.setAttribute("title", PRESS_TO_ASK);
     if (!file || !link.matches("p > a.card") || !standsAlone(link, words)) continue;
-    fill(link, file.name, page ? SEEN_IN_TISTY : PRESS_TO_ASK, LEAF, page ? "Widget" : "Adjunto");
+    fill(link, file.name, PRESS_TO_ASK, LEAF, "Adjunto");
     link.classList.add("doc-card");
   }
 };

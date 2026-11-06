@@ -76,6 +76,8 @@ beforeEach(() => {
     scrolled.push(this);
   };
   vi.stubGlobal("document", place.document);
+  vi.stubGlobal("DOMParser", place.DOMParser);
+  vi.stubGlobal("MutationObserver", place.MutationObserver);
   vi.stubGlobal("location", { href: ADDRESS, hash: "#THEKEY", assign });
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("scrollTo", vi.fn());
@@ -279,24 +281,75 @@ describe("who signed it", () => {
 
 const holding = (html: string): Document => ({ ...HELD, html });
 
-describe("what is seen only in Tisty", () => {
+describe("widgets and files", () => {
   const HARMFUL = "&lt;script&gt;window.ran = true&lt;/script&gt;&lt;img src=x onerror=alert(1)&gt;";
-  const widget = (caption: string) =>
-    `<figure class="code">${caption}<pre><code class="language-widget">${HARMFUL}</code></pre></figure>`;
+  const FIXED = '&lt;div class="stat"&gt;&lt;b&gt;42&lt;/b&gt;&lt;/div&gt;';
+  const widget = (caption: string, body = FIXED) =>
+    `<figure class="code">${caption}<pre><code class="language-widget">${body}</code></pre></figure>`;
 
-  it("draws a widget as a card, with nothing of its code left", () => {
+  it("draws a widget in a frame where nothing can run, under its name", () => {
     draw(holding(widget("<figcaption>Paseos</figcaption>")));
-    const card = root.querySelector(".doc-card.is-still");
-    expect(card?.querySelector(".card-name")?.textContent).toBe("Paseos");
-    expect(card?.querySelector(".card-blurb")?.textContent).toContain("ábrelo en Tisty");
+    const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
+    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin");
+    expect(frame.getAttribute("src")).toBe("/widget-frame");
+    expect(frame.title).toBe("Paseos");
+    expect(root.querySelector("figure.widget figcaption")?.textContent).toBe("Paseos");
     expect(root.querySelector("code.language-widget")).toBeNull();
-    expect(root.innerHTML).not.toContain("onerror");
-    expect(root.querySelector("iframe, script")).toBeNull();
   });
 
-  it("calls a widget with no title what it is", () => {
+  it("calls a widget with no title what it is, and adds no caption", () => {
     draw(holding(widget("")));
-    expect(root.querySelector(".card-name")?.textContent).toBe("Widget");
+    expect((root.querySelector("figure.widget iframe") as HTMLIFrameElement).title).toBe("Widget");
+    expect(root.querySelector("figure.widget figcaption")).toBeNull();
+  });
+
+  it("gives the frame the contract's page, in the theme of the sheet, and sizes it to what it holds", () => {
+    const told: (() => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(tell: () => void) {
+          told.push(tell);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    draw(holding(widget("")));
+    (root.host as HTMLElement).dataset.theme = "dark";
+    const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
+    frame.dispatchEvent(new place.Event("load"));
+
+    const inside = frame.contentDocument as globalThis.Document;
+    expect(inside.documentElement.classList.contains("dark")).toBe(true);
+    expect(inside.querySelector("main.w .stat b")?.textContent).toBe("42");
+    expect(inside.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content")).toContain(
+      "default-src 'none'",
+    );
+    expect(inside.querySelector("script")).toBeNull();
+    told.at(-1)?.();
+    expect(frame.style.height).toBe("40px");
+  });
+
+  it("leaves what is no widget as its code and says what is wrong, drawing none of it", () => {
+    draw(holding(widget("<figcaption>Paseos</figcaption>", HARMFUL)));
+    expect(root.querySelector("figure.widget, iframe, script, img")).toBeNull();
+    expect(root.querySelector("code.language-widget")?.textContent).toContain("<script>");
+    expect(root.querySelector(".widget-said")?.textContent).toContain("<script>");
+    expect(root.querySelector(".widget-said")?.textContent).toContain("no es un widget");
+  });
+
+  it("serves the frame's page under the widget's own policy, and lets only this page frame it", () => {
+    const headers = readFileSync("src/page/public/_headers", "utf8");
+    const [, ofTheFrame] =
+      /\/widget-frame\n {2}! Content-Security-Policy\n {2}Content-Security-Policy: ([^\n]+)/.exec(headers) ?? [];
+    expect(ofTheFrame).toContain("default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+    expect(ofTheFrame).toContain("frame-ancestors 'self'");
+    expect(ofTheFrame).not.toContain("script-src");
+    const [, ofThePage] = /^\/\*\n {2}Content-Security-Policy: ([^\n]+)/m.exec(headers) ?? [];
+    expect(ofThePage).toContain("frame-src 'self'");
+    expect(ofThePage).toContain("style-src 'self'");
+    expect(ofThePage).not.toContain("unsafe-inline");
   });
 
   const WITH_FILES: Document = {
@@ -309,11 +362,12 @@ describe("what is seen only in Tisty", () => {
     files_hash: "x",
   };
 
-  it("never opens an HTML file, and says where it is seen", () => {
+  it("draws an HTML file as a card like any other, and never opens it", () => {
     draw(WITH_FILES);
     const [html, pdf] = root.querySelectorAll(".doc-card");
     expect(html?.querySelector(".card-name")?.textContent).toBe("paseos.html");
-    expect(html?.querySelector(".card-blurb")?.textContent).toContain("ábrelo en Tisty");
+    expect(html?.querySelector(".chip")?.textContent).toBe("Adjunto");
+    expect(html?.querySelector(".card-blurb")?.textContent).toContain("Presiona para traerlo");
     expect(html?.hasAttribute("href")).toBe(false);
     expect(pdf?.querySelector(".card-blurb")?.textContent).toContain("Presiona para traerlo");
     expect(root.querySelector("iframe, object, embed")).toBeNull();
@@ -334,7 +388,7 @@ describe("what is seen only in Tisty", () => {
       html: '<p>Mira <a href="tisty:file/0">la tabla</a> y <a href="tisty:file/1">el papel</a>.</p>',
     });
     const [html, pdf] = root.querySelectorAll("a[data-file]");
-    expect(html?.getAttribute("title")).toContain("ábrelo en Tisty");
+    expect(html?.getAttribute("title")).toContain("Presiona para traerlo");
     expect(pdf?.getAttribute("title")).toContain("Presiona para traerlo");
     expect(root.querySelector(".doc-card")).toBeNull();
   });
