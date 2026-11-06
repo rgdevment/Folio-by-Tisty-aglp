@@ -323,9 +323,14 @@ paths:
       operationId: report
       summary: Reports a document.
       description: |
-        One report per document and network counts. It answers the same whether or not the document exists.
-        Copyright is not reported here: its holder asks, and it comes down. If telling the operator fails
-        the answer is `failed`, the report stays, and sending it again tells again.
+        One report per document and network counts, and it stays tied to the version the reader saw. A network
+        can raise its report to a higher level or add the link, and nothing else changes it. It answers
+        the same whether or not the document exists. Spam and offensive content are light: three networks of two
+        operators warn the author, who has three days to send a new version. Phishing, malware and scams block with three
+        networks of two operators. So do the grave ones, but only with `sealedLink`: without it they stay on
+        record and block nothing, since nobody could review them. Copyright is not reported here: its holder
+        asks, and it comes down. If telling the operator fails the answer is `failed`, the report stays, and
+        sending it again tells again.
       parameters:
         - $ref: "#/components/parameters/Proof"
       requestBody:
@@ -565,25 +570,36 @@ components:
       properties:
         category:
           type: string
-          enum: [csam, phishing, malware, scam, threat, doxxing, intimate]
-        detail: { type: string, maxLength: 2000 }
+          enum: [spam, offensive, phishing, malware, scam, threat, doxxing, intimate, csam]
+        detail:
+          type: string
+          maxLength: 2000
+          description: It is kept in the clear, so one holding a reading link is refused.
+        version:
+          type: integer
+          minimum: 1
+          description: The version the reader saw. If the server no longer holds it, the report goes to the latest one.
         sealedLink:
           type: string
           maxLength: 1024
-          description: The link to read it, id#key and never the edit token, sealed with the operator's public key. The server cannot open it.
+          pattern: "^sealed1\\.[A-Za-z0-9_-]{150,}$"
+          description: The link to read it, id#key and never the edit token, sealed with the operator's public key. The server cannot open it, and a light report does not bring it.
     Status:
       type: object
       required: [status]
       properties:
         status:
           type: object
-          required: [latest, diesOn, pausedAt, blockedAt, appealedAt, readTotal, days]
+          required: [latest, diesOn, pausedAt, blockedAt, appealedAt, fixBy, readTotal, days]
           properties:
             latest: { type: integer, description: The number of its latest version. }
             diesOn: { type: integer, description: "The last day it lives, in days since 1970." }
             pausedAt: { type: [integer, "null"] }
             blockedAt: { type: [integer, "null"] }
             appealedAt: { type: [integer, "null"] }
+            fixBy:
+              type: [integer, "null"]
+              description: "With light reports, the last day to send a new version. Past it the document is not served until one arrives."
             readTotal: { type: integer, description: "One per day and network." }
             days:
               type: object

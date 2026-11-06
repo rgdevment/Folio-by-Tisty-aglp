@@ -114,6 +114,43 @@
 
         <section class="foot">
           <button class="report" id="report" type="button" disabled>Denunciar este documento</button>
+          <dialog class="report-dialog" id="report-dialog" aria-labelledby="report-title">
+            <form id="report-form">
+              <h2 id="report-title">Denunciar este documento</h2>
+              <fieldset>
+                <legend>Molesto, sin ser delito</legend>
+                <label><input type="radio" name="category" value="spam" required /> Spam</label>
+                <label><input type="radio" name="category" value="offensive" /> Contenido molesto u ofensivo</label>
+              </fieldset>
+              <fieldset>
+                <legend>Engaño</legend>
+                <label><input type="radio" name="category" value="phishing" /> Phishing: imita a alguien para robar datos</label>
+                <label><input type="radio" name="category" value="malware" /> Malware</label>
+                <label><input type="radio" name="category" value="scam" /> Estafa</label>
+              </fieldset>
+              <fieldset>
+                <legend>Grave</legend>
+                <label><input type="radio" name="category" value="threat" /> Amenazas, violencia o incitación concreta</label>
+                <label><input type="radio" name="category" value="doxxing" /> Datos personales de alguien, publicados para dañarlo</label>
+                <label><input type="radio" name="category" value="intimate" /> Imágenes íntimas sin consentimiento</label>
+                <label><input type="radio" name="category" value="csam" /> Abuso sexual infantil</label>
+              </fieldset>
+              <label class="report-detail">Por qué lo denuncias (opcional)
+                <textarea name="detail" rows="3" maxlength="2000"></textarea>
+              </label>
+              <p class="report-note">Esto se guarda sin cifrar: no pegues aquí el link ni partes del documento.</p>
+              <div id="report-consent">
+                <label><input type="checkbox" id="report-hand-over" /> Entrego el link para que una persona lo revise</label>
+                <p>Lo cifras aquí, para que solo el operador pueda abrirlo, y nunca incluye lo que permite editar. Una denuncia grave sin el link queda registrada, pero no bloquea nada, porque nadie podría revisarla.</p>
+              </div>
+              <p class="report-note">Los derechos de autor los reclama su titular, en <a href="mailto:abuso@tisty.app">abuso@tisty.app</a>.</p>
+              <p class="report-said" id="report-said" role="status"></p>
+              <div class="report-actions">
+                <button type="button" id="report-cancel">Cerrar</button>
+                <button type="submit" id="report-send">Enviar denuncia</button>
+              </div>
+            </form>
+          </dialog>
         </section>
       </aside>
     </main>

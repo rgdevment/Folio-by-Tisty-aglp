@@ -62,6 +62,7 @@ export interface Report {
   asn: number;
   detail?: string;
   sealedLink?: string;
+  version?: number;
 }
 
 export interface Reported {
@@ -82,6 +83,7 @@ export interface Shown {
   alive: boolean;
   pausedAt: number | null;
   blockedAt: number | null;
+  fixBy: number | null;
   revocations: Revocation[];
 }
 
@@ -92,6 +94,7 @@ export interface DocStatus {
   pausedAt: number | null;
   blockedAt: number | null;
   appealedAt: number | null;
+  fixBy: number | null;
   readTotal: number;
   days: unknown;
 }

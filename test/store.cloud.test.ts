@@ -2,7 +2,7 @@ import { applyD1Migrations } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
-import { DAY_MS, GRAVE_REPORTS, LEVEL_ONE, type Limits } from "../src/core/limits";
+import { DAY_MS, LEVEL_ONE, type Limits, REPORT_CATEGORIES } from "../src/core/limits";
 import type { NewDoc, Reading } from "../src/core/store";
 import { SIGNED_BY_THE_OWNER } from "./sealed";
 
@@ -893,6 +893,158 @@ describe("uploading", () => {
   });
 });
 
+describe("the levels of a report", () => {
+  const SEALED = "sealed1.link";
+  const report = (category: string, net: string, sealedLink?: string, day = DAY) =>
+    store.report(
+      { doc: "d1", net, category, asn: asnOf(net), ...(sealedLink === undefined ? {} : { sealedLink }) },
+      day,
+      day * 24,
+    );
+  const fixBy = async () =>
+    (await testEnv.DB.prepare("SELECT fix_by FROM docs WHERE id = 'd1'").first<{ fix_by: number | null }>())?.fix_by;
+  const reportRows = () =>
+    testEnv.DB.prepare("SELECT net, version, level, cleared FROM reports ORDER BY net").all<{
+      net: string;
+      version: number;
+      level: string;
+      cleared: number;
+    }>();
+
+  beforeEach(async () => {
+    await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
+    await store.upload(upload("d1", 1), DAY);
+  });
+
+  it("keeps which version and what level each one was", async () => {
+    await report("spam", "a");
+    await store.upload(upload("d1", 2), DAY);
+    await report("csam", "b");
+    expect((await reportRows()).results).toEqual([
+      { net: "a", version: 1, level: "light", cleared: 1 },
+      { net: "b", version: 2, level: "grave", cleared: 0 },
+    ]);
+  });
+
+  it("warns the author at three networks of light reports, and blocks nobody", async () => {
+    await report("spam", "a");
+    await report("offensive", "b");
+    expect(await fixBy()).toBeNull();
+    expect((await report("spam", "c", undefined, DAY + 1)).blocked).toBe(false);
+    expect(await fixBy()).toBe(DAY + 1 + LEVEL_ONE.lightFixDays);
+    expect((await row("d1"))?.blocked_at).toBeNull();
+    await report("spam", "d", undefined, DAY + 2);
+    expect(await fixBy()).toBe(DAY + 1 + LEVEL_ONE.lightFixDays);
+  });
+
+  it("does not warn for three networks of one operator, as with what blocks", async () => {
+    const sameOperator = (net: string) => store.report({ doc: "d1", net, category: "spam", asn: 7 }, DAY, DAY * 24);
+    for (const net of ["a", "b", "c"]) await sameOperator(net);
+    expect(await fixBy()).toBeNull();
+    await report("spam", "d");
+    expect(await fixBy()).toBe(DAY + LEVEL_ONE.lightFixDays);
+  });
+
+  it("keeps the version the reader saw, even after clean ones replace it", async () => {
+    await store.upload(upload("d1", 2), DAY);
+    await store.report({ doc: "d1", net: "a", category: "phishing", asn: 1, version: 1 }, DAY, DAY * 24);
+    for (let n = 3; n <= LEVEL_ONE.versionsKept + 4; n += 1) {
+      await store.upload({ ...upload("d1", n), at: n * WEEK_AND_A_DAY }, DAY);
+    }
+    expect((await reportRows()).results[0]?.version).toBe(1);
+    expect(await objects("d1")).toContain("d1/1.h1");
+    expect(await objects("d1")).not.toContain("d1/2.h2");
+  });
+
+  it("goes to the latest version when it names one the server does not hold", async () => {
+    await store.report({ doc: "d1", net: "a", category: "phishing", asn: 1, version: 99 }, DAY, DAY * 24);
+    expect((await reportRows()).results[0]?.version).toBe(1);
+  });
+
+  it("takes the link a network brings later, and that one counts to block", async () => {
+    await report("threat", "a");
+    await report("threat", "a", SEALED);
+    const linked = await testEnv.DB.prepare("SELECT sealed_link FROM reports WHERE net = 'a'").first<{
+      sealed_link: string;
+    }>();
+    expect(linked?.sealed_link).toBe(SEALED);
+    await report("threat", "b", SEALED);
+    expect((await report("threat", "c", SEALED)).blocked).toBe(true);
+  });
+
+  it("rises with a network that says it is worse, and never falls or loses its link", async () => {
+    await report("spam", "a");
+    await report("csam", "a");
+    await report("phishing", "b", SEALED);
+    await report("threat", "b");
+    await report("spam", "b");
+    await report("phishing", "b");
+    const rows = await testEnv.DB.prepare("SELECT net, category, level, sealed_link FROM reports ORDER BY net").all();
+    expect(rows.results).toEqual([
+      { net: "a", category: "csam", level: "grave", sealed_link: null },
+      { net: "b", category: "threat", level: "grave", sealed_link: SEALED },
+    ]);
+  });
+
+  it("does not move a report that says nothing new", async () => {
+    await report("threat", "a", SEALED, DAY);
+    await report("threat", "a", SEALED, DAY + 1);
+    const kept = await testEnv.DB.prepare("SELECT at FROM reports WHERE net = 'a'").first<{ at: number }>();
+    expect(kept?.at).toBe(DAY);
+  });
+
+  it("leaves nothing to correct once an appeal is accepted", async () => {
+    for (const net of ["a", "b", "c"]) await report("spam", net);
+    for (const net of ["d", "e", "f"]) await report("phishing", net);
+    expect((await row("d1"))?.blocked_at).not.toBeNull();
+    await store.appeal("d1", DAY, DAY * 24);
+    await store.appealAccepted("d1", DAY);
+    expect(await fixBy()).toBeNull();
+    expect((await row("d1"))?.blocked_at).toBeNull();
+  });
+
+  it("clears light reports with a new version, on record, and they can come again", async () => {
+    for (const net of ["a", "b", "c"]) await report("spam", net);
+    expect(await store.upload(upload("d1", 2), DAY + 9)).toBe("stored");
+    expect(await fixBy()).toBeNull();
+    expect((await reportRows()).results.map((one) => one.cleared)).toEqual([1, 1, 1]);
+    await report("spam", "a");
+    await report("spam", "b");
+    expect(await fixBy()).toBeNull();
+    await report("spam", "c");
+    expect(await fixBy()).toBe(DAY + LEVEL_ONE.lightFixDays);
+  });
+
+  it("does not clear with a new version what is not light", async () => {
+    await report("phishing", "a");
+    await report("phishing", "b");
+    await store.upload(upload("d1", 2), DAY);
+    expect((await report("phishing", "c")).blocked).toBe(true);
+  });
+
+  it("does not mix light reports with those that block", async () => {
+    await report("spam", "a");
+    await report("spam", "b");
+    expect((await report("phishing", "c")).blocked).toBe(false);
+    expect(await fixBy()).toBeNull();
+  });
+
+  it("blocks for a grave one only with the link, so someone can review it", async () => {
+    await report("threat", "a");
+    await report("threat", "b");
+    expect((await report("threat", "c")).blocked).toBe(false);
+    await report("threat", "d", SEALED);
+    await report("threat", "e", SEALED);
+    expect((await report("doxxing", "f", SEALED)).blocked).toBe(true);
+  });
+
+  it("holds as evidence a grave one that brought no link", async () => {
+    await report("threat", "a");
+    await store.sweep(DAY + 30);
+    expect(await row("d1")).not.toBeNull();
+  });
+});
+
 describe("reports", () => {
   const report = (net: string, doc = "d1", day = DAY) =>
     store.report({ doc, net, category: "phishing", asn: asnOf(net) }, day, day * 24);
@@ -1123,7 +1275,7 @@ describe("what was reported", () => {
     expect((await row("d1"))?.latest).toBe(0);
   });
 
-  it("does not lose a version to clean uploads, however long after", async () => {
+  it("does not lose the version it was about to clean uploads, however long after", async () => {
     await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
     await store.upload(upload("d1", 1), DAY);
     await report();
@@ -1131,9 +1283,33 @@ describe("what was reported", () => {
       await store.upload({ ...upload("d1", n), at: n * WEEK_AND_A_DAY }, DAY);
     }
     expect(await objects("d1")).toContain("d1/1.h1");
-    expect((await objects("d1")).length).toBe(LEVEL_ONE.versionsKept + 3);
+    expect((await objects("d1")).length).toBe(LEVEL_ONE.versionsKept + 1);
     const versions = JSON.parse((await row("d1"))?.versions ?? "[]") as { n: number }[];
-    expect(versions.length).toBe(LEVEL_ONE.versionsKept + 3);
+    expect(versions.map((one) => one.n)).toEqual([1, 4, 5, 6]);
+  });
+
+  it("does not keep a version for a light report, and an order keeps them all", async () => {
+    await store.create(newDoc("d1", { ttlDays: 15 }), DAY);
+    await store.upload(upload("d1", 1), DAY);
+    await report("d1", "spam");
+    const more = async (from: number, to: number) => {
+      for (let n = from; n <= to; n += 1) await store.upload({ ...upload("d1", n), at: n * WEEK_AND_A_DAY }, DAY);
+    };
+    await more(2, 5);
+    expect(await objects("d1")).not.toContain("d1/1.h1");
+    await testEnv.DB.prepare("UPDATE docs SET legal_until = ? WHERE id = 'd1'")
+      .bind(DAY + 1)
+      .run();
+    await more(6, 7);
+    expect((await objects("d1")).length).toBe(LEVEL_ONE.versionsKept + 2);
+  });
+
+  it("does not hold a document past its days for a light report", async () => {
+    await store.create(newDoc("d1"), DAY);
+    await store.upload(upload("d1", 1), DAY);
+    await report("d1", "offensive");
+    await store.sweep(DAY + 5);
+    expect(await row("d1")).toBeNull();
   });
 
   it("does not hold anything for what anyone cannot report", async () => {
@@ -1144,10 +1320,10 @@ describe("what was reported", () => {
     expect(await row("d1")).toBeNull();
   });
 
-  it("takes every grave category", async () => {
+  it("takes every category there is", async () => {
     await store.create(newDoc("d1"), DAY);
-    for (const [n, category] of GRAVE_REPORTS.entries()) await report("d1", category, `net${n}`);
-    expect((await sealedRows())?.n).toBe(GRAVE_REPORTS.length);
+    for (const [n, category] of REPORT_CATEGORIES.entries()) await report("d1", category, `net${n}`);
+    expect((await sealedRows())?.n).toBe(REPORT_CATEGORIES.length);
   });
 });
 

@@ -29,6 +29,8 @@ export interface Limits {
   evidenceDays: number;
   reportsToBlock: number;
   reportOperatorsToBlock: number;
+  lightReportsToWarn: number;
+  lightFixDays: number;
   sweptAtOnce: number;
   historyDays: number;
   hoursFromReaders: number;
@@ -67,14 +69,33 @@ export const LEVEL_ONE: Limits = {
   evidenceDays: 180,
   reportsToBlock: 3,
   reportOperatorsToBlock: 2,
+  lightReportsToWarn: 3,
+  lightFixDays: 3,
   sweptAtOnce: 500,
   historyDays: 90,
   hoursFromReaders: 5,
   proofBits: 16,
 };
 
-// What anyone can report (decisions 38 and 42). Copyright is not here: its holder asks, and it comes down with no evidence.
-export const GRAVE_REPORTS = ["csam", "phishing", "malware", "scam", "threat", "doxxing", "intimate"];
+export type ReportLevel = "light" | "medium" | "grave";
+
+// What anyone can report (decisions 38 and 153). Copyright is not here: its holder asks, and it comes down with no evidence.
+const REPORT_LEVELS: Readonly<Record<string, ReportLevel>> = {
+  spam: "light",
+  offensive: "light",
+  phishing: "medium",
+  malware: "medium",
+  scam: "medium",
+  threat: "grave",
+  doxxing: "grave",
+  intimate: "grave",
+  csam: "grave",
+};
+
+export const REPORT_CATEGORIES = Object.keys(REPORT_LEVELS);
+
+export const levelOfReport = (category: string): ReportLevel | null =>
+  Object.hasOwn(REPORT_LEVELS, category) ? (REPORT_LEVELS[category] as ReportLevel) : null;
 
 export const DAY_MS = 86_400_000;
 

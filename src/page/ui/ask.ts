@@ -1,6 +1,8 @@
 import type { Revocation } from "@tisty/contracts";
 import type { Arrived } from "../read";
 
+export const TOO_MANY_VISITS = "Hay demasiadas visitas desde tu red. Vuelve a intentarlo en un momento.";
+
 export interface NotArrived {
   refused: string;
   salt?: string;
@@ -30,7 +32,14 @@ export const askFor = async (id: string, proof?: string): Promise<Arrived | NotA
     // Without its dates a signature would be weighed against 1970, so it is not taken as an answer.
     if (!(arrivedAt > 0 && diesOn > 0)) return { refused: "unreachable" };
     const revocations = revocationsIn(response.headers.get("Folio-Revocations"));
-    return { bytes: new Uint8Array(await response.arrayBuffer()), arrivedAt, diesOn, revocations };
+    const version = Number(response.headers.get("Folio-Version"));
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      arrivedAt,
+      diesOn,
+      revocations,
+      ...(version > 0 ? { version } : {}),
+    };
   } catch {
     return { refused: "unreachable" };
   }

@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import written from "../docs/openapi.yaml?raw";
 import { Cloud } from "../src/cloudflare/store";
 import { type Bytes, words } from "../src/core/bytes";
-import { dayOf, GRAVE_REPORTS, LEVEL_ONE } from "../src/core/limits";
+import { dayOf, LEVEL_ONE, REPORT_CATEGORIES } from "../src/core/limits";
 import { hourOf, macOf, proofHolds, tokenHash } from "../src/core/start";
 import { STATUS } from "../src/private/api";
 import worker from "../src/private/index";
@@ -504,7 +504,7 @@ describe("the written API", () => {
 
   it("gives the numbers the rules give", () => {
     const report = spec.components.schemas.Report.properties;
-    expect(report.category.enum).toEqual(GRAVE_REPORTS);
+    expect(report.category.enum).toEqual(REPORT_CATEGORIES);
     expect(report.detail.maxLength).toBe(LEVEL_ONE.reportDetailAtMost);
     expect(report.sealedLink.maxLength).toBe(LEVEL_ONE.sealedLinkAtMost);
   });
@@ -516,6 +516,27 @@ describe("the written API", () => {
     const response = await send({ method: "GET", path: "/docs/{id}", status: 200 });
     await response.body?.cancel();
     expect(JSON.parse(response.headers.get("Folio-Revocations") ?? "null")).toEqual([said]);
+  });
+
+  it("serves through the last day to correct, stops after it, and a new version lifts it", async () => {
+    await shareSigned();
+    const fixBy = (day: number) => testEnv.DB.prepare(`UPDATE docs SET fix_by = ? WHERE id = '${ID}'`).bind(day).run();
+    await fixBy(TODAY);
+    const lastDay = await send({ method: "GET", path: "/docs/{id}", status: 200 });
+    await lastDay.body?.cancel();
+    expect(lastDay.status).toBe(200);
+    await fixBy(TODAY - 1);
+    const read = await send({ method: "GET", path: "/docs/{id}", status: 403 });
+    expect(await read.json()).toEqual({ refused: "blocked" });
+    const latest = await send({ method: "GET", path: LATEST_PATH, status: 200 });
+    const said = (await latest.json()) as object;
+    expect(said).toMatchObject({ version: 1 });
+    expect(said).not.toHaveProperty("fixBy");
+    const again = await send({ method: "PUT", path: UPLOAD_PATH, status: 200, upload: envelope(2) });
+    expect(await again.json()).toEqual({ stored: true, version: 2 });
+    const open = await send({ method: "GET", path: "/docs/{id}", status: 200 });
+    await open.body?.cancel();
+    expect(open.status).toBe(200);
   });
 
   it("says the fields the status really has", async () => {

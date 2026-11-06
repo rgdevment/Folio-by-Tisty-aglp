@@ -1,5 +1,5 @@
 import type { Revocation } from "@tisty/contracts";
-import { DAY_MS, GRAVE_REPORTS, LEVEL_ONE, type Limits } from "../core/limits";
+import { DAY_MS, LEVEL_ONE, type Limits, levelOfReport } from "../core/limits";
 import { momentOf } from "../core/moment";
 import { toBase64Url } from "../core/start";
 import type {
@@ -61,10 +61,18 @@ const KEYS_AT_ONCE = 1000;
 
 // A report that weighs: not cleared by an appeal, and not from who reported falsely before (decision 41).
 const COUNTED_REPORT = "r.cleared = 0 AND r.net NOT IN (SELECT net FROM false_reporters)";
+const REPORT_AS_EVIDENCE = `${COUNTED_REPORT} AND r.level <> 'light'`;
+// Without the link nobody could review a grave one, so it stays on record and blocks nothing (decision 153).
+const REPORT_THAT_BLOCKS = `${COUNTED_REPORT} AND (r.level = 'medium' OR (r.level = 'grave' AND r.sealed_link IS NOT NULL))`;
+const LIGHT_REPORT = `${COUNTED_REPORT} AND r.level = 'light'`;
+
+const WEIGHT_OF = (level: string): string => `CASE ${level} WHEN 'grave' THEN 2 WHEN 'medium' THEN 1 ELSE 0 END`;
+const REPORT_RISES = `${WEIGHT_OF("excluded.level")} > ${WEIGHT_OF("reports.level")}`;
+const REPORT_REPLACES = `(reports.cleared = 1 OR ${REPORT_RISES})`;
 
 // What keeps a document past its days, not served and not deleted (decision 42). Reports leave once their days pass.
 const HELD_AS_EVIDENCE = (doc: string, today: string): string =>
-  `(COALESCE(${doc}.legal_until, 0) >= ${today} OR EXISTS (SELECT 1 FROM reports r WHERE r.doc = ${doc}.id AND ${COUNTED_REPORT}))`;
+  `(COALESCE(${doc}.legal_until, 0) >= ${today} OR EXISTS (SELECT 1 FROM reports r WHERE r.doc = ${doc}.id AND ${REPORT_AS_EVIDENCE}))`;
 
 const HOURS_IN_A_DAY = 24;
 
@@ -157,7 +165,7 @@ export class Cloud implements Store {
     };
     const all = [...versions, version];
     const trimmed = keptVersions(all, upload.at, this.#limits);
-    const kept = trimmed.length < all.length && (await this.#isEvidence(upload.id, today)) ? all : trimmed;
+    const kept = trimmed.length < all.length ? await this.#withEvidence(upload.id, today, all, trimmed) : trimmed;
     if (kept.length > this.#limits.versionsListedAtMost) return "list_full";
 
     if (!(await this.#takeQuota(upload.net, 0, bytes, today))) return "quota";
@@ -175,7 +183,7 @@ export class Cloud implements Store {
       this.#db
         .prepare(
           `UPDATE docs SET latest = ?2, versions = ?3, bytes = ?4,
-             owner_mark = CASE WHEN ?7 THEN ?8 ELSE owner_mark END, ${alive}
+             owner_mark = CASE WHEN ?7 THEN ?8 ELSE owner_mark END, fix_by = NULL, ${alive}
            WHERE id = ?5 AND latest = ?6 AND blocked_at IS NULL AND paused_at IS NULL AND permit IS ?9`,
         )
         .bind(
@@ -200,6 +208,13 @@ export class Cloud implements Store {
               .bind(today, held.anchor, upload.id, upload.n),
           ]
         : []),
+      // Correcting leaves light reports at zero, on record, and grave ones keep counting (decision 151).
+      this.#db
+        .prepare(
+          `UPDATE reports SET cleared = 1 WHERE doc = ?1 AND level = 'light' AND cleared = 0
+           AND EXISTS (SELECT 1 FROM docs WHERE id = ?1 AND latest = ?2)`,
+        )
+        .bind(upload.id, upload.n),
       ...(upload.byOwner
         ? []
         : [
@@ -286,12 +301,19 @@ export class Cloud implements Store {
     return now.blocked_at === null ? "behind" : "blocked";
   }
 
-  async #isEvidence(id: string, today: number): Promise<boolean> {
+  // An order keeps them all, and a report keeps the version it was about (decision 152).
+  async #withEvidence(id: string, today: number, all: Version[], trimmed: Version[]): Promise<Version[]> {
     const row = await this.#db
-      .prepare(`SELECT 1 AS held FROM docs d WHERE d.id = ?1 AND ${HELD_AS_EVIDENCE("d", "?2")}`)
+      .prepare(
+        `SELECT COALESCE(d.legal_until, 0) >= ?2 AS ordered,
+           (SELECT json_group_array(r.version) FROM reports r WHERE r.doc = d.id AND ${REPORT_AS_EVIDENCE}) AS reported
+         FROM docs d WHERE d.id = ?1`,
+      )
       .bind(id, today)
-      .first<{ held: number }>();
-    return row !== null;
+      .first<{ ordered: number; reported: string }>();
+    if (row?.ordered === 1) return all;
+    const reported = JSON.parse(row?.reported ?? "[]") as number[];
+    return all.filter((one) => trimmed.includes(one) || reported.includes(one.n));
   }
 
   #row(id: string): Promise<DocRow | null> {
@@ -379,7 +401,7 @@ export class Cloud implements Store {
   async shown(id: string, today: number): Promise<Shown | null> {
     const row = await this.#db
       .prepare(
-        `SELECT d.owner, d.latest, json_extract(d.versions, '$[#-1]') AS last_version, d.dies_on, d.paused_at, d.blocked_at,
+        `SELECT d.owner, d.latest, json_extract(d.versions, '$[#-1]') AS last_version, d.dies_on, d.paused_at, d.blocked_at, d.fix_by,
            ${REVOCATIONS_OF_THE_LAST_VERSION} AS revocations,
            CASE WHEN d.paused_at IS NOT NULL AND d.dies_on < ?2 THEN 0
              ELSE EXISTS (SELECT 1 FROM holds h WHERE h.held = d.id) OR CASE WHEN a.id IS NULL THEN d.dies_on >= ?2
@@ -395,6 +417,7 @@ export class Cloud implements Store {
         dies_on: number;
         paused_at: number | null;
         blocked_at: number | null;
+        fix_by: number | null;
         revocations: string;
         alive: number;
       }>();
@@ -406,6 +429,7 @@ export class Cloud implements Store {
       alive: row.alive === 1,
       pausedAt: row.paused_at,
       blockedAt: row.blocked_at,
+      fixBy: row.fix_by,
       revocations: (JSON.parse(row.revocations) as (Omit<Revocation, "at"> & { at: number })[]).map((one) => ({
         ...one,
         at: momentOf(one.at * 1000),
@@ -461,16 +485,27 @@ export class Cloud implements Store {
   }
 
   async report(report: Report, today: number, hour: number): Promise<Reported> {
-    if (!GRAVE_REPORTS.includes(report.category)) return { blocked: false };
-    const [, blocked] = await this.#db.batch([
+    const level = levelOfReport(report.category);
+    if (!level) return { blocked: false };
+    const [, moved] = await this.#db.batch([
       this.#db
         .prepare(
-          `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn, at_hour)
-           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 WHERE EXISTS (SELECT 1 FROM docs WHERE id = ?1)
+          `INSERT INTO reports (doc, net, at, category, detail, sealed_link, asn, at_hour, level, version)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+             CASE WHEN EXISTS (SELECT 1 FROM json_each(d.versions) v WHERE json_extract(v.value, '$.n') = ?10)
+               THEN ?10 ELSE d.latest END
+           FROM docs d WHERE d.id = ?1
            ON CONFLICT (doc, net) DO UPDATE
-             SET at = excluded.at, at_hour = excluded.at_hour, category = excluded.category, detail = excluded.detail,
-                 sealed_link = excluded.sealed_link, asn = excluded.asn, cleared = 0
-             WHERE cleared = 1`,
+             SET at = excluded.at, at_hour = excluded.at_hour, asn = excluded.asn,
+                 category = CASE WHEN ${REPORT_REPLACES} THEN excluded.category ELSE reports.category END,
+                 level = CASE WHEN ${REPORT_REPLACES} THEN excluded.level ELSE reports.level END,
+                 version = CASE WHEN ${REPORT_REPLACES} THEN excluded.version ELSE reports.version END,
+                 detail = CASE WHEN reports.cleared = 1 THEN excluded.detail
+                   ELSE COALESCE(excluded.detail, reports.detail) END,
+                 sealed_link = CASE WHEN reports.cleared = 1 THEN excluded.sealed_link
+                   ELSE COALESCE(reports.sealed_link, excluded.sealed_link) END,
+                 cleared = 0
+             WHERE ${REPORT_REPLACES} OR (reports.sealed_link IS NULL AND excluded.sealed_link IS NOT NULL)`,
         )
         .bind(
           report.doc,
@@ -481,31 +516,54 @@ export class Cloud implements Store {
           report.sealedLink ?? null,
           report.asn,
           hour,
+          level,
+          report.version ?? null,
         ),
-      this.#db
-        .prepare(
-          `UPDATE docs SET blocked_at = ?1, blocked_hour = ?6, dies_on = ?1 + ?2
-           WHERE id = ?3 AND blocked_at IS NULL
-             AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND ${COUNTED_REPORT}) >= ?4
-             AND (SELECT COUNT(DISTINCT r.asn) FROM reports r WHERE r.doc = ?3 AND ${COUNTED_REPORT}) >= ?5`,
-        )
-        .bind(
-          today,
-          this.#limits.evidenceDays,
-          report.doc,
-          this.#limits.reportsToBlock,
-          this.#limits.reportOperatorsToBlock,
-          hour,
-        ),
+      level === "light" ? this.#warnAuthor(report.doc, today) : this.#blockWhenItCounts(report.doc, today, hour),
     ]);
-    return { blocked: (blocked?.meta.changes ?? 0) > 0 };
+    return { blocked: level !== "light" && (moved?.meta.changes ?? 0) > 0 };
+  }
+
+  #warnAuthor(doc: string, today: number): D1PreparedStatement {
+    return this.#db
+      .prepare(
+        `UPDATE docs SET fix_by = ?1 + ?2
+         WHERE id = ?3 AND fix_by IS NULL AND blocked_at IS NULL
+           AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND ${LIGHT_REPORT}) >= ?4
+           AND (SELECT COUNT(DISTINCT r.asn) FROM reports r WHERE r.doc = ?3 AND ${LIGHT_REPORT}) >= ?5`,
+      )
+      .bind(
+        today,
+        this.#limits.lightFixDays,
+        doc,
+        this.#limits.lightReportsToWarn,
+        this.#limits.reportOperatorsToBlock,
+      );
+  }
+
+  #blockWhenItCounts(doc: string, today: number, hour: number): D1PreparedStatement {
+    return this.#db
+      .prepare(
+        `UPDATE docs SET blocked_at = ?1, blocked_hour = ?6, dies_on = ?1 + ?2
+         WHERE id = ?3 AND blocked_at IS NULL
+           AND (SELECT COUNT(*) FROM reports r WHERE r.doc = ?3 AND ${REPORT_THAT_BLOCKS}) >= ?4
+           AND (SELECT COUNT(DISTINCT r.asn) FROM reports r WHERE r.doc = ?3 AND ${REPORT_THAT_BLOCKS}) >= ?5`,
+      )
+      .bind(
+        today,
+        this.#limits.evidenceDays,
+        doc,
+        this.#limits.reportsToBlock,
+        this.#limits.reportOperatorsToBlock,
+        hour,
+      );
   }
 
   // Past its days and not blocked, it looks gone, or the admin link would give away an order that keeps it (decision 42).
   async owned(id: string, today: number): Promise<Owned | null> {
     const row = await this.#db
       .prepare(
-        `SELECT d.admin_hash, d.latest, d.dies_on, d.paused_at, d.blocked_at, d.appealed_at, d.read_total, d.days
+        `SELECT d.admin_hash, d.latest, d.dies_on, d.paused_at, d.blocked_at, d.appealed_at, d.fix_by, d.read_total, d.days
          FROM docs d LEFT JOIN docs a ON a.id = d.anchor
          WHERE d.id = ?1 AND d.latest <> ${CLAIMED} AND (d.blocked_at IS NOT NULL OR d.dies_on >= ?2
            OR (d.paused_at IS NULL AND a.latest <> ${CLAIMED} AND a.dies_on >= ?2))`,
@@ -518,6 +576,7 @@ export class Cloud implements Store {
         paused_at: number | null;
         blocked_at: number | null;
         appealed_at: number | null;
+        fix_by: number | null;
         read_total: number;
         days: string;
       }>();
@@ -530,6 +589,7 @@ export class Cloud implements Store {
         pausedAt: row.paused_at,
         blockedAt: row.blocked_at,
         appealedAt: row.appealed_at,
+        fixBy: row.fix_by,
         readTotal: row.read_total,
         days: JSON.parse(row.days),
       },
@@ -564,7 +624,7 @@ export class Cloud implements Store {
         .bind(id),
       this.#db
         .prepare(
-          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL, blocked_hour = NULL, appealed_hour = NULL,
+          `UPDATE docs SET blocked_at = NULL, appealed_at = NULL, blocked_hour = NULL, appealed_hour = NULL, fix_by = NULL,
              dies_on = CASE WHEN paused_at IS NULL THEN ?1 + ttl_days ELSE paused_at + ?2 END
            WHERE id = ?3 AND blocked_at IS NOT NULL`,
         )
@@ -792,7 +852,7 @@ export class Cloud implements Store {
       this.#db
         .prepare(
           `SELECT doc, category, COUNT(*) AS nets FROM reports
-           WHERE at_hour > ?1 AND at_hour < ?2 AND cleared = 0
+           WHERE at_hour > ?1 AND at_hour < ?2 AND cleared = 0 AND level <> 'light'
            GROUP BY doc, category ORDER BY category = 'csam' DESC, nets DESC, doc LIMIT ?3`,
         )
         .bind(after, before, atMost),

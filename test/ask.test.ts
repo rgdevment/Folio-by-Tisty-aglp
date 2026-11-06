@@ -19,9 +19,17 @@ describe("asking for an envelope", () => {
 
   it("asks with nothing of the reader's, and never the key", async () => {
     const fetched = answering(
-      new Response(new Uint8Array([1, 2]), { headers: { "Folio-Arrived": "5", "Folio-Dies-On": "7" } }),
+      new Response(new Uint8Array([1, 2]), {
+        headers: { "Folio-Arrived": "5", "Folio-Dies-On": "7", "Folio-Version": "3" },
+      }),
     );
-    expect(await askFor(ID)).toEqual({ revocations: [], bytes: new Uint8Array([1, 2]), arrivedAt: 5, diesOn: 7 });
+    expect(await askFor(ID)).toEqual({
+      revocations: [],
+      bytes: new Uint8Array([1, 2]),
+      arrivedAt: 5,
+      diesOn: 7,
+      version: 3,
+    });
     expect(fetched).toHaveBeenCalledWith(`/api/v1/docs/${ID}`, { credentials: "omit", cache: "no-store" });
   });
 

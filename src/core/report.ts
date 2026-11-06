@@ -1,7 +1,8 @@
-import { dayOf, GRAVE_REPORTS, type Limits } from "./limits";
+import { dayOf, type Limits, levelOfReport } from "./limits";
 import { netDigest } from "./net";
 import type { ReadTools } from "./read";
 import { askForProof, type Refused } from "./refused";
+import { holdsALink, isSealedLink } from "./sealed-link";
 import { hourEnds, hourOf, proofIsFresh } from "./start";
 
 export interface ReportTools extends ReadTools {
@@ -12,6 +13,7 @@ export interface Said {
   category: string;
   detail?: string;
   sealedLink?: string;
+  version?: number;
 }
 
 export interface Reporting {
@@ -26,15 +28,30 @@ export interface Reporting {
 const isTextUpTo = (value: unknown, atMost: number): boolean =>
   value === undefined || (typeof value === "string" && value.length <= atMost);
 
+// A light report needs nobody to read the document, and a link in the clear would hand its key to the database.
+const linkIsTaken = (link: unknown, category: string, limits: Limits): boolean =>
+  link === undefined ||
+  (levelOfReport(category) !== "light" && isTextUpTo(link, limits.sealedLinkAtMost) && isSealedLink(link as string));
+
+// In the clear for good, so it must not carry what the seal exists to keep out of the database.
+const detailIsTaken = (detail: unknown, limits: Limits): boolean =>
+  isTextUpTo(detail, limits.reportDetailAtMost) && !holdsALink(String(detail ?? ""));
+
+const versionIsTaken = (version: unknown): boolean =>
+  version === undefined || (Number.isSafeInteger(version) && (version as number) > 0);
+
 export const saidOf = (body: unknown, limits: Limits): Said | null => {
   if (typeof body !== "object" || body === null) return null;
-  const { category, detail, sealedLink } = body as Record<string, unknown>;
-  if (typeof category !== "string" || !GRAVE_REPORTS.includes(category)) return null;
-  if (!isTextUpTo(detail, limits.reportDetailAtMost) || !isTextUpTo(sealedLink, limits.sealedLinkAtMost)) return null;
+  const { category, detail, sealedLink, version } = body as Record<string, unknown>;
+  if (typeof category !== "string" || levelOfReport(category) === null) return null;
+  if (!detailIsTaken(detail, limits) || !linkIsTaken(sealedLink, category, limits) || !versionIsTaken(version)) {
+    return null;
+  }
   return {
     category,
     ...(detail === undefined ? {} : { detail: detail as string }),
     ...(sealedLink === undefined ? {} : { sealedLink: sealedLink as string }),
+    ...(version === undefined ? {} : { version: version as number }),
   };
 };
 
