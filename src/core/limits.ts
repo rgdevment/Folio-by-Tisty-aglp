@@ -81,6 +81,22 @@ export const LEVEL_ONE: Limits = {
   proofBits: 16,
 };
 
+// What Tisty reads to warn before sharing (decision 120). The server holds to the same numbers whoever calls it.
+export const publishedLimits = (limits: Limits) => ({
+  ttl_days: limits.ttlChoices,
+  shares_at_most: limits.sharesAtMost,
+  envelope_bytes_at_most: limits.envelopeBytesAtMost,
+  first_bytes_at_most: limits.firstBytesAtMost,
+  rest_bytes_at_most: limits.restBytesAtMost,
+  pictures_at_most: limits.picturesAtMost,
+  picture_bytes_at_most: limits.pictureBytesAtMost,
+  pictures_bytes_at_most: limits.picturesBytesAtMost,
+  files_at_most: limits.filesAtMost,
+  files_bytes_at_most: limits.filesBytesAtMost,
+  uploads_of_a_root_an_hour: limits.uploadsOfARootAnHour,
+  upload_waits_minutes: limits.uploadWaitsMinutes,
+});
+
 export type ReportLevel = "light" | "medium" | "grave";
 
 // What anyone can report (decisions 38 and 153). Copyright is not here: its holder asks, and it comes down with no evidence.

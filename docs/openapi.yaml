@@ -21,6 +21,12 @@ info:
     with it in `Folio-Proof`. A salt lasts until the end of the next hour, and only for that action,
     document and network.
 
+    **The limits** are published beside this file, in `docs/limits.json`, so reading them spends no request here.
+    It is signed with minisign, in `docs/limits.json.minisig`, with a key kept off CI whose public part is
+    `docs/limits.pub`. Its `serial` only grows, so an older one must not replace a newer one, and
+    `uploads_halted_until`, in seconds, says uploads are paused until then. The server holds to its own numbers
+    whoever calls it.
+
     **The admin link:** `Folio-Admin` carries the token whose SHA-256 is the document's `admin_hash`. A
     wrong token answers as a document that does not exist.
   license:
