@@ -81,8 +81,9 @@ responsabilidad. No se permite usar Folio para:
   demostrar que el bloqueo fue un error, para revisar una denuncia seria con el
   link que entregó quien denunció, para confirmar phishing o malware antes de
   reportarlo, o por orden de un juez. Cada apertura queda registrada.
-  Las imágenes de una denuncia de abuso infantil no se abren nunca: el
-  documento se bloquea, se conserva lo mínimo y se avisa a la PDI o a la
+  Lo que señala una denuncia de abuso infantil, sean imágenes, videos u otros
+  archivos, no se abre nunca: el documento se bloquea, se conserva lo mínimo y
+  se avisa a la PDI o a la
   Fiscalía con el link, para que lo abran ellos. En un navegador, el código que
   descifra viene del mismo servidor; la [política de privacidad](PRIVACIDAD.md)
   dice de qué no protege eso.

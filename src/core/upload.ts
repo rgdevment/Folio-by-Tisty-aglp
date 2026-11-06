@@ -26,7 +26,7 @@ export interface Uploading {
   files?: string;
 }
 
-export type UploadAnswer = { stored: true; version: number } | Refused;
+export type UploadAnswer = { stored: true; version: number; filesWanted?: true } | Refused;
 
 export type FilesUploadAnswer = { stored: true; hash: string } | Refused;
 
@@ -115,10 +115,19 @@ const mayUpload = ({ manifest, signature }: ReadEnvelope, held: Held): boolean =
   return signature.root === held.owner || ownerMarkOf(owner) === held.ownerMark;
 };
 
-const notNext = (held: Held, version: number): Refused | null => {
+const stopped = (held: Held): Refused | null => {
   if (held.blocked) return { refused: "blocked" };
-  if (held.paused) return { refused: "paused" };
-  return version === held.latest + 1 ? null : { refused: "behind" };
+  return held.paused ? { refused: "paused" } : null;
+};
+
+const notNext = (held: Held, version: number): Refused | null =>
+  stopped(held) ?? (version === held.latest + 1 ? null : { refused: "behind" });
+
+const netIfOpen = async ({ ip, now }: Uploading, { store, limiter, dayKey }: ReadTools): Promise<string | Refused> => {
+  const net = await netDigest(await dayKey(dayOf(now)), ip);
+  if (!(await limiter.allows(net))) return tooFast(now);
+  const stage = await store.stage();
+  return stage === "no_uploads" || stage === "blocked" ? { refused: "uploads_off" } : net;
 };
 
 const answerOf = (uploaded: Uploaded, version: number, now: number): UploadAnswer => {
@@ -139,15 +148,13 @@ const answerOf = (uploaded: Uploaded, version: number, now: number): UploadAnswe
   }
 };
 
-export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise<UploadAnswer> => {
-  const { id, ip, now, first, files } = uploading;
-  const { store, limiter, limits, dayKey } = tools;
+const uploadVersion = async (uploading: Uploading, tools: ReadTools): Promise<UploadAnswer> => {
+  const { id, now, first, files } = uploading;
+  const { store, limits } = tools;
   if (files !== undefined && !FILES_HASH.test(files)) return { refused: "bad_upload" };
   const today = dayOf(now);
-  const net = await netDigest(await dayKey(today), ip);
-  if (!(await limiter.allows(net))) return tooFast(now);
-  const stage = await store.stage();
-  if (stage === "no_uploads" || stage === "blocked") return { refused: "uploads_off" };
+  const net = await netIfOpen(uploading, tools);
+  if (typeof net !== "string") return net;
   let held = await store.held(id);
   const sharing = first && (!held || held.latest === 0) ? first : null;
   if (!held && !sharing) return { refused: "missing" };
@@ -212,18 +219,22 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
   return answerOf(uploaded, manifest.version, now);
 };
 
+export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise<UploadAnswer> => {
+  const answer = await uploadVersion(uploading, tools);
+  if ("refused" in answer || uploading.files === undefined) return answer;
+  const arrived = await tools.store.hasFiles(uploading.id, uploading.files);
+  return arrived ? answer : { ...answer, filesWanted: true };
+};
+
 export const uploadFiles = async (uploading: Uploading, tools: ReadTools): Promise<FilesUploadAnswer> => {
-  const { id, ip, now } = uploading;
-  const { store, limiter, limits, dayKey } = tools;
-  const today = dayOf(now);
-  const net = await netDigest(await dayKey(today), ip);
-  if (!(await limiter.allows(net))) return tooFast(now);
-  const stage = await store.stage();
-  if (stage === "no_uploads" || stage === "blocked") return { refused: "uploads_off" };
+  const { id, now } = uploading;
+  const { store, limits } = tools;
+  const net = await netIfOpen(uploading, tools);
+  if (typeof net !== "string") return net;
   const held = await store.held(id);
   if (!held) return { refused: "missing" };
-  if (held.blocked) return { refused: "blocked" };
-  if (held.paused) return { refused: "paused" };
+  const stoppedHere = stopped(held);
+  if (stoppedHere) return stoppedHere;
 
   const bytes = await uploading.bytes();
   if (!bytes || bytes.length > filesEnvelopeBytesAtMost(limits)) return { refused: "too_big" };
@@ -238,9 +249,10 @@ export const uploadFiles = async (uploading: Uploading, tools: ReadTools): Promi
 
   const hash = toBase64Url(await sha256(manifestBytes, index));
   if (held.versions.at(-1)?.files !== hash) return { refused: "behind" };
+  if (await store.hasFiles(id, hash)) return { stored: true, hash };
   if (!(await store.takeHourly(net, "upload", hourOf(now), limits.uploadsAnHour))) {
     return { refused: "quota", until: hourEnds(now) };
   }
-  const kept = await store.keepFiles({ id, hash, body: bytes, net }, today);
+  const kept = await store.keepFiles({ id, hash, body: bytes, net }, dayOf(now));
   return kept === "stored" ? { stored: true, hash } : { refused: "quota", until: now + DAY_MS };
 };

@@ -245,7 +245,7 @@ describe("the files a version names", () => {
     expect(await sendFiles(id, bytes)).toEqual({ refused: "behind" });
     expect(await objects(id)).toEqual([]);
 
-    expect(await sendNaming(id, 2, hash, LATER)).toEqual({ stored: true, version: 2 });
+    expect(await sendNaming(id, 2, hash, LATER)).toEqual({ stored: true, version: 2, filesWanted: true });
     expect(await reading(id, hash)).toEqual({ refused: "missing" });
 
     expect(await sendFiles(id, bytes)).toEqual({ stored: true, hash });
@@ -283,7 +283,7 @@ describe("the files a version names", () => {
     const hash = await filesHashOf(id, bytes);
     const edited = await sealedEnvelope({ id, version: 2, owner: mario, signer: ana, permit, token: pair });
     const sent = await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes: async () => edited, files: hash }, tools);
-    expect(sent).toEqual({ stored: true, version: 2 });
+    expect(sent).toEqual({ stored: true, version: 2, filesWanted: true });
     expect(await sendFiles(id, bytes)).toEqual({ stored: true, hash });
   });
 
@@ -291,7 +291,10 @@ describe("the files a version names", () => {
     const { id, bytes, hash } = await named();
     await sendNaming(id, 2, hash, LATER);
     await sendFiles(id, bytes);
-    const quota = () => testEnv.DB.prepare("SELECT SUM(bytes) AS bytes FROM net_day").first<{ bytes: number }>();
+    const quota = async () => [
+      await testEnv.DB.prepare("SELECT SUM(bytes) AS bytes FROM net_day").first(),
+      await testEnv.DB.prepare("SELECT SUM(n) AS n FROM net_hour").first(),
+    ];
     const before = await quota();
     expect(await sendFiles(id, bytes)).toEqual({ stored: true, hash });
     expect(await quota()).toEqual(before);
@@ -320,6 +323,22 @@ describe("the files a version names", () => {
     await uploadDoc({ id, now: dayOfVersion(8), ip: "203.0.113.9", bytes: async () => last }, tools);
     expect(await listed()).toEqual([6, 7, 8]);
     expect(await objects(id)).toEqual([]);
+  });
+
+  it("tells the writer while the files a version names have not arrived, even if it only repeats them", async () => {
+    const { id, bytes, hash } = await named();
+    expect(await sendNaming(id, 2, hash, LATER)).toMatchObject({ filesWanted: true });
+    expect(await sendNaming(id, 3, hash, LATER + 30 * DAY_MS)).toMatchObject({ filesWanted: true });
+    await sendFiles(id, bytes, LATER + 30 * DAY_MS);
+    expect(await sendNaming(id, 4, hash, LATER + 38 * DAY_MS)).toEqual({ stored: true, version: 4 });
+  });
+
+  it("asks again when the same version is sent again, so a writer that fell can go on", async () => {
+    const { id, hash } = await named();
+    const version = await sealedEnvelope({ id, version: 2, owner: mario });
+    const send = () => uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes: async () => version, files: hash }, tools);
+    expect(await send()).toMatchObject({ filesWanted: true });
+    expect(await send()).toMatchObject({ filesWanted: true });
   });
 
   it("forgets them with the document", async () => {

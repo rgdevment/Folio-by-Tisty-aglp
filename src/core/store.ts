@@ -137,6 +137,7 @@ export interface Store {
   note(reading: Reading, today: number): Promise<void>;
   shown(id: string, today: number): Promise<Shown | null>;
   envelope(id: string, version: Version): Promise<ReadableStream | null>;
+  hasFiles(id: string, hash: string): Promise<boolean>;
   keepFiles(files: KeptFiles, today: number): Promise<"stored" | "quota">;
   filesOf(id: string, hash: string): Promise<ReadableStream | null>;
   dayKey(today: number): Promise<string>;

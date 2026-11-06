@@ -165,9 +165,10 @@ paths:
         - name: Folio-Files
           in: header
           description: |
-            The hash of the files envelope this version names, as its `files_hash` says it. A version that
-            repeats the one before it needs nothing sent again. Whoever sends another one uploads it after this.
-          schema: { type: string }
+            The hash of the files envelope this version names, as its `files_hash` says it, in unpadded
+            base64url. If that envelope is not here, the answer says `filesWanted`: send it to
+            `PUT /docs/{id}/files`. Sending this version again asks the same question.
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{43}$" }
         - name: Folio-Start
           in: header
           description: The first version only. The `mac` that `POST /start` gave.
@@ -196,7 +197,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Stored" }
         "400":
-          description: The first version came without what it needs, with another number of days, or with an anchor that is not there.
+          description: The first version came without what it needs, with another number of days, or with an anchor that is not there, or `Folio-Files` is not a hash.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BadUpload" }
@@ -647,6 +648,7 @@ components:
       properties:
         stored: { const: true }
         version: { type: integer }
+        filesWanted: { const: true }
     Latest:
       type: object
       required: [version, hash]

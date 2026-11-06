@@ -17,7 +17,8 @@ const LEAF = [
 const GLIMPSE_CHARACTERS = 160;
 const SEEN_IN_TISTY = "Para ver este widget, ábrelo en Tisty.";
 const PRESS_TO_ASK = "Presiona para traerlo.";
-const WIDGET_FILE = /\.html?$/i;
+const PAGE_NAME = /\.x?html?[\s.]*$/i;
+const PAGE_KIND = /^\s*(text\/html|application\/xhtml\+xml)\s*(;|$)/i;
 
 const piece = (link: Element, kind: string, said = ""): HTMLElement => {
   const one = link.ownerDocument.createElement("span");
@@ -47,7 +48,8 @@ const fill = (link: Element, name: string, under: string, paths: string[], chip:
   link.replaceChildren(tile, piece(link, "card-name", name), piece(link, "card-blurb", under), meta);
 };
 
-export const saysItIsAPage = ({ kind, name }: Attachment): boolean => kind === "text/html" || WIDGET_FILE.test(name);
+export const saysItIsAPage = ({ kind, name }: Attachment): boolean =>
+  PAGE_KIND.test(kind ?? "") || PAGE_NAME.test(name);
 
 // Its code is what would run, so it leaves here unread: the card is written from nothing that came in it.
 const drawWidgets = (words: DocumentFragment): void => {

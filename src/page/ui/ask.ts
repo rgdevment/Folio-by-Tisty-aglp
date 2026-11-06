@@ -26,14 +26,17 @@ const revocationsIn = (said: string | null): Revocation[] => {
   }
 };
 
+export const asking = (path: string, proof?: string): Promise<Response> =>
+  fetch(path, {
+    credentials: "omit",
+    cache: "no-store",
+    ...(proof === undefined ? {} : { headers: { "Folio-Proof": proof } }),
+  });
+
 // Loaded before anything else on the page, so the envelope is already coming while the reader's code is.
 export const askFor = async (id: string, proof?: string): Promise<Arrived | NotArrived> => {
   try {
-    const response = await fetch(`/api/v1/docs/${id}`, {
-      credentials: "omit",
-      cache: "no-store",
-      ...(proof === undefined ? {} : { headers: { "Folio-Proof": proof } }),
-    });
+    const response = await asking(`/api/v1/docs/${id}`, proof);
     if (!response.ok) return (await response.json()) as NotArrived;
     const arrivedAt = Number(response.headers.get("Folio-Arrived"));
     const diesOn = Number(response.headers.get("Folio-Dies-On"));

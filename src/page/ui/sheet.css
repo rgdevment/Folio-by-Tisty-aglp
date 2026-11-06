@@ -677,6 +677,11 @@ a[data-file] {
   cursor: pointer;
 }
 
+a[data-file]:not(.card) {
+  color: var(--tisty-accent);
+  text-decoration: underline dotted;
+}
+
 .file-said {
   margin-left: 6px;
   color: var(--tisty-faint);

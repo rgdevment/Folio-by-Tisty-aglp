@@ -121,6 +121,23 @@ describe("what a file is, by its first bytes", () => {
     for (const file of asPage) expect(playerFor(file, mp3)).toBeNull();
     expect(playerFor({ at: 0, name: "rina.mp3" }, mp3)?.player).toBe("audio");
   });
+
+  it.each([
+    { at: 0, name: "a.mp3", kind: "TEXT/HTML" },
+    { at: 0, name: "a.mp3", kind: "text/html; charset=utf-8" },
+    { at: 0, name: "a.mp3", kind: " application/xhtml+xml" },
+    { at: 0, name: "a.xhtml" },
+    { at: 0, name: "a.html." },
+    { at: 0, name: "a.html " },
+  ] as Attachment[])("holds back $name of kind $kind, which also says HTML", (file) => {
+    expect(playerFor(file, hex("fffb9064"))).toBeNull();
+  });
+
+  it("does not take a kind or a name that only looks like HTML for it", () => {
+    const mp3 = hex("fffb9064");
+    expect(playerFor({ at: 0, name: "notas.html.mp3", kind: "audio/mpeg" }, mp3)?.player).toBe("audio");
+    expect(playerFor({ at: 0, name: "a.mp3", kind: "text/htmlish" }, mp3)?.player).toBe("audio");
+  });
 });
 
 describe("pressing a file", () => {
@@ -187,6 +204,49 @@ describe("pressing a file", () => {
     expect(root.querySelector("audio")).toBeNull();
     expect(clicked).toHaveLength(1);
     expect(asked).toHaveLength(1);
+  });
+
+  it("does not claim it was saved, and says what to do if it did not start", async () => {
+    draw(inASentence(0));
+    await press(0);
+    const note = root.querySelector(".file-said")?.textContent ?? "";
+    expect(note).toContain("presiona otra vez");
+    expect(note).not.toContain("Se descargó");
+    await press(0);
+    expect(clicked).toHaveLength(2);
+    expect(asked).toHaveLength(1);
+  });
+
+  it("marks a word of a sentence as something to press, since it has no address", () => {
+    const sheet = readFileSync("src/page/ui/sheet.css", "utf8");
+    expect(sheet).toMatch(/a\[data-file\]:not\(\.card\) \{[^}]*text-decoration: underline/);
+    expect(sheet.indexOf("a[data-file]:not(.card)")).toBeGreaterThan(sheet.indexOf("a:not([href])"));
+  });
+
+  it("carries the focus to the player and back, and says aloud what happened", async () => {
+    draw(alone(0));
+    const aloud = () => place.document.getElementById("file-said")?.textContent;
+    expect(place.document.getElementById("file-said")?.getAttribute("role")).toBe("status");
+    fileAt(0).focus();
+    await press(0);
+    const player = root.querySelector("audio") as HTMLAudioElement;
+    expect(root.activeElement).toBe(player);
+    expect(aloud()).toBe("Listo para reproducir.");
+    player.dispatchEvent(new place.Event("error"));
+    expect(root.activeElement).toBe(fileAt(0));
+    expect(aloud()).toContain("No se puede reproducir");
+  });
+
+  it("uses one address however many times the reader comes back to the card", async () => {
+    const page = { id: "p1", page_of: ID, at: 1, title: "Otra", html: "<p>o</p>", body: "" };
+    draw(alone(0), { ...PLAYING.document, pages: [page] });
+    await press(0);
+    const address = root.querySelector("audio")?.getAttribute("src");
+    (place.document.querySelector("#pages button") as HTMLElement).click();
+    place.document.getElementById("crumb-back")?.click();
+    await press(0);
+    expect(root.querySelector("audio")?.getAttribute("src")).toBe(address);
+    expect(blobs).toHaveLength(1);
   });
 
   it("presses from the keyboard too", async () => {

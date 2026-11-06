@@ -451,12 +451,14 @@ export class Cloud implements Store {
     return (await this.#envelopes.get(objectKey(id, version)))?.body ?? null;
   }
 
+  async hasFiles(id: string, hash: string): Promise<boolean> {
+    return (await this.#envelopes.head(filesKey(id, hash))) !== null;
+  }
+
   async keepFiles({ id, hash, body, net }: KeptFiles, today: number): Promise<"stored" | "quota"> {
-    const key = filesKey(id, hash);
-    if (await this.#envelopes.head(key)) return "stored";
     if (!(await this.#takeQuota(net, 0, body.length, today))) return "quota";
     try {
-      await this.#envelopes.put(key, body);
+      await this.#envelopes.put(filesKey(id, hash), body);
     } catch (error) {
       await this.#giveQuotaBack(net, 0, body.length, today);
       throw error;

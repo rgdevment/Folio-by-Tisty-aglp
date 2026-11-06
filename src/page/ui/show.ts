@@ -9,7 +9,7 @@ import { filePresser } from "./files";
 import { finished, pictureAddresses } from "./finish";
 import { drawFrame } from "./frame";
 import { offerReport } from "./report";
-import { solved } from "./solve";
+import { answeringProof } from "./solve";
 
 const DAY_MILLISECONDS = 86_400_000;
 
@@ -56,12 +56,8 @@ export const showLink = async (
   asked: Promise<Arrived | NotArrived>,
   notFound: string,
 ): Promise<void> => {
-  const first = await asked;
   // Past a document's free readers of the day, the server asks for a little work and not for a wait.
-  const answer =
-    "refused" in first && first.salt !== undefined && first.bits !== undefined
-      ? await askFor(id, await solved(first.salt, first.bits))
-      : first;
+  const answer = await answeringProof(await asked, (proof) => askFor(id, proof));
   if ("refused" in answer) {
     if (answer.refused === "missing") location.replace(notFound);
     else drawClosed(NOT_ARRIVED[answer.refused] ?? COULD_NOT_ARRIVE);

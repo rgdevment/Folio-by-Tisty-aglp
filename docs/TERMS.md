@@ -82,10 +82,11 @@ responsibility. You may not use Folio for:
   the link to read it: when whoever shared it hands it over to
   show a block was a mistake, to review a serious report with the link its
   reporter handed over, to confirm phishing or malware before reporting it, or
-  by a judge's order. Every opening is logged. The pictures in a report
-  of child abuse are never opened: the document is blocked, the least needed
-  is kept, and the PDI or the prosecutor is told, with the link, so they open
-  it themselves. In a browser, the code that decrypts comes from the same
+  by a judge's order. Every opening is logged. What a report of child abuse
+  points at, whether pictures, videos or other files, is never opened: the
+  document is blocked, the least needed is kept, and the PDI or the prosecutor
+  is told, with the link, so they open it themselves. In a browser, the code
+  that decrypts comes from the same
   server; the [privacy policy](PRIVACY.md) says what that does not protect.
 - **The operator may remove** any document that breaks these terms, and block
   access to anyone who abuses the service.
