@@ -1,4 +1,4 @@
-import type { Envelope, Owner } from "@tisty/contracts";
+import type { Envelope, EnvelopeKind, Owner } from "@tisty/contracts";
 import { EnvelopeRefused, isBelowVersion, type ReadEnvelope, readEnvelope } from "../rules/envelope";
 import { type Bytes, sha256 } from "./bytes";
 import { DAY_MS, dayOf, type Limits } from "./limits";
@@ -23,9 +23,18 @@ export interface Uploading {
   now: number;
   bytes: () => Promise<Bytes | null>;
   first?: FirstUpload;
+  files?: string;
 }
 
 export type UploadAnswer = { stored: true; version: number } | Refused;
+
+export type FilesUploadAnswer = { stored: true; hash: string } | Refused;
+
+const FILES_HASH = /^[A-Za-z0-9_-]{43}$/;
+const FILES_ENVELOPE_FRAME_BYTES = 32_768;
+
+export const filesEnvelopeBytesAtMost = ({ filesBytesAtMost }: Limits): number =>
+  filesBytesAtMost + FILES_ENVELOPE_FRAME_BYTES;
 
 const ownerMarkOf = ({ machine, name_tag: nameTag }: Owner): string => `${machine}.${nameTag}`;
 
@@ -42,9 +51,14 @@ const withinTops = ({ parts }: Envelope, limits: Limits): boolean => {
   );
 };
 
-const readOrRefuse = async (id: string, bytes: Bytes): Promise<ReadEnvelope | Refused> => {
+const filesWithinTops = ({ parts }: Envelope, limits: Limits): boolean =>
+  parts.length <= limits.filesAtMost &&
+  parts.reduce((sum, one) => sum + one.sealed_size, 0) <= limits.filesBytesAtMost &&
+  parts.reduce((sum, one) => sum + one.open_size, 0) <= limits.filesBytesAtMost;
+
+const readOrRefuse = async (id: string, bytes: Bytes, kind: EnvelopeKind = "main"): Promise<ReadEnvelope | Refused> => {
   try {
-    const read = await readEnvelope(bytes, { id, kind: "main" });
+    const read = await readEnvelope(bytes, { id, kind });
     return read.manifest.sealed ? read : { refused: "envelope", why: "damaged" };
   } catch (error) {
     if (error instanceof EnvelopeRefused) return { refused: "envelope", why: error.refusal };
@@ -126,8 +140,9 @@ const answerOf = (uploaded: Uploaded, version: number, now: number): UploadAnswe
 };
 
 export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise<UploadAnswer> => {
-  const { id, ip, now, first } = uploading;
+  const { id, ip, now, first, files } = uploading;
   const { store, limiter, limits, dayKey } = tools;
+  if (files !== undefined && !FILES_HASH.test(files)) return { refused: "bad_upload" };
   const today = dayOf(now);
   const net = await netDigest(await dayKey(today), ip);
   if (!(await limiter.allows(net))) return tooFast(now);
@@ -189,9 +204,43 @@ export const uploadDoc = async (uploading: Uploading, tools: ReadTools): Promise
       byOwner: signature.root === held.owner,
       permit: held.permit,
       ownerMark: ownerMarkOf(owner),
+      ...(files === undefined ? {} : { files }),
     },
     today,
     held,
   );
   return answerOf(uploaded, manifest.version, now);
+};
+
+export const uploadFiles = async (uploading: Uploading, tools: ReadTools): Promise<FilesUploadAnswer> => {
+  const { id, ip, now } = uploading;
+  const { store, limiter, limits, dayKey } = tools;
+  const today = dayOf(now);
+  const net = await netDigest(await dayKey(today), ip);
+  if (!(await limiter.allows(net))) return tooFast(now);
+  const stage = await store.stage();
+  if (stage === "no_uploads" || stage === "blocked") return { refused: "uploads_off" };
+  const held = await store.held(id);
+  if (!held) return { refused: "missing" };
+  if (held.blocked) return { refused: "blocked" };
+  if (held.paused) return { refused: "paused" };
+
+  const bytes = await uploading.bytes();
+  if (!bytes || bytes.length > filesEnvelopeBytesAtMost(limits)) return { refused: "too_big" };
+  const read = await readOrRefuse(id, bytes, "files");
+  if ("refused" in read) return read;
+  const { manifest, manifestBytes, index, signature } = read;
+  if (!filesWithinTops(manifest, limits)) return { refused: "too_big" };
+  const floor = limits.oldestContractTaken;
+  if (floor !== null && isBelowVersion(manifest.contract, floor)) return { refused: "outdated" };
+  if (await store.isRevoked(signature.root, signature.machine, now)) return { refused: "revoked" };
+  if (!mayUpload(read, held)) return { refused: "not_yours" };
+
+  const hash = toBase64Url(await sha256(manifestBytes, index));
+  if (held.versions.at(-1)?.files !== hash) return { refused: "behind" };
+  if (!(await store.takeHourly(net, "upload", hourOf(now), limits.uploadsAnHour))) {
+    return { refused: "quota", until: hourEnds(now) };
+  }
+  const kept = await store.keepFiles({ id, hash, body: bytes, net }, today);
+  return kept === "stored" ? { stored: true, hash } : { refused: "quota", until: now + DAY_MS };
 };

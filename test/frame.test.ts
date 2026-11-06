@@ -311,11 +311,11 @@ describe("what is seen only in Tisty", () => {
 
   it("never opens an HTML file, and says where it is seen", () => {
     draw(WITH_FILES);
-    const [html, pdf] = root.querySelectorAll(".doc-card.is-still");
+    const [html, pdf] = root.querySelectorAll(".doc-card");
     expect(html?.querySelector(".card-name")?.textContent).toBe("paseos.html");
     expect(html?.querySelector(".card-blurb")?.textContent).toContain("ábrelo en Tisty");
     expect(html?.hasAttribute("href")).toBe(false);
-    expect(pdf?.querySelector(".card-blurb")?.textContent).toContain("no se puede descargar");
+    expect(pdf?.querySelector(".card-blurb")?.textContent).toContain("Presiona para traerlo");
     expect(root.querySelector("iframe, object, embed")).toBeNull();
   });
 
@@ -335,7 +335,7 @@ describe("what is seen only in Tisty", () => {
     });
     const [html, pdf] = root.querySelectorAll("a[data-file]");
     expect(html?.getAttribute("title")).toContain("ábrelo en Tisty");
-    expect(pdf?.getAttribute("title")).toContain("no se puede descargar");
+    expect(pdf?.getAttribute("title")).toContain("Presiona para traerlo");
     expect(root.querySelector(".doc-card")).toBeNull();
   });
 

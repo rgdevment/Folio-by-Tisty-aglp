@@ -337,6 +337,21 @@ const followLink = (event: Event, root: ShadowRoot, held: Document, goTo: (page:
   }
 };
 
+const offerFiles = (root: ShadowRoot, pressFile: (link: HTMLElement) => void): void => {
+  const fileAt = (event: Event) => (event.target as Element).closest<HTMLElement>("a[data-file]");
+  root.addEventListener("click", (event) => {
+    const link = fileAt(event);
+    if (link) pressFile(link);
+  });
+  root.addEventListener("keydown", (event) => {
+    const link = fileAt(event);
+    const { key } = event as KeyboardEvent;
+    if (!link || (key !== "Enter" && key !== " ")) return;
+    event.preventDefault();
+    pressFile(link);
+  });
+};
+
 const nameOf = (shown: Document | Page): string => shown.title ?? "Sin título";
 
 // At the end of the document and on a card of their own, as Tisty shows them.
@@ -373,7 +388,12 @@ const drawWayBack = (held: Document, at: number, total: number, goTo: (shown: Do
 };
 
 // What it draws is already clean: `wordsOf` gives what the cleaner gave back, never the HTML as it arrived.
-export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFragment, seal: Seal): void => {
+export const drawFrame = (
+  held: Document,
+  wordsOf: (html: string) => DocumentFragment,
+  seal: Seal,
+  pressFile?: (link: HTMLElement) => void,
+): void => {
   const host = element("sheet");
   // The sheet goes in a shadow root, which keeps its CSS, ids and classes apart in both directions.
   const root = host.attachShadow({ mode: "closed" });
@@ -406,6 +426,7 @@ export const drawFrame = (held: Document, wordsOf: (html: string) => DocumentFra
     sheet.focus({ preventScroll: true });
   };
   root.addEventListener("click", (event) => followLink(event, root, held, turnTo));
+  if (pressFile) offerFiles(root, pressFile);
 
   drawPages(pages, turnTo);
   goTo(held);

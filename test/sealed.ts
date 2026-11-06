@@ -1,6 +1,7 @@
 import { VERSION } from "@tisty/contracts";
 import { type Bytes, bigEndian, joined, sha256, words } from "../src/core/bytes";
 import { toBase64Url } from "../src/core/start";
+import { readEnvelope } from "../src/rules/envelope";
 
 const generate = async () => (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
 const raw = async (key: CryptoKey) => new Uint8Array((await crypto.subtle.exportKey("raw", key)) as ArrayBuffer);
@@ -82,6 +83,7 @@ interface Sealing {
   pictures?: number[];
   firstBytes?: number;
   from?: number;
+  files?: number[];
 }
 
 const ownerBlock = async ({ id, owner, permit, nameTag = new Uint8Array(32).fill(7) }: Sealing) => {
@@ -125,16 +127,19 @@ export const sealedEnvelope = async (sealing: Sealing): Promise<Bytes> => {
     pictures = [],
     firstBytes = 16,
     from,
+    files,
   } = sealing;
-  const sizes: [string, boolean, number][] = [
-    ["first", true, firstBytes],
-    ["rest", true, 16],
-    ...pictures.map((size): [string, boolean, number] => ["picture", false, size]),
-  ];
+  const sizes: [string, boolean, number][] = files
+    ? files.map((size) => ["file", false, size])
+    : [
+        ["first", true, firstBytes],
+        ["rest", true, 16],
+        ...pictures.map((size): [string, boolean, number] => ["picture", false, size]),
+      ];
   const travelling = sizes.map(([, , size]) => random(size));
   const manifest = {
     contract,
-    kind: "main",
+    kind: files ? "files" : "main",
     id,
     version,
     ...(from === undefined ? {} : { from }),
@@ -188,6 +193,11 @@ export const sealedEnvelope = async (sealing: Sealing): Promise<Bytes> => {
     index,
     ...travelling,
   );
+};
+
+export const filesHashOf = async (id: string, bytes: Bytes): Promise<string> => {
+  const { manifestBytes, index } = await readEnvelope(bytes, { id, kind: "files" });
+  return b64(await sha256(manifestBytes, index));
 };
 
 export const SIGNED_BY_THE_OWNER = {

@@ -38,7 +38,7 @@ The Tisty app has [terms of its own](https://github.com/rgdevment/Tisty/blob/mai
   stop working and the server's copy is deleted. Your document stays in Tisty,
   and you can share it again. With a serious report or an order, it is no longer
   served, but its copy stays for up to 180 days, or for as long as the order asks.
-- **There are limits** on size and on how many pictures a document carries,
+- **There are limits** on size and on how many pictures and files a document carries,
   which the service may change. Tisty tells you before sharing if something
   does not fit.
 

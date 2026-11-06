@@ -16,7 +16,7 @@ const LEAF = [
 ];
 const GLIMPSE_CHARACTERS = 160;
 const SEEN_IN_TISTY = "Para ver este widget, ábrelo en Tisty.";
-const NOT_YET = "Este adjunto todavía no se puede descargar.";
+const PRESS_TO_ASK = "Presiona para traerlo.";
 const WIDGET_FILE = /\.html?$/i;
 
 const piece = (link: Element, kind: string, said = ""): HTMLElement => {
@@ -47,7 +47,7 @@ const fill = (link: Element, name: string, under: string, paths: string[], chip:
   link.replaceChildren(tile, piece(link, "card-name", name), piece(link, "card-blurb", under), meta);
 };
 
-const isWidget = ({ kind, name }: Attachment): boolean => kind === "text/html" || WIDGET_FILE.test(name);
+export const saysItIsAPage = ({ kind, name }: Attachment): boolean => kind === "text/html" || WIDGET_FILE.test(name);
 
 // Its code is what would run, so it leaves here unread: the card is written from nothing that came in it.
 const drawWidgets = (words: DocumentFragment): void => {
@@ -91,11 +91,11 @@ const standsAlone = (link: Element, words: DocumentFragment): boolean => {
 const drawFiles = (words: DocumentFragment, held: Document): void => {
   for (const link of words.querySelectorAll("a[data-file]")) {
     const file = held.files?.find((one) => one.at === Number(link.getAttribute("data-file")));
-    const widget = file !== undefined && isWidget(file);
-    link.setAttribute("title", widget ? SEEN_IN_TISTY : NOT_YET);
+    const page = file !== undefined && saysItIsAPage(file);
+    link.setAttribute("title", page ? SEEN_IN_TISTY : PRESS_TO_ASK);
     if (!file || !link.matches("p > a.card") || !standsAlone(link, words)) continue;
-    fill(link, file.name, widget ? SEEN_IN_TISTY : NOT_YET, LEAF, widget ? "Widget" : "Adjunto");
-    link.classList.add("doc-card", "is-still");
+    fill(link, file.name, page ? SEEN_IN_TISTY : PRESS_TO_ASK, LEAF, page ? "Widget" : "Adjunto");
+    link.classList.add("doc-card");
   }
 };
 

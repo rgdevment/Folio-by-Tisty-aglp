@@ -39,8 +39,8 @@ La app Tisty tiene sus propios [términos](https://github.com/rgdevment/Tisty/bl
   funcionar y la copia del servidor se borra. Tu documento sigue en Tisty y
   puedes volver a compartirlo. Con una denuncia seria o una orden, deja de
   servirse, pero su copia queda hasta 180 días, o lo que la orden pida.
-- **Hay topes** de tamaño y de cantidad de imágenes, que el servicio puede
-  cambiar. Tisty te avisa antes de compartir si algo no cabe.
+- **Hay topes** de tamaño y de cantidad de imágenes y adjuntos, que el servicio
+  puede cambiar. Tisty te avisa antes de compartir si algo no cabe.
 
 ## Qué no se permite
 

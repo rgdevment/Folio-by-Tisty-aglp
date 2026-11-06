@@ -4,13 +4,22 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cloud } from "../src/cloudflare/store";
 import type { Bytes } from "../src/core/bytes";
 import { DAY_MS, dayOf, LEVEL_ONE, type Limits } from "../src/core/limits";
-import { latestVersion, readDoc } from "../src/core/read";
+import { latestVersion, readDoc, readFiles } from "../src/core/read";
 import { takeRevocations } from "../src/core/revocations";
 import { saltFor, solveProof, startNow, toBase64Url, tokenHash } from "../src/core/start";
 import type { Stage, Version } from "../src/core/store";
-import { type FirstUpload, uploadDoc } from "../src/core/upload";
+import { type FirstUpload, uploadDoc, uploadFiles } from "../src/core/upload";
 import { keptVersions, listFreesAt, uploadAllowedAt } from "../src/core/versions";
-import { machineOf, newPerson, newToken, type Person, revocationBy, rootOf, sealedEnvelope } from "./sealed";
+import {
+  filesHashOf,
+  machineOf,
+  newPerson,
+  newToken,
+  type Person,
+  revocationBy,
+  rootOf,
+  sealedEnvelope,
+} from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -210,6 +219,119 @@ describe("who may send a new version", () => {
   });
 });
 
+describe("the files a version names", () => {
+  const sendFiles = (id: string, bytes: Bytes, now = LATER) =>
+    uploadFiles({ id, now, ip: "203.0.113.9", bytes: async () => bytes }, tools);
+
+  const sendNaming = (id: string, version: number, hash: string, now: number) =>
+    sealedEnvelope({ id, version, owner: mario }).then((bytes) =>
+      uploadDoc({ id, now, ip: "203.0.113.9", bytes: async () => bytes, files: hash }, tools),
+    );
+
+  const reading = (id: string, hash: string, now = LATER) => readFiles({ id, ip: "203.0.113.9", now, hash }, tools);
+
+  const objects = async (id: string) =>
+    (await testEnv.ENVELOPES.list({ prefix: `${id}/files.` })).objects.map((one) => one.key);
+
+  const named = async (over: { size?: number } = {}) => {
+    const id = await shared();
+    const bytes = await sealedEnvelope({ id, version: 2, owner: mario, files: [over.size ?? 16] });
+    const hash = await filesHashOf(id, bytes);
+    return { id, bytes, hash };
+  };
+
+  it("takes them only after a version names them, and serves only those", async () => {
+    const { id, bytes, hash } = await named();
+    expect(await sendFiles(id, bytes)).toEqual({ refused: "behind" });
+    expect(await objects(id)).toEqual([]);
+
+    expect(await sendNaming(id, 2, hash, LATER)).toEqual({ stored: true, version: 2 });
+    expect(await reading(id, hash)).toEqual({ refused: "missing" });
+
+    expect(await sendFiles(id, bytes)).toEqual({ stored: true, hash });
+    const served = await reading(id, hash);
+    expect(served).toMatchObject({ served: true });
+    expect(new Uint8Array(await new Response((served as { body: ReadableStream }).body).arrayBuffer())).toEqual(bytes);
+    expect(await reading(id, "A".repeat(43))).toEqual({ refused: "missing" });
+  });
+
+  it("refuses a hash that cannot be one before it reads anything", async () => {
+    const id = await shared();
+    const bytes = await sealedEnvelope({ id, version: 2, owner: mario });
+    const said = await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes: async () => bytes, files: "no" }, tools);
+    expect(said).toEqual({ refused: "bad_upload" });
+  });
+
+  it("refuses more files, or more bytes, than a document may have", async () => {
+    const id = await shared();
+    const three = await sealedEnvelope({ id, version: 2, owner: mario, files: [16, 16, 16] });
+    expect(await sendFiles(id, three)).toEqual({ refused: "too_big" });
+    const heavy = await sealedEnvelope({ id, version: 2, owner: mario, files: [LIMITS.filesBytesAtMost + 1] });
+    expect(await sendFiles(id, heavy)).toEqual({ refused: "too_big" });
+  });
+
+  it("refuses a main envelope sent as files", async () => {
+    const id = await shared();
+    const main = await sealedEnvelope({ id, version: 2, owner: mario });
+    expect(await sendFiles(id, main)).toEqual({ refused: "envelope", why: "damaged" });
+  });
+
+  it("takes them signed by whoever holds the permit", async () => {
+    const { permit, pair } = await newToken();
+    const id = await shared({ permit });
+    const bytes = await sealedEnvelope({ id, version: 2, owner: mario, signer: ana, permit, token: pair, files: [16] });
+    const hash = await filesHashOf(id, bytes);
+    const edited = await sealedEnvelope({ id, version: 2, owner: mario, signer: ana, permit, token: pair });
+    const sent = await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes: async () => edited, files: hash }, tools);
+    expect(sent).toEqual({ stored: true, version: 2 });
+    expect(await sendFiles(id, bytes)).toEqual({ stored: true, hash });
+  });
+
+  it("does not pay twice for the same bytes", async () => {
+    const { id, bytes, hash } = await named();
+    await sendNaming(id, 2, hash, LATER);
+    await sendFiles(id, bytes);
+    const quota = () => testEnv.DB.prepare("SELECT SUM(bytes) AS bytes FROM net_day").first<{ bytes: number }>();
+    const before = await quota();
+    expect(await sendFiles(id, bytes)).toEqual({ stored: true, hash });
+    expect(await quota()).toEqual(before);
+  });
+
+  it("keeps them while a version that stays names them, and lets them go with the last one", async () => {
+    const { id, bytes, hash } = await named();
+    await sendNaming(id, 2, hash, LATER);
+    await sendFiles(id, bytes);
+    const dayOfVersion = (version: number) => LATER + 30 * DAY_MS + (version - 3) * 8 * DAY_MS;
+    const listed = async () => (JSON.parse((await row(id))?.versions ?? "[]") as Version[]).map((one) => one.n);
+
+    for (const version of [3, 4, 5]) {
+      expect(await sendNaming(id, version, hash, dayOfVersion(version))).toEqual({ stored: true, version });
+    }
+    expect(await listed()).not.toContain(2);
+    expect(await objects(id)).toHaveLength(1);
+
+    for (const version of [6, 7]) {
+      const next = await sealedEnvelope({ id, version, owner: mario });
+      await uploadDoc({ id, now: dayOfVersion(version), ip: "203.0.113.9", bytes: async () => next }, tools);
+      expect(await objects(id)).toHaveLength(1);
+    }
+
+    const last = await sealedEnvelope({ id, version: 8, owner: mario });
+    await uploadDoc({ id, now: dayOfVersion(8), ip: "203.0.113.9", bytes: async () => last }, tools);
+    expect(await listed()).toEqual([6, 7, 8]);
+    expect(await objects(id)).toEqual([]);
+  });
+
+  it("forgets them with the document", async () => {
+    const { id, bytes, hash } = await named();
+    await sendNaming(id, 2, hash, LATER);
+    await sendFiles(id, bytes);
+    await testEnv.DB.prepare("UPDATE docs SET dies_on = 0 WHERE id = ?").bind(id).run();
+    await store.sweep(dayOf(LATER));
+    expect(await objects(id)).toEqual([]);
+  });
+});
+
 describe("what is refused writes nothing", () => {
   const counted = () => testEnv.DB.prepare("SELECT COUNT(*) AS n FROM net_hour").first<{ n: number }>();
 
@@ -308,7 +430,7 @@ describe("what stops a version", () => {
 
   it("a contract under the floor, once there is one", async () => {
     const id = await shared();
-    const floored = { ...tools, limits: { ...LIMITS, oldestContractTaken: "1.3.0" } };
+    const floored = { ...tools, limits: { ...LIMITS, oldestContractTaken: "2.0.0" } };
     const bytes = await sealedEnvelope({ id, version: 2, owner: mario });
     expect(await uploadDoc({ id, now: LATER, ip: "203.0.113.9", bytes: async () => bytes }, floored)).toEqual({
       refused: "outdated",

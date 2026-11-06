@@ -2,9 +2,10 @@ import { type EnvelopeRefusal, EnvelopeRefused } from "../../rules/envelope";
 import { OPERATOR_KEY } from "../operator-key";
 import type { Arrived } from "../read";
 import { openLink } from "../read";
-import { askFor, type NotArrived, TOO_MANY_VISITS } from "./ask";
+import { askFor, NOT_ARRIVED, type NotArrived } from "./ask";
 import { domPurifyCleaner } from "./clean";
 import { drawClosed } from "./closed";
+import { filePresser } from "./files";
 import { finished, pictureAddresses } from "./finish";
 import { drawFrame } from "./frame";
 import { offerReport } from "./report";
@@ -12,13 +13,6 @@ import { solved } from "./solve";
 
 const DAY_MILLISECONDS = 86_400_000;
 
-const NOT_ARRIVED: Record<string, string> = {
-  paused: "Quien compartió este documento lo pausó.",
-  blocked: "Este documento fue bloqueado.",
-  slow: TOO_MANY_VISITS,
-  quota: "Hay demasiadas visitas desde tu red. Vuelve a intentarlo más tarde.",
-  proof: "Este documento tuvo muchas visitas hoy. Vuelve a intentarlo más tarde.",
-};
 const COULD_NOT_ARRIVE = "No se pudo traer el documento. Vuelve a intentarlo en un momento.";
 
 const REFUSED: Record<EnvelopeRefusal, string> = {
@@ -37,12 +31,17 @@ const shown = async (id: string, linkKey: string, arrived: Arrived): Promise<voi
   const { held, pictures, verdict, fingerprint, ownerFingerprint, diesOn } = await openLink(id, linkKey, arrived);
   const cleaner = domPurifyCleaner(window);
   const addresses = pictureAddresses(held.pictures ?? [], pictures);
-  drawFrame(held, (html) => finished(cleaner.clean(html), addresses), {
-    verdict,
-    fingerprint,
-    ownerFingerprint,
-    diesOn: lastDay(diesOn),
-  });
+  drawFrame(
+    held,
+    (html) => finished(cleaner.clean(html), addresses),
+    {
+      verdict,
+      fingerprint,
+      ownerFingerprint,
+      diesOn: lastDay(diesOn),
+    },
+    filePresser({ id, linkKey, held }),
+  );
   offerReport({
     id,
     linkKey,

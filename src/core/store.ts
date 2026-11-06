@@ -8,6 +8,7 @@ export interface Version {
   signer: string;
   machine: string;
   contract: string;
+  files?: string;
 }
 
 export interface NewDoc {
@@ -34,6 +35,14 @@ export interface Upload {
   byOwner: boolean;
   permit: string | null;
   ownerMark: string;
+  files?: string;
+}
+
+export interface KeptFiles {
+  id: string;
+  hash: string;
+  body: Uint8Array;
+  net: string;
 }
 
 export interface Held {
@@ -128,6 +137,8 @@ export interface Store {
   note(reading: Reading, today: number): Promise<void>;
   shown(id: string, today: number): Promise<Shown | null>;
   envelope(id: string, version: Version): Promise<ReadableStream | null>;
+  keepFiles(files: KeptFiles, today: number): Promise<"stored" | "quota">;
+  filesOf(id: string, hash: string): Promise<ReadableStream | null>;
   dayKey(today: number): Promise<string>;
   evidenceKey(today: number): Promise<string>;
   takeHourly(net: string, action: string, hour: number, atMost: number, taking?: number): Promise<boolean>;

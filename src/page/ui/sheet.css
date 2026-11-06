@@ -673,6 +673,23 @@ a.card:not(.doc-card)::before,
   font-size: 0.86em;
 }
 
+a[data-file] {
+  cursor: pointer;
+}
+
+.file-said {
+  margin-left: 6px;
+  color: var(--tisty-faint);
+  font-size: 0.86em;
+}
+
+audio.file-player,
+video.file-player {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+}
+
 /* Alone in its paragraph it is drawn whole, as Tisty draws it. */
 .doc-card,
 a.doc-card {
