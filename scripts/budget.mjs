@@ -38,6 +38,10 @@ if (!existsSync("dist/page/licenses.txt")) {
   console.error("x  DOMPurify's licenses do not go with the page");
   process.exit(1);
 }
+if (!readFileSync("dist/page/licenses.txt", "utf8").includes("@tisty/contracts")) {
+  console.error("x  the contract's license does not go with the page");
+  process.exit(1);
+}
 if (total > SCRIPTS_AT_MOST) {
   console.error(`x  the scripts are ${total} bytes with brotli, past ${SCRIPTS_AT_MOST}`);
   process.exit(1);

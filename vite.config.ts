@@ -26,16 +26,18 @@ const tokens = (): Plugin => ({
 });
 
 const dompurifyFile = (name: string): string => readFileSync(`node_modules/dompurify/${name}`, "utf8");
+const contractFile = (name: string): string => readFileSync(`node_modules/@tisty/contracts/${name}`, "utf8");
 
-// DOMPurify travels minified in what every reader downloads, and both its licenses ask for their notices to go with it.
+// DOMPurify and the contract travel minified in what every reader downloads, and their licenses ask for their notices to go with them.
 const licenses = (): Plugin => ({
   name: "folio-licenses",
   generateBundle() {
     const { version } = JSON.parse(dompurifyFile("package.json")) as { version: string };
+    const contract = JSON.parse(contractFile("package.json")) as { version: string };
     this.emitFile({
       type: "asset",
       fileName: "licenses.txt",
-      source: `DOMPurify ${version}, (c) Cure53 and other contributors\nUnder Apache-2.0 or MPL-2.0, at your choice.\nSource: https://github.com/cure53/DOMPurify\n\n${dompurifyFile("LICENSE")}\n${dompurifyFile("LICENSE-MPL")}`,
+      source: `DOMPurify ${version}, (c) Cure53 and other contributors\nUnder Apache-2.0 or MPL-2.0, at your choice.\nSource: https://github.com/cure53/DOMPurify\n\n${dompurifyFile("LICENSE")}\n${dompurifyFile("LICENSE-MPL")}\n\n@tisty/contracts ${contract.version}, (c) rgdevment\nUnder AGPL-3.0-only.\nSource: https://github.com/rgdevment/Tisty\n\n${contractFile("LICENSE")}`,
     });
   },
 });
