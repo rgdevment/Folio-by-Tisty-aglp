@@ -9,7 +9,16 @@ import { dayOf, LEVEL_ONE, REPORT_CATEGORIES } from "../src/core/limits";
 import { hourOf, macOf, proofHolds, tokenHash } from "../src/core/start";
 import { STATUS } from "../src/private/api";
 import worker from "../src/private/index";
-import { machineOf, newPerson, type Person, revocationBy, rootOf, SIGNED_BY_THE_OWNER, sealedEnvelope } from "./sealed";
+import {
+  filesHashOf,
+  machineOf,
+  newPerson,
+  type Person,
+  revocationBy,
+  rootOf,
+  SIGNED_BY_THE_OWNER,
+  sealedEnvelope,
+} from "./sealed";
 
 const testEnv = env as unknown as {
   DB: D1Database;
@@ -89,7 +98,7 @@ const send = async (
     if (broken) throw new Error("broken on purpose");
     return { success: !braked };
   };
-  const url = `https://tisty.cl/api/v1${path.replace("{id}", ID)}`;
+  const url = `https://tisty.cl/api/v1${path.replace("{id}", ID).replace("{hash}", NAMED_FILES)}`;
   const response = await worker.fetch(
     new Request(url, {
       method,
@@ -102,6 +111,8 @@ const send = async (
   await waitOnExecutionContext(context);
   return response;
 };
+
+const NAMED_FILES = "F".repeat(43);
 
 const share = async () => {
   await store.create({ id: ID, owner: "o1", adminHash: await tokenHash(TOKEN), ttlDays: 3, net: "n" }, TODAY);
@@ -178,9 +189,36 @@ const keepsAsManyAsTheyMay = async () => {
 const noUploads = async () => {
   await store.setStage("no_uploads");
 };
+const namingFiles = async (hash: string) => {
+  await testEnv.DB.prepare(`UPDATE docs SET versions = json_set(versions, '$[#-1].files', ?) WHERE id = '${ID}'`)
+    .bind(hash)
+    .run();
+};
+const shareWithFiles = async () => {
+  await share();
+  await namingFiles(NAMED_FILES);
+  await testEnv.ENVELOPES.put(`${ID}/files.${NAMED_FILES}`, "sealed files");
+};
+const filesPause = async () => {
+  await shareWithFiles();
+  await store.pause(ID, TODAY);
+};
+const filesBlock = async () => {
+  await shareWithFiles();
+  await testEnv.DB.prepare(`UPDATE docs SET blocked_at = ? WHERE id = '${ID}'`).bind(TODAY).run();
+};
+let sentFiles: Bytes;
+const filesEnvelope = async () => sentFiles;
+const shareNamingSentFiles = async (who = (): Person => owner) => {
+  sentFiles = await sealedEnvelope({ id: ID, version: 1, owner: who(), files: [16] });
+  await shareSigned();
+  await namingFiles(await filesHashOf(ID, sentFiles));
+};
 const PERMIT = JSON.stringify({ permit: "A".repeat(43) });
 const UPLOAD_PATH = "/docs/{id}";
 const LATEST_PATH = "/docs/{id}/latest";
+const FILES_PATH = "/docs/{id}/files";
+const NAMED_FILES_PATH = "/docs/{id}/files/{hash}";
 const PERMIT_PATH = "/docs/{id}/permit";
 
 const REPORT = JSON.stringify({ category: "phishing" });
@@ -197,6 +235,139 @@ const adminRoute = (method: string, path: string, blockable = true): Scenario[] 
 
 const REVOCATIONS_PATH = "/revocations";
 const aRevocation = async () => words(JSON.stringify([await revocationBy(owner, "2026-11-01T10:00:00Z")]));
+const FILES: Scenario[] = [
+  { method: "GET", path: NAMED_FILES_PATH, status: 200, ready: shareWithFiles },
+  { method: "GET", path: NAMED_FILES_PATH, status: 403, refused: "blocked", ready: filesBlock },
+  { method: "GET", path: NAMED_FILES_PATH, status: 403, refused: "paused", ready: filesPause },
+  { method: "GET", path: NAMED_FILES_PATH, status: 404, refused: "missing", ready: share },
+  {
+    method: "GET",
+    path: NAMED_FILES_PATH,
+    status: 426,
+    refused: "outdated",
+    ready: async () => {
+      await shareWithFiles();
+      LEVEL_ONE.oldestContractServed = "9.0.0";
+    },
+  },
+  { method: "GET", path: NAMED_FILES_PATH, status: 429, refused: "slow", braked: true },
+  { method: "GET", path: NAMED_FILES_PATH, status: 429, refused: "proof", ready: pastTheFreeReaders },
+  { method: "GET", path: NAMED_FILES_PATH, status: 500, refused: "failed", broken: true },
+  { method: "PUT", path: FILES_PATH, status: 200, upload: filesEnvelope, ready: shareNamingSentFiles },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 403,
+    refused: "blocked",
+    upload: filesEnvelope,
+    ready: async () => {
+      await shareNamingSentFiles();
+      await testEnv.DB.prepare(`UPDATE docs SET blocked_at = ? WHERE id = '${ID}'`).bind(TODAY).run();
+    },
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 403,
+    refused: "paused",
+    upload: filesEnvelope,
+    ready: async () => {
+      await shareNamingSentFiles();
+      await store.pause(ID, TODAY);
+    },
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 403,
+    refused: "not_yours",
+    upload: filesEnvelope,
+    ready: () => shareNamingSentFiles(() => stranger),
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 403,
+    refused: "revoked",
+    upload: filesEnvelope,
+    ready: async () => {
+      await shareNamingSentFiles();
+      await store.revoke([await revocationBy(owner, "2026-11-01T10:00:00Z")]);
+    },
+  },
+  { method: "PUT", path: FILES_PATH, status: 404, refused: "missing", upload: async () => new Uint8Array(8) },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 409,
+    refused: "behind",
+    upload: () => sealedEnvelope({ id: ID, version: 1, owner, files: [16] }),
+    ready: shareSigned,
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 413,
+    refused: "too_big",
+    upload: async () => new Uint8Array(LEVEL_ONE.filesBytesAtMost + 40_000),
+    ready: shareSigned,
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 422,
+    refused: "envelope",
+    upload: async () => new Uint8Array(8),
+    ready: shareSigned,
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 426,
+    refused: "outdated",
+    upload: filesEnvelope,
+    ready: async () => {
+      await shareNamingSentFiles();
+      LEVEL_ONE.oldestContractTaken = "9.0.0";
+    },
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 429,
+    refused: "slow",
+    upload: async () => new Uint8Array(8),
+    braked: true,
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 429,
+    refused: "quota",
+    upload: filesEnvelope,
+    ready: async () => {
+      await shareNamingSentFiles();
+      LEVEL_ONE.uploadsAnHour = 0;
+    },
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 500,
+    refused: "failed",
+    upload: async () => new Uint8Array(8),
+    broken: true,
+  },
+  {
+    method: "PUT",
+    path: FILES_PATH,
+    status: 503,
+    refused: "uploads_off",
+    upload: async () => new Uint8Array(8),
+    ready: noUploads,
+  },
+];
+
 const UPLOADING: Scenario[] = [
   { method: "POST", path: REVOCATIONS_PATH, status: 200, upload: aRevocation, ready: shareSigned },
   { method: "POST", path: REVOCATIONS_PATH, status: 400, refused: "bad_revocation", body: "[]" },
@@ -345,6 +516,7 @@ const UPLOADING: Scenario[] = [
 ];
 
 const SCENARIOS: Scenario[] = [
+  ...FILES,
   ...UPLOADING,
   { method: "POST", path: "/start", status: 200 },
   { method: "POST", path: "/start", status: 429, refused: "slow", braked: true },
@@ -442,6 +614,7 @@ beforeEach(async () => {
   LEVEL_ONE.oldestContractTaken = null;
   LEVEL_ONE.oldestContractServed = null;
   LEVEL_ONE.revocationsAnHour = 30;
+  LEVEL_ONE.uploadsAnHour = 60;
   for (const table of ["docs", "net_day", "net_hour", "reports", "holds", "service_stage", "revocations", "editors"]) {
     await testEnv.DB.prepare(`DELETE FROM ${table}`).run();
   }

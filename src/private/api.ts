@@ -1,15 +1,24 @@
 import { type AdminAction, administer, setPermitHolds } from "../core/admin";
 import { dayOf } from "../core/limits";
 import { netDigest } from "../core/net";
-import { type Asked, latestVersion, readDoc, type SyncTools } from "../core/read";
+import {
+  type Asked,
+  latestVersion,
+  readDoc,
+  readFiles,
+  type Served,
+  type ServedFiles,
+  type SyncTools,
+} from "../core/read";
 import { type Refused, tooFast } from "../core/refused";
 import { type ReportTools, reportDoc, saidOf } from "../core/report";
 import { takeRevocations } from "../core/revocations";
 import { startNow } from "../core/start";
-import { type FirstUpload, uploadDoc } from "../core/upload";
+import { type FirstUpload, filesEnvelopeBytesAtMost, uploadDoc, uploadFiles } from "../core/upload";
 
 const PREFIX = "/api/v1/";
 const DOC_PATH = /^docs\/([A-Za-z0-9]{8})(?:\/(report|admin|pause|resume|appeal|latest|permit))?$/;
+const FILES_PATH = /^docs\/([A-Za-z0-9]{8})\/files(?:\/([A-Za-z0-9_-]{43}))?$/;
 const REPORT_BYTES_AT_MOST = 16 * 1024;
 const PERMIT_BYTES_AT_MOST = 256;
 const REVOCATIONS_BYTES_AT_MOST = 8 * 1024;
@@ -75,28 +84,43 @@ export interface Api {
   now: number;
 }
 
-const answerRead = async (request: Request, id: string, { tools, waitUntil, now }: Api): Promise<Response> => {
+const askedOf = (request: Request, id: string, now: number): Asked => {
   const proof = request.headers.get("Folio-Proof");
-  const asked: Asked = { id, now, ip: ipOf(request), ...(proof === null ? {} : { proof }) };
-  const answer = await readDoc(asked, tools);
-  if (!("served" in answer)) return refusal(answer, now);
+  return { id, now, ip: ipOf(request), ...(proof === null ? {} : { proof }) };
+};
 
+const bytesAnswer = (
+  request: Request,
+  id: string,
+  answer: Served | ServedFiles,
+  { tools, waitUntil, now }: Api,
+  headers: Record<string, string> = {},
+): Response => {
   const cf = cfOf(request);
   // What the read log keeps (decision 98): the document, the country and the data center, never the network.
   console.log(JSON.stringify({ read: id, country: cf?.country, colo: cf?.colo }));
   const { note } = answer;
   if (note) waitUntil(tools.store.note(note, dayOf(now)));
   return new Response(answer.body, {
-    headers: {
-      ...API_HEADERS,
-      "Content-Type": "application/octet-stream",
-      "Folio-Version": String(answer.version.n),
-      "Folio-Hash": answer.version.hash,
-      "Folio-Arrived": String(answer.version.at),
-      "Folio-Dies-On": String(answer.diesOn),
-      "Folio-Revocations": JSON.stringify(answer.revocations),
-    },
+    headers: { ...API_HEADERS, "Content-Type": "application/octet-stream", ...headers },
   });
+};
+
+const answerRead = async (request: Request, id: string, api: Api): Promise<Response> => {
+  const answer = await readDoc(askedOf(request, id, api.now), api.tools);
+  if (!("served" in answer)) return refusal(answer, api.now);
+  return bytesAnswer(request, id, answer, api, {
+    "Folio-Version": String(answer.version.n),
+    "Folio-Hash": answer.version.hash,
+    "Folio-Arrived": String(answer.version.at),
+    "Folio-Dies-On": String(answer.diesOn),
+    "Folio-Revocations": JSON.stringify(answer.revocations),
+  });
+};
+
+const answerFiles = async (request: Request, id: string, hash: string, api: Api): Promise<Response> => {
+  const answer = await readFiles({ ...askedOf(request, id, api.now), hash }, api.tools);
+  return "served" in answer ? bytesAnswer(request, id, answer, api) : refusal(answer, api.now);
 };
 
 const jsonOf = (text: string): unknown => {
@@ -141,15 +165,26 @@ const firstUploadOf = ({ headers }: Request): FirstUpload | undefined => {
   };
 };
 
+const bytesUpTo = (request: Request, atMost: number) => async () => {
+  if (Number(request.headers.get("Content-Length") ?? 0) > atMost) return null;
+  const blob = await blobUpTo(request, atMost);
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
+};
+
 const answerUpload = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
-  const atMost = tools.limits.envelopeBytesAtMost;
-  const bytes = async () => {
-    if (Number(request.headers.get("Content-Length") ?? 0) > atMost) return null;
-    const blob = await blobUpTo(request, atMost);
-    return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
-  };
+  const bytes = bytesUpTo(request, tools.limits.envelopeBytesAtMost);
   const first = firstUploadOf(request);
-  const answer = await uploadDoc({ id, now, ip: ipOf(request), bytes, ...(first ? { first } : {}) }, tools);
+  const files = request.headers.get("Folio-Files");
+  const answer = await uploadDoc(
+    { id, now, ip: ipOf(request), bytes, ...(first ? { first } : {}), ...(files === null ? {} : { files }) },
+    tools,
+  );
+  return "refused" in answer ? refusal(answer, now) : json(200, answer);
+};
+
+const answerFilesUpload = async (request: Request, id: string, { tools, now }: Api): Promise<Response> => {
+  const bytes = bytesUpTo(request, filesEnvelopeBytesAtMost(tools.limits));
+  const answer = await uploadFiles({ id, now, ip: ipOf(request), bytes }, tools);
   return "refused" in answer ? refusal(answer, now) : json(200, answer);
 };
 
@@ -214,6 +249,9 @@ const route = async (request: Request, api: Api): Promise<Response> => {
 
   if (path === "start" && request.method === "POST") return answerStart(request, api);
   if (path === "revocations" && request.method === "POST") return answerRevocations(request, api);
+  const [, filesOf, named] = FILES_PATH.exec(path) ?? [];
+  if (filesOf && named && request.method === "GET") return answerFiles(request, filesOf, named, api);
+  if (filesOf && !named && request.method === "PUT") return answerFilesUpload(request, filesOf, api);
   const [, id, part = ""] = DOC_PATH.exec(path) ?? [];
   if (!id) return json(404, { refused: "missing" });
 

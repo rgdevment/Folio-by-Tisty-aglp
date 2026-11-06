@@ -14,16 +14,16 @@ as a non-profit. Contact: <rgdevment@tisty.app>.
 
 ## What it cannot see
 
-- **What you share.** The text, the pictures and the inner signature are
-  encrypted in your Tisty before they leave. The key travels in the link, after
-  the `#`, and browsers do not send it to the server.
+- **What you share.** The text, the pictures, the attached files and the inner
+  signature are encrypted in your Tisty before they leave. The key travels in
+  the link, after the `#`, and browsers do not send it to the server.
 - **Who you are.** There are no accounts, no email addresses and no names.
 
 ## What it does keep, and for how long
 
 | What | Why | For how long |
 |---|---|---|
-| The encrypted document, with its last 3 versions and those replaced in the last 7 days | To serve it to whoever has the link, and so a report can reach what someone replaced | Until the time without activity you choose, 15 days at most, or until you stop sharing it. With a serious report or an order, it is no longer served and stays for up to 180 days, or for as long as the order asks |
+| The encrypted document and its attached files, with its last 3 versions and those replaced in the last 7 days | To serve it to whoever has the link, and so a report can reach what someone replaced | Until the time without activity you choose, 15 days at most, or until you stop sharing it. With a serious report or an order, it is no longer served and stays for up to 180 days, or for as long as the order asks |
 | The manifest in the clear: how many parts, what each weighs, their kind and the version | To hold the limits without reading the content | As long as the document |
 | The manage link, kept as a digest (hash), and the public key of the edit link's token, which never reaches the server | To check who may change or delete it | As long as the document |
 | If you sign, your public key and its certificate | So readers know it is yours | As long as the document |

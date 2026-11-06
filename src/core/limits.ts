@@ -10,6 +10,8 @@ export interface Limits {
   picturesBytesAtMost: number;
   firstBytesAtMost: number;
   restBytesAtMost: number;
+  filesAtMost: number;
+  filesBytesAtMost: number;
   uploadsAnHour: number;
   revocationsAnHour: number;
   revocationsAtOnce: number;
@@ -50,6 +52,8 @@ export const LEVEL_ONE: Limits = {
   picturesBytesAtMost: 5_000_000,
   firstBytesAtMost: 2_512_000,
   restBytesAtMost: 15_572_000,
+  filesAtMost: 2,
+  filesBytesAtMost: 5_000_000,
   uploadsAnHour: 60,
   revocationsAnHour: 30,
   revocationsAtOnce: 8,

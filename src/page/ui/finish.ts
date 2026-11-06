@@ -38,9 +38,11 @@ export const finished = (words: DocumentFragment, addresses: (string | null)[]):
       link.setAttribute("target", "_blank");
       link.setAttribute("rel", "noopener noreferrer");
     } else if (FILE.test(where)) {
-      // There is no way to ask for it yet, so it reads as its words and not as a link that does nothing.
+      // A press asks for it, and no address ever does: what follows the # is the link key.
       link.removeAttribute("href");
       link.setAttribute("data-file", FILE.exec(where)?.[1] ?? "");
+      link.setAttribute("role", "button");
+      link.setAttribute("tabindex", "0");
     }
   }
   return words;

@@ -6,6 +6,7 @@ import type {
   Admitted,
   Created,
   Held,
+  KeptFiles,
   NewDoc,
   News,
   Owned,
@@ -84,6 +85,10 @@ const seenTable = (day: number): string => {
 };
 
 const objectKey = (id: string, version: Pick<Version, "n" | "hash">): string => `${id}/${version.n}.${version.hash}`;
+const filesKey = (id: string, hash: string): string => `${id}/files.${hash}`;
+const filesKeysOf = (id: string, versions: Version[]): string[] => [
+  ...new Set(versions.flatMap((one) => (one.files ? [filesKey(id, one.files)] : []))),
+];
 
 const sizeOf = (body: Upload["body"]): number =>
   typeof body === "string" ? encoder.encode(body).byteLength : body.byteLength;
@@ -162,6 +167,7 @@ export class Cloud implements Store {
       signer: upload.signer,
       machine: upload.machine,
       contract: upload.contract,
+      ...(upload.files === undefined ? {} : { files: upload.files }),
     };
     const all = [...versions, version];
     const trimmed = keptVersions(all, upload.at, this.#limits);
@@ -232,7 +238,11 @@ export class Cloud implements Store {
     }
 
     const dropped = versions.filter((one) => !kept.includes(one));
-    if (dropped.length > 0) await this.#envelopes.delete(dropped.map((one) => objectKey(upload.id, one)));
+    if (dropped.length > 0) {
+      const stillNamed = new Set(filesKeysOf(upload.id, kept));
+      const filesGone = filesKeysOf(upload.id, dropped).filter((key) => !stillNamed.has(key));
+      await this.#envelopes.delete([...dropped.map((one) => objectKey(upload.id, one)), ...filesGone]);
+    }
     return "stored";
   }
 
@@ -439,6 +449,25 @@ export class Cloud implements Store {
 
   async envelope(id: string, version: Version): Promise<ReadableStream | null> {
     return (await this.#envelopes.get(objectKey(id, version)))?.body ?? null;
+  }
+
+  async hasFiles(id: string, hash: string): Promise<boolean> {
+    return (await this.#envelopes.head(filesKey(id, hash))) !== null;
+  }
+
+  async keepFiles({ id, hash, body, net }: KeptFiles, today: number): Promise<"stored" | "quota"> {
+    if (!(await this.#takeQuota(net, 0, body.length, today))) return "quota";
+    try {
+      await this.#envelopes.put(filesKey(id, hash), body);
+    } catch (error) {
+      await this.#giveQuotaBack(net, 0, body.length, today);
+      throw error;
+    }
+    return "stored";
+  }
+
+  async filesOf(id: string, hash: string): Promise<ReadableStream | null> {
+    return (await this.#envelopes.get(filesKey(id, hash)))?.body ?? null;
   }
 
   // The first to ask each day replaces it, and only one can win, so yesterday's key is gone for good.
@@ -815,9 +844,10 @@ export class Cloud implements Store {
       .all<{ id: string; versions: string }>();
     if (claimed.results.length === 0) return 0;
 
-    const keys = claimed.results.flatMap(({ id, versions }) =>
-      (JSON.parse(versions) as Version[]).map((one) => objectKey(id, one)),
-    );
+    const keys = claimed.results.flatMap(({ id, versions }) => {
+      const listed = JSON.parse(versions) as Version[];
+      return [...listed.map((one) => objectKey(id, one)), ...filesKeysOf(id, listed)];
+    });
     for (let from = 0; from < keys.length; from += KEYS_AT_ONCE) {
       await this.#envelopes.delete(keys.slice(from, from + KEYS_AT_ONCE));
     }

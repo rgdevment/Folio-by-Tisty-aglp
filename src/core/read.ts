@@ -53,6 +53,13 @@ const refusalOfState = (shown: Shown | null, { oldestContractServed: floor }: Li
   return shown.pausedAt === null ? null : { refused: "paused" };
 };
 
+export type ServedFiles = Pick<Served, "served" | "body" | "note">;
+
+interface AdmittedReader {
+  shown: Shown & { version: Version };
+  note?: Reading;
+}
+
 export const latestVersion = async (
   { id, ip, now }: Asking,
   { store, limiter, syncLimiter, limits, dayKey }: SyncTools,
@@ -66,7 +73,7 @@ export const latestVersion = async (
   return { version: shown.version.n, hash: shown.version.hash };
 };
 
-export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): Promise<Served | Refused> => {
+const admittedReader = async ({ id, ip, now, proof }: Asked, tools: ReadTools): Promise<AdmittedReader | Refused> => {
   const { store, limiter, limits, secret, dayKey } = tools;
   const today = dayOf(now);
   const net = await netDigest(await dayKey(today), ip);
@@ -89,8 +96,14 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
   };
   const admitted = await store.admit(reading, today);
   if (admitted === "over") return askForProof(secret, scope, limits.proofBits, now);
+  return { shown: { ...shown, version: shown.version }, ...(admitted === "new" ? { note: reading } : {}) };
+};
 
-  const body = await store.envelope(id, shown.version);
+export const readDoc = async (asked: Asked, tools: ReadTools): Promise<Served | Refused> => {
+  const reader = await admittedReader(asked, tools);
+  if ("refused" in reader) return reader;
+  const { shown, note } = reader;
+  const body = await tools.store.envelope(asked.id, shown.version);
   if (!body) return { refused: "missing" };
   return {
     served: true,
@@ -98,6 +111,15 @@ export const readDoc = async ({ id, ip, now, proof }: Asked, tools: ReadTools): 
     diesOn: shown.diesOn,
     body,
     revocations: shown.revocations,
-    ...(admitted === "new" ? { note: reading } : {}),
+    ...(note ? { note } : {}),
   };
+};
+
+export const readFiles = async (asked: Asked & { hash: string }, tools: ReadTools): Promise<ServedFiles | Refused> => {
+  const reader = await admittedReader(asked, tools);
+  if ("refused" in reader) return reader;
+  if (reader.shown.version.files !== asked.hash) return { refused: "missing" };
+  const body = await tools.store.filesOf(asked.id, asked.hash);
+  if (!body) return { refused: "missing" };
+  return { served: true, body, ...(reader.note ? { note: reader.note } : {}) };
 };

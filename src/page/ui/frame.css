@@ -963,6 +963,15 @@ body::before {
   color: inherit;
 }
 
+.said-aloud {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .report-said:empty {
   display: none;
 }

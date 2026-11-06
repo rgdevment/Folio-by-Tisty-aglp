@@ -24,7 +24,7 @@ export interface Opened {
 
 const FIRST_PICTURE_PART = 2;
 
-const keyIn = (said: string): Bytes | undefined => {
+export const keyIn = (said: string): Bytes | undefined => {
   if (said === "") return undefined;
   try {
     return fromBase64Url(said);

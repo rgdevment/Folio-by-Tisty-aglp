@@ -162,6 +162,13 @@ paths:
         upload never changes who owns a document or who may edit it. Sent twice, it stores it once.
       parameters:
         - $ref: "#/components/parameters/Proof"
+        - name: Folio-Files
+          in: header
+          description: |
+            The hash of the files envelope this version names, as its `files_hash` says it, in unpadded
+            base64url. If that envelope is not here, the answer says `filesWanted`: send it to
+            `PUT /docs/{id}/files`. Sending this version again asks the same question.
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{43}$" }
         - name: Folio-Start
           in: header
           description: The first version only. The `mac` that `POST /start` gave.
@@ -190,7 +197,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Stored" }
         "400":
-          description: The first version came without what it needs, with another number of days, or with an anchor that is not there.
+          description: The first version came without what it needs, with another number of days, or with an anchor that is not there, or `Folio-Files` is not a hash.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BadUpload" }
@@ -255,6 +262,119 @@ paths:
         "403": { $ref: "#/components/responses/Blocked" }
         "404": { $ref: "#/components/responses/Missing" }
         "429": { $ref: "#/components/responses/Slow" }
+        "500": { $ref: "#/components/responses/Failed" }
+  /docs/{id}/files:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    put:
+      tags: [Uploading]
+      operationId: uploadFiles
+      summary: Takes the sealed files envelope the document's latest version names.
+      description: |
+        It comes after the version, which names it in `Folio-Files`, so nothing is kept that no document
+        answers for. Until it arrives, a reader who asks for it hears `missing`. The server checks its
+        signatures and its owner as with a version, and never opens it. Sent twice, it stores it once.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: It is the files envelope of the latest version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FilesStored" }
+        "403":
+          description: It is paused or blocked, this signer may not send it, or its root took back the machine that signed it.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/PausedOrBlocked"
+                  - $ref: "#/components/schemas/NotYours"
+                  - $ref: "#/components/schemas/Revoked"
+        "404": { $ref: "#/components/responses/Missing" }
+        "409":
+          description: The latest version does not name this envelope.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FilesBehind" }
+        "413":
+          description: Past what a document's files may weigh, or more files than it may have.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TooBig" }
+        "422":
+          description: The envelope does not hold, and `why` says how.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BadEnvelope" }
+        "426":
+          description: Written under a contract older than the oldest the server takes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Outdated" }
+        "429":
+          description: Going too fast, or past a quota.
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Slow"
+                  - $ref: "#/components/schemas/Quota"
+        "500": { $ref: "#/components/responses/Failed" }
+        "503":
+          description: Uploads are off for now, by the spending cut. Reading goes on.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadsOff" }
+  /docs/{id}/files/{hash}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: hash
+        in: path
+        required: true
+        description: The `files_hash` of the document that was opened.
+        schema: { type: string, pattern: "^[A-Za-z0-9_-]{43}$" }
+    get:
+      tags: [Reading]
+      operationId: readFiles
+      summary: Gives the sealed files envelope the document's latest version names.
+      description: |
+        Asked for only when a reader presses a file, and under the same rules as reading the document.
+        Any other hash, or one that has not arrived yet, is `missing`.
+      parameters:
+        - $ref: "#/components/parameters/Proof"
+      responses:
+        "200":
+          description: The envelope as it was uploaded.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "403":
+          description: Paused or blocked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PausedOrBlocked" }
+        "404": { $ref: "#/components/responses/Missing" }
+        "426":
+          description: Written under a contract older than the oldest the server serves.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Outdated" }
+        "429":
+          description: Going too fast, or a proof of work is asked for.
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Slow"
+                  - $ref: "#/components/schemas/Proof"
         "500": { $ref: "#/components/responses/Failed" }
   /docs/{id}/latest:
     parameters:
@@ -511,12 +631,24 @@ components:
       required: [refused]
       properties:
         refused: { const: revoked }
+    FilesStored:
+      type: object
+      required: [stored, hash]
+      properties:
+        stored: { const: true }
+        hash: { type: string }
+    FilesBehind:
+      type: object
+      required: [refused]
+      properties:
+        refused: { const: behind }
     Stored:
       type: object
       required: [stored, version]
       properties:
         stored: { const: true }
         version: { type: integer }
+        filesWanted: { const: true }
     Latest:
       type: object
       required: [version, hash]
