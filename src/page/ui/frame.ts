@@ -408,9 +408,13 @@ export const drawFrame = (
   const pages = held.pages ?? [];
   const withCards = cardsFor(held, wordsOf);
   let reading: AbortController | undefined;
+  let drawing: AbortController | undefined;
   const goTo = (shown: Document | Page): void => {
     sheet.lang = shown.lang ?? held.lang ?? "";
-    sheet.replaceChildren(...(shown.tags?.length ? [tagsOf(shown.tags)] : []), withCards(wordsOf(shown.html)));
+    drawing?.abort();
+    drawing = new AbortController();
+    const words = withCards(wordsOf(shown.html), drawing.signal);
+    sheet.replaceChildren(...(shown.tags?.length ? [tagsOf(shown.tags)] : []), words);
     document.title = shown.title ? `${shown.title} · Folio` : "Folio by Tisty";
     const at = pages.indexOf(shown as Page);
     markPage(at);

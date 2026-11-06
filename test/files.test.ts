@@ -66,6 +66,9 @@ beforeEach(() => {
     clicked.push({ name: this.download, href: this.href });
   };
   vi.stubGlobal("document", place.document);
+  vi.stubGlobal("DOMParser", place.DOMParser);
+  vi.stubGlobal("MutationObserver", place.MutationObserver);
+  vi.stubGlobal("AbortController", place.AbortController);
   vi.stubGlobal("location", { href: place.location.href, hash: `#${LINK_KEY}` });
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("scrollTo", vi.fn());
@@ -279,9 +282,10 @@ describe("pressing a file", () => {
     expect(root.querySelector(".file-said")?.textContent).toBe("Este documento fue bloqueado.");
   });
 
-  it("says of a file named as a page that it is seen in Tisty, and pressing it saves it", async () => {
+  it("draws a file named as a page like any other, and pressing it only saves it", async () => {
     draw(alone(5));
-    expect(fileAt(5).textContent).toContain("ábrelo en Tisty");
+    expect(fileAt(5).textContent).toContain("Adjunto");
+    expect(fileAt(5).textContent).not.toContain("Tisty");
     expect(root.querySelector("iframe, object, embed")).toBeNull();
     await press(5);
     expect(root.querySelector("iframe, object, embed, audio, video")).toBeNull();
@@ -290,12 +294,12 @@ describe("pressing a file", () => {
 });
 
 describe("a widget that comes to do harm", () => {
-  it("leaves nothing of its code, and asks for nothing", () => {
+  it("stays as words, says it is no widget, and asks for nothing", () => {
     const { id, html, body } = SAMPLES.hostile_widget as Document;
     draw(html, { id, html, body } as Document);
-    expect(root.querySelector("script, iframe, code.language-widget")).toBeNull();
-    expect(root.innerHTML).not.toContain("otro.example");
-    expect(root.querySelector(".doc-card")?.textContent).toContain("ábrelo en Tisty");
+    expect(root.querySelector("script, iframe, figure.widget")).toBeNull();
+    expect(root.querySelector("code.language-widget")?.textContent).toContain("otro.example");
+    expect(root.querySelector(".widget-said")?.textContent).toContain("no es un widget");
     expect(asked).toEqual([]);
   });
 });

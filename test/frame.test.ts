@@ -76,6 +76,9 @@ beforeEach(() => {
     scrolled.push(this);
   };
   vi.stubGlobal("document", place.document);
+  vi.stubGlobal("DOMParser", place.DOMParser);
+  vi.stubGlobal("MutationObserver", place.MutationObserver);
+  vi.stubGlobal("AbortController", place.AbortController);
   vi.stubGlobal("location", { href: ADDRESS, hash: "#THEKEY", assign });
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("scrollTo", vi.fn());
@@ -279,24 +282,219 @@ describe("who signed it", () => {
 
 const holding = (html: string): Document => ({ ...HELD, html });
 
-describe("what is seen only in Tisty", () => {
+describe("widgets and files", () => {
   const HARMFUL = "&lt;script&gt;window.ran = true&lt;/script&gt;&lt;img src=x onerror=alert(1)&gt;";
-  const widget = (caption: string) =>
-    `<figure class="code">${caption}<pre><code class="language-widget">${HARMFUL}</code></pre></figure>`;
+  const FIXED = '&lt;div class="stat"&gt;&lt;b&gt;42&lt;/b&gt;&lt;/div&gt;';
+  const widget = (caption: string, body = FIXED) =>
+    `<figure class="code">${caption}<pre><code class="language-widget">${body}</code></pre></figure>`;
 
-  it("draws a widget as a card, with nothing of its code left", () => {
+  it("draws a widget in a frame where nothing can run, under its name", () => {
     draw(holding(widget("<figcaption>Paseos</figcaption>")));
-    const card = root.querySelector(".doc-card.is-still");
-    expect(card?.querySelector(".card-name")?.textContent).toBe("Paseos");
-    expect(card?.querySelector(".card-blurb")?.textContent).toContain("ábrelo en Tisty");
+    const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
+    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin");
+    expect(frame.getAttribute("src")).toBe("/widget-frame");
+    expect(frame.title).toBe("Paseos");
+    expect(root.querySelector("figure.widget figcaption")?.textContent).toBe("Paseos");
     expect(root.querySelector("code.language-widget")).toBeNull();
-    expect(root.innerHTML).not.toContain("onerror");
-    expect(root.querySelector("iframe, script")).toBeNull();
   });
 
-  it("calls a widget with no title what it is", () => {
+  it("calls a widget with no title what it is, and adds no caption", () => {
     draw(holding(widget("")));
-    expect(root.querySelector(".card-name")?.textContent).toBe("Widget");
+    expect((root.querySelector("figure.widget iframe") as HTMLIFrameElement).title).toBe("Widget");
+    expect(root.querySelector("figure.widget figcaption")).toBeNull();
+  });
+
+  const observing = () => {
+    const seen = { told: [] as (() => void)[], stopped: 0 };
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(tell: () => void) {
+          seen.told.push(tell);
+        }
+        observe() {}
+        disconnect() {
+          seen.stopped += 1;
+        }
+      },
+    );
+    return seen;
+  };
+
+  const loadedFrame = (): HTMLIFrameElement => {
+    const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
+    frame.dispatchEvent(new place.Event("load"));
+    return frame;
+  };
+
+  const measuring = (frame: HTMLIFrameElement, heightOf: () => number) => {
+    const box = frame.contentDocument?.querySelector("main.w") as Element;
+    box.getBoundingClientRect = () => ({ height: heightOf() }) as DOMRect;
+  };
+
+  it("gives the frame the contract's page, in the theme of the sheet, and sizes it to what it holds", () => {
+    const { told } = observing();
+    draw(holding(widget("")));
+    (root.host as HTMLElement).dataset.theme = "dark";
+    const frame = loadedFrame();
+
+    const inside = frame.contentDocument as globalThis.Document;
+    expect(inside.documentElement.classList.contains("dark")).toBe(true);
+    expect(inside.querySelector("main.w .stat b")?.textContent).toBe("42");
+    expect(inside.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content")).toContain(
+      "default-src 'none'",
+    );
+    expect(inside.querySelector("script")).toBeNull();
+    told.at(-1)?.();
+    expect(frame.style.height).toBe("40px");
+  });
+
+  it("follows a change of theme, and paper is light whatever the screen was", async () => {
+    observing();
+    draw(holding(widget("")));
+    const host = root.host as HTMLElement;
+    host.dataset.theme = "dark";
+    const frame = loadedFrame();
+    const isDark = () => frame.contentDocument?.documentElement.classList.contains("dark");
+    host.dataset.theme = "light";
+    await vi.waitFor(() => expect(isDark()).toBe(false));
+    expect(frame.style.colorScheme).toBe("light");
+    host.dataset.theme = "dark";
+    await vi.waitFor(() => expect(isDark()).toBe(true));
+
+    place.dispatchEvent(new place.Event("beforeprint"));
+    expect(isDark()).toBe(false);
+    place.dispatchEvent(new place.Event("afterprint"));
+    expect(isDark()).toBe(true);
+  });
+
+  it("grows with what arrives in equal steps, however fast", () => {
+    const { told } = observing();
+    draw(holding(widget("")));
+    const frame = loadedFrame();
+    let height = 100;
+    measuring(frame, () => height);
+    for (const step of [100, 200, 300, 400]) {
+      height = step;
+      told.at(-1)?.();
+      expect(frame.style.height).toBe(`${step}px`);
+    }
+  });
+
+  it("stops what grows with its own frame, at the height it first asked for", () => {
+    const { told } = observing();
+    draw(holding(widget("")));
+    const frame = loadedFrame();
+    measuring(frame, () => (Number.parseFloat(frame.style.height) || 0) + 20);
+    told.at(-1)?.();
+    const first = frame.style.height;
+    told.at(-1)?.();
+    told.at(-1)?.();
+    expect(frame.style.height).toBe(first);
+  });
+
+  it("never lets a frame pass the tallest, and calls nothing there a chase", () => {
+    const { told } = observing();
+    draw(holding(widget("")));
+    const frame = loadedFrame();
+    let height = 9000;
+    measuring(frame, () => height);
+    told.at(-1)?.();
+    expect(frame.style.height).toBe("2400px");
+    height = 300;
+    told.at(-1)?.();
+    expect(frame.style.height).toBe("300px");
+  });
+
+  it("lets go of what it watched when the reader turns the page", () => {
+    const seen = observing();
+    draw({ ...holding(widget("")), pages: [ENERO] });
+    loadedFrame();
+    expect(seen.stopped).toBe(0);
+    (place.document.querySelector("#pages button") as HTMLElement).click();
+    expect(seen.stopped).toBe(1);
+    expect(root.querySelector("iframe")).toBeNull();
+  });
+
+  it("goes back to the code and says so when the frame's page cannot hold it", () => {
+    observing();
+    draw(holding(widget("<figcaption>Paseos</figcaption>")));
+    const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
+    Object.defineProperty(frame, "contentDocument", { value: null });
+    frame.dispatchEvent(new place.Event("load"));
+    expect(root.querySelector("figure.widget, iframe")).toBeNull();
+    expect(root.querySelector("code.language-widget")?.textContent).toContain("stat");
+    expect(root.querySelector(".widget-said")?.textContent).toContain("No se pudo dibujar");
+  });
+
+  it("goes back to the code when the policy refused its styles", () => {
+    observing();
+    draw(holding(widget("")));
+    const frame = root.querySelector("figure.widget iframe") as HTMLIFrameElement;
+    const inside = frame.contentDocument as globalThis.Document;
+    const write = inside.write.bind(inside);
+    inside.write = (said: string) => {
+      write(said);
+      for (const style of inside.querySelectorAll("style")) Object.defineProperty(style, "sheet", { value: null });
+    };
+    frame.dispatchEvent(new place.Event("load"));
+    expect(root.querySelector("figure.widget, iframe")).toBeNull();
+    expect(root.querySelector(".widget-said")?.textContent).toContain("No se pudo dibujar");
+  });
+
+  it("says a widget past its size is shown as code", () => {
+    draw(holding(widget("", "a".repeat(512_001))));
+    expect(root.querySelector("iframe")).toBeNull();
+    expect(root.querySelector(".widget-said")?.textContent).toContain("512 KB");
+  });
+
+  it("does not let a name it refuses fill the sheet", () => {
+    draw(holding(widget("", `&lt;${"a".repeat(5000)}&gt;`)));
+    expect(root.querySelector(".widget-said")?.textContent?.length).toBeLessThan(250);
+  });
+
+  it("takes a caption of only spaces for no name", () => {
+    draw(holding(widget("<figcaption>   </figcaption>")));
+    expect((root.querySelector("figure.widget iframe") as HTMLIFrameElement).title).toBe("Widget");
+    expect(root.querySelector("figure.widget figcaption")).toBeNull();
+  });
+
+  it("judges a widget once, however many times the reader comes back to it", () => {
+    const parse = vi.fn();
+    class CountingParser extends place.DOMParser {
+      override parseFromString(...said: Parameters<DOMParser["parseFromString"]>) {
+        parse();
+        return super.parseFromString(...said);
+      }
+    }
+    vi.stubGlobal("DOMParser", CountingParser);
+    draw({ ...holding(widget("")), pages: [ENERO] });
+    const judged = parse.mock.calls.length;
+    (place.document.querySelector("#pages button") as HTMLElement).click();
+    place.document.getElementById("crumb-back")?.click();
+    expect(root.querySelector("figure.widget iframe")).not.toBeNull();
+    expect(parse.mock.calls.length).toBe(judged);
+  });
+
+  it("leaves what is no widget as its code and says what is wrong, drawing none of it", () => {
+    draw(holding(widget("<figcaption>Paseos</figcaption>", HARMFUL)));
+    expect(root.querySelector("figure.widget, iframe, script, img")).toBeNull();
+    expect(root.querySelector("code.language-widget")?.textContent).toContain("<script>");
+    expect(root.querySelector(".widget-said")?.textContent).toContain("<script>");
+    expect(root.querySelector(".widget-said")?.textContent).toContain("no es un widget");
+  });
+
+  it("serves the frame's page under the widget's own policy, and lets only this page frame it", () => {
+    const headers = readFileSync("src/page/public/_headers", "utf8");
+    const [, ofTheFrame] =
+      /\/widget-frame\n {2}! Content-Security-Policy\n {2}Content-Security-Policy: ([^\n]+)/.exec(headers) ?? [];
+    expect(ofTheFrame).toContain("default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+    expect(ofTheFrame).toContain("frame-ancestors 'self'");
+    expect(ofTheFrame).not.toContain("script-src");
+    const [, ofThePage] = /^\/\*\n {2}Content-Security-Policy: ([^\n]+)/m.exec(headers) ?? [];
+    expect(ofThePage).toContain("frame-src 'self'");
+    expect(ofThePage).toContain("style-src 'self'");
+    expect(ofThePage).not.toContain("unsafe-inline");
   });
 
   const WITH_FILES: Document = {
@@ -309,11 +507,12 @@ describe("what is seen only in Tisty", () => {
     files_hash: "x",
   };
 
-  it("never opens an HTML file, and says where it is seen", () => {
+  it("draws an HTML file as a card like any other, and never opens it", () => {
     draw(WITH_FILES);
     const [html, pdf] = root.querySelectorAll(".doc-card");
     expect(html?.querySelector(".card-name")?.textContent).toBe("paseos.html");
-    expect(html?.querySelector(".card-blurb")?.textContent).toContain("ábrelo en Tisty");
+    expect(html?.querySelector(".chip")?.textContent).toBe("Adjunto");
+    expect(html?.querySelector(".card-blurb")?.textContent).toContain("Presiona para traerlo");
     expect(html?.hasAttribute("href")).toBe(false);
     expect(pdf?.querySelector(".card-blurb")?.textContent).toContain("Presiona para traerlo");
     expect(root.querySelector("iframe, object, embed")).toBeNull();
@@ -334,7 +533,7 @@ describe("what is seen only in Tisty", () => {
       html: '<p>Mira <a href="tisty:file/0">la tabla</a> y <a href="tisty:file/1">el papel</a>.</p>',
     });
     const [html, pdf] = root.querySelectorAll("a[data-file]");
-    expect(html?.getAttribute("title")).toContain("ábrelo en Tisty");
+    expect(html?.getAttribute("title")).toContain("Presiona para traerlo");
     expect(pdf?.getAttribute("title")).toContain("Presiona para traerlo");
     expect(root.querySelector(".doc-card")).toBeNull();
   });
